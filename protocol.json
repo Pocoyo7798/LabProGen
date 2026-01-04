@@ -1,0 +1,15 @@
+[
+  {
+    "action": "ChangeTemperature",
+    "params": {
+      "temperature": ""
+    }
+  },
+  {
+    "action": "Add",
+    "params": {
+      "component": "",
+      "duration": ""
+    }
+  }
+]
