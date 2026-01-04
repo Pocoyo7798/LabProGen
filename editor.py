@@ -486,6 +486,8 @@ class Editor(QGraphicsView):
                 moved_block.prev_block = None
                 moved_block.next_block = None
                 moved_block.set_connected(False)
+                # Restore highlighting on other if it's part of a chain
+                other.set_connected(bool(other.prev_block or other.next_block))
                 self.update_linked_sequence()
                 return
             
@@ -531,6 +533,8 @@ class Editor(QGraphicsView):
                 moved_block.prev_block = None
                 moved_block.next_block = None
                 moved_block.set_connected(False)
+                # Restore highlighting on other if it's part of a chain
+                other.set_connected(bool(other.prev_block or other.next_block))
                 self.update_linked_sequence()
                 return
             
