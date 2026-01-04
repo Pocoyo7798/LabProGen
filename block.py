@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPen, QColor, QFont
 import json
 
-class ActionBlock(QGraphicsRectItem):
+class Block(QGraphicsRectItem):
     def __init__(self, action, params, editor=None):
         super().__init__(0, 0, 140, 60)
         self.action = action
@@ -105,7 +105,7 @@ class ActionBlock(QGraphicsRectItem):
         """Mark visual connected state (changes border color)"""
         self.connected = connected
         if connected:
-            self.setPen(QPen(QColor(46, 204, 113), 3))  # Modern green
+            self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
         else:
             self.setPen(self.default_pen)
 
@@ -191,7 +191,7 @@ class ActionBlock(QGraphicsRectItem):
             super().mouseReleaseEvent(event)
             # Notify editor to check for side-touch linking
             if self.editor:
-                self.editor.check_and_link_blocks(self)
+                self.editor.check_and_link_horizontal_blocks(self)
 
     def show_context_menu(self, event):
         """Show context menu on right-click"""
@@ -201,7 +201,31 @@ class ActionBlock(QGraphicsRectItem):
             make_first_action.triggered.connect(self.make_first)
         else:
             menu.addAction("This is the First action")
+        
+        # Add delete option
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(self.delete_block)
+        
         menu.exec(event.screenPos())
+
+    def delete_block(self):
+        """Delete this block from the scene"""
+        if self.editor:
+            # Remove from editor's blocks list
+            if self in self.editor.blocks:
+                self.editor.blocks.remove(self)
+            
+            # Update chain connections
+            if self.prev_block:
+                self.prev_block.next_block = self.next_block
+            if self.next_block:
+                self.next_block.prev_block = self.prev_block
+            
+            # Remove from scene
+            self.scene().removeItem(self)
+            
+            # Update linked sequence
+            self.editor.update_linked_sequence()
 
     def make_first(self):
         """Mark this action as the first in the sequence"""
@@ -263,3 +287,134 @@ class ActionBlock(QGraphicsRectItem):
 
         save.clicked.connect(apply)
         dialog.exec()
+
+
+class ElementaryAction(Block):
+    """Elementary action block - inherits from ActionBlock with purple color"""
+    def update_visual_style(self):
+        """Update the visual style based on first status and connected state"""
+        if self.is_first:
+            self.setBrush(QColor(255, 159, 64))  # Modern orange for first block
+        else:
+            self.setBrush(QColor(107, 76, 255))  # Modern purple for normal blocks
+        
+        if self.is_first:
+            self.default_pen = QPen(QColor(230, 126, 34), 3)  # Darker orange
+        else:
+            self.default_pen = QPen(QColor(88, 56, 220), 3)  # Darker purple
+        
+        if self.connected:
+            self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
+        else:
+            self.setPen(self.default_pen)
+
+
+class SupportAction(Block):
+    """Support action block - inherits from ActionBlock with blue color"""
+    def update_visual_style(self):
+        """Update the visual style based on first status and connected state"""
+        if self.is_first:
+            self.setBrush(QColor(255, 159, 64))  # Modern orange for first block
+        else:
+            self.setBrush(QColor(52, 152, 219))  # Modern blue for support blocks
+        
+        if self.is_first:
+            self.default_pen = QPen(QColor(230, 126, 34), 3)  # Darker orange
+        else:
+            self.default_pen = QPen(QColor(41, 128, 185), 3)  # Darker blue
+        
+        if self.connected:
+            self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
+        else:
+            self.setPen(self.default_pen)
+
+
+class ChemicalBlock(Block):
+    """Chemical action block - green rectangle with 1/3 width"""
+    def __init__(self, action, params, editor=None):
+        # Call parent's parent __init__ to avoid Block.__init__
+        QGraphicsRectItem.__init__(self, 0, 0, 115, 30)  # 1/3 width
+        self.action = action
+        self.params = params
+        self.editor = editor
+        self.next_block = None
+        self.prev_block = None
+        self.is_first = False
+        self.connected = False
+        self.chain_drag_mode = False
+        
+        # Hover tooltip support
+        self.hover_timer = QTimer()
+        self.hover_timer.timeout.connect(self.show_details_tooltip)
+        self.hover_timer.setSingleShot(True)
+        self.setAcceptHoverEvents(True)
+
+        self.setFlags(
+            QGraphicsRectItem.ItemIsMovable |
+            QGraphicsRectItem.ItemIsSelectable
+        )
+        self.update_visual_style()
+
+        self.text = QGraphicsTextItem(self)
+        self.text.setPos(5, 10)
+        self.update_text()
+    
+    def paint(self, painter, option, widget=None):
+        """Paint a simple rectangle instead of the chevron shape"""
+        from PySide6.QtGui import QPainter
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect()
+
+        # Draw shadow effect
+        painter.setOpacity(0.15)
+        painter.setBrush(QColor(0, 0, 0))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(rect.translated(2, 2))
+        
+        # Draw main rectangle
+        painter.setOpacity(1.0)
+        painter.setBrush(self.brush())
+        painter.setPen(self.pen())
+        painter.drawRect(rect)
+    
+    def update_visual_style(self):
+        """Update the visual style based on first status and connected state"""
+        if self.is_first:
+            self.setBrush(QColor(255, 159, 64))  # Modern orange for first block
+        else:
+            self.setBrush(QColor(46, 204, 113))  # Modern green for chemical blocks
+        
+        if self.is_first:
+            self.default_pen = QPen(QColor(230, 126, 34), 3)  # Darker orange
+        else:
+            self.default_pen = QPen(QColor(39, 174, 96), 3)  # Darker green
+        
+        if self.connected:
+            self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
+        else:
+            self.setPen(self.default_pen)
+    
+    def update_text(self):
+        """Update text to display the chemical name from params"""
+        # Get the chemical name from params, default to action name if not available
+        chemical_name = self.params.get("name", self.action) or self.action
+        
+        self.text.setPlainText(chemical_name)
+        
+        # Set modern font (smaller for chemical blocks)
+        font = QFont("Segoe UI", 8)
+        font.setBold(True)
+        self.text.setFont(font)
+        self.text.setDefaultTextColor(QColor(255, 255, 255))
+        
+        # Center the text in the block
+        text_rect = self.text.boundingRect()
+        block_rect = self.rect()
+        
+        # Calculate centered position
+        x = (block_rect.width() - text_rect.width()) / 2
+        y = (block_rect.height() - text_rect.height()) / 2
+        
+        self.text.setPos(x, y)

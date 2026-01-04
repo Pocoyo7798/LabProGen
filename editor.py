@@ -2,14 +2,15 @@ import sys
 from PySide6.QtWidgets import (
     QApplication, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QDialog,
-    QFormLayout, QLineEdit, QPushButton, QVBoxLayout,
+    QFormLayout, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
     QWidget, QLabel, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QFont, QPainter
 import json
-from block import ActionBlock
+from block import Block, ElementaryAction, SupportAction, ChemicalBlock
 from actions import Add, ChangeTemperature, Stir
+from chemicals import Molecule, Material
 from protocol import Protocol
 
 class ActionSelectionDialog(QDialog):
@@ -49,6 +50,40 @@ class ActionSelectionDialog(QDialog):
         self.selected_action = action
         self.accept()
 
+class ChemicalSelectionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Chemical")
+        self.setFixedWidth(300)
+        self.selected_chemical = None
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Title
+        title = QLabel("Select a Chemical")
+        title_font = title.font()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        layout.addWidget(title)
+        
+        self.molecule_btn = QPushButton("Molecule")
+        self.material_btn = QPushButton("Material")
+        
+        self.molecule_btn.clicked.connect(lambda: self.select_chemical("Molecule"))
+        self.material_btn.clicked.connect(lambda: self.select_chemical("Material"))
+        
+        layout.addWidget(self.molecule_btn)
+        layout.addWidget(self.material_btn)
+        layout.addStretch()
+        
+        self.setLayout(layout)
+    
+    def select_chemical(self, chemical):
+        self.selected_chemical = chemical
+        self.accept()
+
 class Editor(QGraphicsView):
     def __init__(self):
         scene = QGraphicsScene()
@@ -79,16 +114,19 @@ class Editor(QGraphicsView):
         main_layout.addWidget(title)
         
         # Button bar
-        button_layout = QVBoxLayout()
+        button_layout = QHBoxLayout()
         button_layout.setSpacing(8)
         
         self.add_action_btn = QPushButton("+ Add Action")
+        self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
+        self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
         
         button_layout.addWidget(self.add_action_btn)
+        button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
         main_layout.addLayout(button_layout)
         
@@ -135,11 +173,42 @@ class Editor(QGraphicsView):
                 self.add_block(dialog.selected_action, params)
     
     def add_block(self, action, params):
-        block = ActionBlock(action, params, editor=self)
+        # Choose the appropriate block class based on action type
+        if action in ["Add", "Stir"]:
+            block = ElementaryAction(action, params, editor=self)
+        elif action == "ChangeTemperature":
+            block = SupportAction(action, params, editor=self)
         block.setPos(50, 50 + len(self.blocks) * 80)
         self.scene.addItem(block)
         self.blocks.append(block)
         self.update_linked_sequence()
+
+    def add_chemical_block(self):
+        """Show dialog to select chemical type and add appropriate block"""
+        dialog = ChemicalSelectionDialog(self)
+        if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
+            chemical_classes = {
+                "Molecule": Molecule,
+                "Material": Material
+            }
+            
+            # Define default parameters for each chemical type
+            default_params = {
+                "Molecule": {"name": "", "formula": "", "smile": ""},
+                "Material": {"name": "", "formula": "", "structure": ""}
+            }
+            
+            params = default_params.get(dialog.selected_chemical, {})
+            chemical_class = chemical_classes.get(dialog.selected_chemical)
+            
+            # Create actual chemical object
+            if chemical_class:
+                chemical = chemical_class(**params)
+                block = ChemicalBlock(dialog.selected_chemical, params, editor=self)
+                block.setPos(50, 50 + len(self.blocks) * 80)
+                self.scene.addItem(block)
+                self.blocks.append(block)
+                self.update_linked_sequence()
 
     def update_linked_sequence(self):
         """Update the linked_sequence list based on current block linkages.
@@ -156,6 +225,19 @@ class Editor(QGraphicsView):
         # Sort by x-axis position (left to right)
         linked_blocks.sort(key=lambda b: b.pos().x())
         self.linked_sequence = linked_blocks
+
+    def is_incompatible_horizontal_link(self, block1, block2):
+        """Check if two blocks are incompatible for linking.
+        Chemical blocks cannot be linked to Elementary or Support action blocks.
+        Returns True if the link is incompatible, False otherwise.
+        """
+        is_chemical_1 = isinstance(block1, ChemicalBlock)
+        is_chemical_2 = isinstance(block2, ChemicalBlock)
+        is_action_1 = isinstance(block1, (ElementaryAction, SupportAction))
+        is_action_2 = isinstance(block2, (ElementaryAction, SupportAction))
+        
+        # Incompatible if one is Chemical and the other is an Action
+        return (is_chemical_1 and is_action_2) or (is_action_1 and is_chemical_2) or (is_chemical_1 and is_chemical_2)
 
     def preview_link(self, moved_block):
         """While dragging, highlight the block that would be linked if released.
@@ -184,7 +266,7 @@ class Editor(QGraphicsView):
         # no intersection; clear moved highlight
         moved_block.set_connected(False)
 
-    def check_and_link_blocks(self, moved_block):
+    def check_and_link_horizontal_blocks(self, moved_block):
         """When a block is released, check if it touches another block on left/right
         and update prev/next pointers accordingly.
         If moved_block is to the right of other (their rects intersect and moved center x > other center x),
@@ -200,7 +282,7 @@ class Editor(QGraphicsView):
         if moved_block not in self.blocks:
             self.update_linked_sequence()
             return
-        overlap = 15
+        overlap = 20
         moved_rect = moved_block.sceneBoundingRect()
         moved_center = moved_rect.center()
 
@@ -300,6 +382,15 @@ class Editor(QGraphicsView):
                 self.update_linked_sequence()
                 return
             
+            # Prevent Chemical blocks from linking to Elementary or Support actions
+            if self.is_incompatible_horizontal_link(moved_block, left) or self.is_incompatible_horizontal_link(moved_block, right):
+                # Can't link incompatible block types
+                moved_block.prev_block = None
+                moved_block.next_block = None
+                moved_block.set_connected(False)
+                self.update_linked_sequence()
+                return
+            
             # Reconnect old prev and next if they were connected
             if old_prev and old_next:
                 old_prev.next_block = old_next
@@ -307,6 +398,22 @@ class Editor(QGraphicsView):
                 # Keep them highlighted
                 old_prev.set_connected(True)
                 old_next.set_connected(True)
+            elif old_prev:
+                # Block was at the end of chain, just clear prev's next reference
+                old_prev.next_block = None
+                # Keep highlighted if prev is still part of a chain
+                if old_prev.prev_block:
+                    old_prev.set_connected(True)
+                else:
+                    old_prev.set_connected(False)
+            elif old_next:
+                # Block was at the start of chain, just clear next's prev reference
+                old_next.prev_block = None
+                # Keep highlighted if next is still part of a chain
+                if old_next.next_block:
+                    old_next.set_connected(True)
+                else:
+                    old_next.set_connected(False)
             
             # Clean references on neighbors if pointing to moved
             if left.next_block and left.next_block is moved_block:
@@ -368,6 +475,15 @@ class Editor(QGraphicsView):
                 self.update_linked_sequence()
                 return
             
+            # Prevent Chemical blocks from linking to Elementary or Support actions
+            if self.is_incompatible_horizontal_link(moved_block, other):
+                # Can't link incompatible block types
+                moved_block.prev_block = None
+                moved_block.next_block = None
+                moved_block.set_connected(False)
+                self.update_linked_sequence()
+                return
+            
             old_next = other.next_block
             moved_block.prev_block = other
             moved_block.next_block = None
@@ -398,6 +514,15 @@ class Editor(QGraphicsView):
             # Prevent linking if other is a first block (can't place anything before first)
             if other.is_first:
                 # Can't link anything before a first block
+                moved_block.prev_block = None
+                moved_block.next_block = None
+                moved_block.set_connected(False)
+                self.update_linked_sequence()
+                return
+            
+            # Prevent Chemical blocks from linking to Elementary or Support actions
+            if self.is_incompatible_horizontal_link(moved_block, other):
+                # Can't link incompatible block types
                 moved_block.prev_block = None
                 moved_block.next_block = None
                 moved_block.set_connected(False)
@@ -457,6 +582,16 @@ class Editor(QGraphicsView):
             b.setPos(pos.x(), target_y)
             b = b.next_block
 
+    def keyPressEvent(self, event):
+        """Handle key press events for the editor"""
+        if event.key() == Qt.Key_Delete:
+            # Delete selected block
+            selected_items = self.scene.selectedItems()
+            for item in selected_items:
+                if hasattr(item, 'delete_block'):
+                    item.delete_block()
+        else:
+            super().keyPressEvent(event)
 
     def export_protocol(self):
         """Export the protocol to a JSON file using the linked_sequence of ordered actions"""
