@@ -247,9 +247,11 @@ class Editor(QGraphicsView):
         if hasattr(self, 'preview_pair') and self.preview_pair:
             a, b = self.preview_pair
             if a:
-                a.set_connected(False)
+                # Restore proper connected state: should be connected if part of a chain
+                a.set_connected(bool(a.prev_block or a.next_block))
             if b:
-                b.set_connected(False)
+                # Restore proper connected state: should be connected if part of a chain
+                b.set_connected(bool(b.prev_block or b.next_block))
             self.preview_pair = None
 
         moved_rect = moved_block.sceneBoundingRect()
