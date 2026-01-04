@@ -166,8 +166,12 @@ class Block(QGraphicsRectItem):
         elif event.modifiers() == Qt.ControlModifier:
             # Ctrl+click: enable chain drag mode
             self.chain_drag_mode = True
+            # Bring block to foreground
+            self.setZValue(1000)
             super().mousePressEvent(event)
         else:
+            # Bring block to foreground
+            self.setZValue(1000)
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
