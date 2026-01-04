@@ -390,6 +390,9 @@ class Editor(QGraphicsView):
                 moved_block.prev_block = None
                 moved_block.next_block = None
                 moved_block.set_connected(False)
+                # Restore highlighting on left and right if they're part of a chain
+                left.set_connected(bool(left.prev_block or left.next_block))
+                right.set_connected(bool(right.prev_block or right.next_block))
                 self.update_linked_sequence()
                 return
             
