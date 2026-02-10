@@ -14,8 +14,10 @@ class Block(QGraphicsRectItem):
         self.action = action
         self.params = params
         self.editor = editor
-        self.next_block = None  # Reference to the next block in the sequence
-        self.prev_block = None  # Reference to the previous block
+        self.next_block = None  # Reference to the next block in the sequence (horizontal)
+        self.prev_block = None  # Reference to the previous block (horizontal)
+        self.below_block = None  # Reference to blocks below (vertical connection)
+        self.above_block = None  # Reference to block above (vertical connection)
         self.is_first = False  # Whether this is the first action in the sequence
         self.connected = False  # whether currently connected to a neighbor
         self.chain_drag_mode = False  # Whether we're dragging the entire chain
@@ -193,9 +195,16 @@ class Block(QGraphicsRectItem):
             # Don't perform linking operations for chain drag
         else:
             super().mouseReleaseEvent(event)
-            # Notify editor to check for side-touch linking
+            # Notify editor to check for linking based on block type
             if self.editor:
-                self.editor.check_and_link_horizontal_blocks(self)
+                if isinstance(self, ChemicalBlock):
+                    # Chemical blocks can only link vertically
+                    self.editor.check_and_link_vertical_blocks(self)
+                else:
+                    # Action blocks link horizontally
+                    self.editor.check_and_link_horizontal_blocks(self)
+                    # Also check if any chemical blocks need to be repositioned
+                    self.editor.check_and_link_vertical_blocks(self)
 
     def show_context_menu(self, event):
         """Show context menu on right-click"""
@@ -219,11 +228,23 @@ class Block(QGraphicsRectItem):
             if self in self.editor.blocks:
                 self.editor.blocks.remove(self)
             
-            # Update chain connections
+            # Update horizontal chain connections (for action blocks)
             if self.prev_block:
                 self.prev_block.next_block = self.next_block
             if self.next_block:
                 self.next_block.prev_block = self.prev_block
+            
+            # Update vertical connections (for chemical blocks or if chemical is below this action)
+            if self.below_block:
+                self.below_block.above_block = None
+            if self.above_block:
+                self.above_block.below_block = None
+                # Update connected state of block above. Should stay connected if still linked to something
+                self.above_block.set_connected(bool(
+                    self.above_block.prev_block or 
+                    self.above_block.next_block or 
+                    self.above_block.below_block
+                ))
             
             # Remove from scene
             self.scene().removeItem(self)
@@ -341,8 +362,10 @@ class ChemicalBlock(Block):
         self.action = action
         self.params = params
         self.editor = editor
-        self.next_block = None
-        self.prev_block = None
+        self.next_block = None  # Horizontal links between action blocks (not used for chemicals)
+        self.prev_block = None  # Horizontal links between action blocks (not used for chemicals)
+        self.below_block = None  # Vertical link to chemical block below
+        self.above_block = None  # Vertical link to block above (could be action or chemical)
         self.is_first = False
         self.connected = False
         self.chain_drag_mode = False

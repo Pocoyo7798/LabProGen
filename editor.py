@@ -213,13 +213,14 @@ class Editor(QGraphicsView):
     def update_linked_sequence(self):
         """Update the linked_sequence list based on current block linkages.
         Collects all blocks that are part of chains and sorts them by x-axis position.
+        Includes both horizontally linked actions and vertically linked chemicals.
         """
         self.linked_sequence = []
         
-        # Find all blocks that are part of chains (have prev_block or next_block)
+        # Find all blocks that are part of chains (have prev_block, next_block, above_block, or below_block)
         linked_blocks = []
         for block in self.blocks:
-            if block.prev_block or block.next_block:
+            if block.prev_block or block.next_block or block.above_block or block.below_block:
                 linked_blocks.append(block)
         
         # Sort by x-axis position (left to right)
@@ -227,17 +228,36 @@ class Editor(QGraphicsView):
         self.linked_sequence = linked_blocks
 
     def is_incompatible_horizontal_link(self, block1, block2):
-        """Check if two blocks are incompatible for linking.
-        Chemical blocks cannot be linked to Elementary or Support action blocks.
+        """Check if two blocks are incompatible for HORIZONTAL linking.
+        Only Action blocks (Elementary/Support) can link horizontally.
+        Chemical blocks cannot link horizontally to anything.
         Returns True if the link is incompatible, False otherwise.
         """
         is_chemical_1 = isinstance(block1, ChemicalBlock)
         is_chemical_2 = isinstance(block2, ChemicalBlock)
-        is_action_1 = isinstance(block1, (ElementaryAction, SupportAction))
-        is_action_2 = isinstance(block2, (ElementaryAction, SupportAction))
         
-        # Incompatible if one is Chemical and the other is an Action
-        return (is_chemical_1 and is_action_2) or (is_action_1 and is_chemical_2) or (is_chemical_1 and is_chemical_2)
+        # Chemical blocks cannot link horizontally to anything
+        if is_chemical_1 or is_chemical_2:
+            return True
+        
+        # Action blocks can link horizontally to other action blocks
+        return False
+
+    def is_incompatible_vertical_link(self, parent_block, child_block):
+        """Check if two blocks are compatible for VERTICAL linking.
+        Chemical blocks can link vertically to Action blocks (Elementary/Support) or other Chemical blocks.
+        Returns True if the link is incompatible, False otherwise.
+        """
+        is_parent_action = isinstance(parent_block, (ElementaryAction, SupportAction))
+        is_parent_chemical = isinstance(parent_block, ChemicalBlock)
+        is_child_chemical = isinstance(child_block, ChemicalBlock)
+        
+        # Child must always be a chemical block
+        if not is_child_chemical:
+            return True
+        
+        # Parent can be either an action block or a chemical block
+        return not (is_parent_action or is_parent_chemical)
 
     def preview_link(self, moved_block):
         """While dragging, highlight the block that would be linked if released.
@@ -247,11 +267,11 @@ class Editor(QGraphicsView):
         if hasattr(self, 'preview_pair') and self.preview_pair:
             a, b = self.preview_pair
             if a:
-                # Restore proper connected state: should be connected if part of a chain
-                a.set_connected(bool(a.prev_block or a.next_block))
+                # Restore proper connected state: should be connected if part of a chain (horizontal or vertical)
+                a.set_connected(bool(a.prev_block or a.next_block or a.above_block or a.below_block))
             if b:
-                # Restore proper connected state: should be connected if part of a chain
-                b.set_connected(bool(b.prev_block or b.next_block))
+                # Restore proper connected state: should be connected if part of a chain (horizontal or vertical)
+                b.set_connected(bool(b.prev_block or b.next_block or b.above_block or b.below_block))
             self.preview_pair = None
 
         moved_rect = moved_block.sceneBoundingRect()
@@ -267,6 +287,121 @@ class Editor(QGraphicsView):
                 return
         # no intersection; clear moved highlight
         moved_block.set_connected(False)
+
+    def update_chemical_chain_below(self, chemical_block, parent_x, parent_y):
+        """Recursively update positions of chemical blocks below a chemical block."""
+        if chemical_block.below_block:
+            chem_rect = chemical_block.rect()
+            below_rect = chemical_block.below_block.rect()
+            snap_x = parent_x + (chem_rect.width() - below_rect.width()) * 0.25
+            snap_y = parent_y + chem_rect.height()
+            chemical_block.below_block.setPos(snap_x, snap_y)
+            # Recursively update the chain below
+            self.update_chemical_chain_below(chemical_block.below_block, snap_x, snap_y)
+
+    def find_last_chemical_in_chain(self, chemical_block):
+        """Find the last chemical block in a vertical chain."""
+        current = chemical_block
+        while current.below_block:
+            current = current.below_block
+        return current
+
+    def check_and_link_vertical_blocks(self, moved_block):
+        """Check if a chemical block is below an action block or another chemical block and link them vertically.
+        Chemical blocks should snap below action blocks or other chemical blocks when they overlap vertically.
+        """
+        if isinstance(moved_block, ChemicalBlock):
+            # Chemical block moved - look for action block or another chemical block above
+            moved_rect = moved_block.sceneBoundingRect()
+            moved_center_x = moved_rect.center().x()
+            moved_y = moved_rect.top()
+            
+            # Find action block or chemical block that this chemical overlaps with horizontally
+            best_target = None
+            best_distance = float('inf')
+            
+            for other in self.blocks:
+                if other is moved_block:
+                    continue
+                if isinstance(other, ChemicalBlock):
+                    # For chemical blocks, find the last one in the chain below this one
+                    # to attach the moved block to
+                    other_last = self.find_last_chemical_in_chain(other)
+                    # Only use it if it doesn't have a block below it
+                    if other_last.below_block is not None:
+                        continue
+                    other_to_check = other_last
+                elif not isinstance(other, (ElementaryAction, SupportAction)):
+                    continue
+                else:
+                    other_to_check = other
+                
+                other_rect = other_to_check.sceneBoundingRect()
+                other_center_x = other_rect.center().x()
+                other_bottom = other_rect.bottom()
+                
+                # Check if chemical is roughly below this target (horizontally aligned)
+                dx = abs(moved_center_x - other_center_x)
+                dy = moved_y - other_bottom
+                
+                # If chemical is below target and horizontally close
+                if dy > -30 and dy < 80 and dx < 90:  # Adjusted tolerances for easier linking
+                    distance = dx + max(0, dy)
+                    if distance < best_distance:
+                        best_target = other_to_check
+                        best_distance = distance
+            
+            # Link or unlink based on findings
+            if best_target:
+                # Disconnect from any old parent
+                if moved_block.above_block:
+                    moved_block.above_block.below_block = None
+                
+                # Connect to new parent
+                moved_block.above_block = best_target
+                best_target.below_block = moved_block
+                moved_block.set_connected(True)
+                best_target.set_connected(True)
+                
+                # Snap position: position chemical directly below target, slightly left of center
+                target_pos = best_target.pos()
+                target_rect = best_target.rect()
+                chem_rect = moved_block.rect()
+                
+                snap_x = target_pos.x() + (target_rect.width() - chem_rect.width()) * 0.20  # 20% offset to the right
+                snap_y = target_pos.y() + target_rect.height()  # Glued directly below
+                moved_block.setPos(snap_x, snap_y)
+            else:
+                # No compatible target below - disconnect
+                if moved_block.above_block:
+                    moved_block.above_block.below_block = None
+                    moved_block.above_block.set_connected(bool(moved_block.above_block.prev_block or moved_block.above_block.next_block))
+                
+                moved_block.above_block = None
+                moved_block.set_connected(False)
+        
+        elif isinstance(moved_block, (ElementaryAction, SupportAction)):
+            # Action block moved - update any chemical blocks below it
+            moved_rect = moved_block.sceneBoundingRect()
+            moved_center_x = moved_rect.center().x()
+            
+            # Find all chemical blocks and reposition if they're linked to this action
+            for other in self.blocks:
+                if isinstance(other, ChemicalBlock) and other.above_block is moved_block:
+                    # Reposition chemical block to stay below this action, slightly left of center
+                    action_rect = moved_block.rect()
+                    chem_rect = other.rect()
+                    
+                    snap_x = moved_rect.x() + (action_rect.width() - chem_rect.width()) * 0.25  # 25% offset to the right
+                    snap_y = moved_rect.y() + action_rect.height()  # Glued directly below
+                    other.setPos(snap_x, snap_y)
+                    
+                    # Ensure both blocks show connected state
+                    moved_block.set_connected(True)
+                    other.set_connected(True)
+                    
+                    # Also update any chemicals below this chemical
+                    self.update_chemical_chain_below(other, snap_x, snap_y)
 
     def check_and_link_horizontal_blocks(self, moved_block):
         """When a block is released, check if it touches another block on left/right
@@ -294,6 +429,9 @@ class Editor(QGraphicsView):
         for other in self.blocks:
             if other is moved_block:
                 continue
+            # Ignore chemical blocks for horizontal linking, only action blocks
+            if isinstance(other, ChemicalBlock):
+                continue
             other_rect = other.sceneBoundingRect()
             if moved_rect.intersects(other_rect):
                 other_center = other_rect.center()
@@ -312,30 +450,63 @@ class Editor(QGraphicsView):
                 # Block was in the middle - connect prev to next
                 prev_block.next_block = next_block
                 next_block.prev_block = prev_block
-                # Keep them connected visually if there are more blocks in chain
+                # Both blocks are still connected to each other horizontally, so both should be yellow
                 prev_block.set_connected(True)
                 next_block.set_connected(True)
+                
+                # Reposition next_block to be adjacent to prev_block (with overlap)
+                prev_pos = prev_block.pos()
+                prev_w = prev_block.rect().width()
+                overlap = 20
+                new_next_x = prev_pos.x() + prev_w - overlap
+                next_pos = next_block.pos()
+                next_block.setPos(new_next_x, prev_pos.y())
+                
+                # Reposition chemical block below next_block if it exists
+                if next_block.below_block:
+                    action_rect = next_block.rect()
+                    chem_rect = next_block.below_block.rect()
+                    snap_x = new_next_x + (action_rect.width() - chem_rect.width()) * 0.25
+                    snap_y = prev_pos.y() + action_rect.height()
+                    next_block.below_block.setPos(snap_x, snap_y)
+                
+                # Align next block's vertical position with prev block
+                self.align_chain_vertical(next_block.next_block, prev_pos.y())
+                
+                # Reposition chemical blocks for all aligned blocks in the chain
+                b = next_block.next_block
+                while b:
+                    if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
+                        action_rect = b.rect()
+                        chem_rect = b.below_block.rect()
+                        snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
+                        snap_y = b.pos().y() + action_rect.height()
+                        b.below_block.setPos(snap_x, snap_y)
+                    b = b.next_block
             else:
                 # Block was at start or end - just clear connections
                 if prev_block:
                     prev_block.next_block = None
-                    # Keep highlighted if it's still part of a chain
-                    if prev_block.prev_block:
-                        prev_block.set_connected(True)
-                    else:
-                        prev_block.set_connected(False)
+                    # Keep highlighted if it's still part of a chain (horizontal or vertical)
+                    is_connected = bool(prev_block.prev_block or prev_block.below_block)
+                    prev_block.set_connected(is_connected)
+                    # Update chemical block below if exists
+                    if prev_block.below_block:
+                        prev_block.below_block.set_connected(is_connected)
                 if next_block:
                     next_block.prev_block = None
-                    # Keep highlighted if it's still part of a chain
-                    if next_block.next_block:
-                        next_block.set_connected(True)
-                    else:
-                        next_block.set_connected(False)
+                    # Keep highlighted if it's still part of a chain (horizontal or vertical)
+                    is_connected = bool(next_block.next_block or next_block.below_block)
+                    next_block.set_connected(is_connected)
+                    # Update chemical block below if exists
+                    if next_block.below_block:
+                        next_block.below_block.set_connected(is_connected)
             
             # Clear the moved_block's links
             moved_block.prev_block = None
             moved_block.next_block = None
-            moved_block.set_connected(False)
+            # Keep connected if has chemical block below
+            moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block))
             self.update_linked_sequence()
             return
         self.update_linked_sequence()
@@ -451,6 +622,17 @@ class Editor(QGraphicsView):
 
             # Align right chain to the same vertical position as left block
             self.align_chain_vertical(right, left_pos.y())
+            
+            # Reposition chemical blocks below aligned right chain to stay glued
+            b = right
+            while b:
+                if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
+                    action_rect = b.rect()
+                    chem_rect = b.below_block.rect()
+                    snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
+                    snap_y = b.pos().y() + action_rect.height()
+                    b.below_block.setPos(snap_x, snap_y)
+                b = b.next_block
 
             left.set_connected(True)
             right.set_connected(True)
@@ -567,6 +749,17 @@ class Editor(QGraphicsView):
             other.setPos(other_pos.x(), new_y)
             self.align_chain_vertical(other.next_block, new_y)
             
+            # Reposition chemical blocks below aligned blocks to stay glued
+            b = other
+            while b:
+                if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
+                    action_rect = b.rect()
+                    chem_rect = b.below_block.rect()
+                    snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
+                    snap_y = b.pos().y() + action_rect.height()
+                    b.below_block.setPos(snap_x, snap_y)
+                b = b.next_block
+            
             other.set_connected(True)
             moved_block.set_connected(True)
         self.update_linked_sequence()
@@ -574,11 +767,21 @@ class Editor(QGraphicsView):
     def push_chain(self, start_block, shift_x: float):
         """Move start_block and all following blocks (via next_block)
         horizontally by shift_x (positive -> right).
+        Also moves any chemical blocks attached below action blocks, preserving vertical alignment.
         """
         b = start_block
         while b:
-            pos = b.pos()
-            b.setPos(pos.x() + shift_x, pos.y())
+            old_pos = b.pos()
+            new_pos = QPointF(old_pos.x() + shift_x, old_pos.y())
+            b.setPos(new_pos)
+            # Also move any chemical block below this action block, keeping it below
+            if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
+                # Reposition chemical to stay directly below the action block at its new position
+                action_rect = b.rect()
+                chem_rect = b.below_block.rect()
+                snap_x = new_pos.x() + (action_rect.width() - chem_rect.width()) * 0.25
+                snap_y = new_pos.y() + action_rect.height()
+                b.below_block.setPos(snap_x, snap_y)
             b = b.next_block
 
     def align_chain_vertical(self, start_block, target_y: float):
