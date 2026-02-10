@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
 from PySide6.QtGui import QPen, QColor, QFont
+import debug_flag
 import json
 
 class Block(QGraphicsRectItem):
@@ -161,6 +162,76 @@ class Block(QGraphicsRectItem):
         """Hide the tooltip"""
         self.setToolTip("")
 
+    def debug_print_structure(self):
+        """Print a readable snapshot of the editor blocks and their links.
+
+        This prints each block in `self.editor.blocks` with its id, type,
+        action name, position and references to prev/next/above/below.
+        Shows only chains (horizontal and vertical), isolated blocks are omitted.
+        """
+        # Check simple module-level debug flag
+        if not debug_flag.DEBUG_MODE:
+            return
+        if not self.editor:
+            print("[DEBUG] No editor reference available for this block")
+            return
+
+        print("\n[DEBUG] ===== Blocks structure snapshot =====")
+        for idx, b in enumerate(self.editor.blocks):
+            try:
+                px = b.pos().x()
+                py = b.pos().y()
+            except Exception:
+                px = py = None
+
+            def rid(x):
+                return hex(id(x)) if x is not None else None
+
+            print(
+                f"[{idx}] {b.__class__.__name__}('{b.action}') id={hex(id(b))} pos=({px},{py}) "
+                f"prev={rid(b.prev_block)} next={rid(b.next_block)} "
+                f"above={rid(b.above_block)} below={rid(b.below_block)} connected={b.connected}"
+            )
+
+        # Show horizontal chains (action blocks linked left-right via prev/next)
+        # Chemical blocks are vertical-only and should not appear in horizontal chains.
+        print("[DEBUG] Horizontal chains (left <-> ... <-> right):")
+        h_seen = set()
+        for b in self.editor.blocks:
+            # Skip chemical blocks when enumerating horizontal chains
+            if isinstance(b, ChemicalBlock):
+                continue
+            if b.prev_block is None and b not in h_seen:
+                # Start of a horizontal chain (no prev_block)
+                h_chain = []
+                cur = b
+                while cur and not isinstance(cur, ChemicalBlock):
+                    h_chain.append(f"{cur.__class__.__name__}('{cur.action}')")
+                    h_seen.add(cur)
+                    cur = cur.next_block
+                # Print only if it's actually a chain (more than 1 action)
+                # or if this action has a chemical attached below (shows vertical children)
+                if len(h_chain) > 1 or (hasattr(b, 'below_block') and b.below_block is not None):
+                    print("  " + " <-> ".join(h_chain))
+
+        # Show vertical chains (chemicals linked top-bottom via above/below)
+        print("[DEBUG] Vertical chains (top -> ... -> bottom):")
+        v_seen = set()
+        for b in self.editor.blocks:
+            if b.above_block is None and b not in v_seen:
+                # This is the start of a vertical chain (no above_block)
+                v_chain = []
+                cur = b
+                while cur:
+                    v_chain.append(f"{cur.__class__.__name__}('{cur.action}')")
+                    v_seen.add(cur)
+                    cur = cur.below_block
+                # Only print if it's actually a chain (more than 1 element)
+                if len(v_chain) > 1:
+                    print("  " + " -> ".join(v_chain))
+
+        print("[DEBUG] ===== end snapshot =====\n")
+
     def mousePressEvent(self, event):
         """Handle mouse press events including right-click and Ctrl+click"""
         if event.button() == Qt.RightButton:
@@ -205,6 +276,13 @@ class Block(QGraphicsRectItem):
                     self.editor.check_and_link_horizontal_blocks(self)
                     # Also check if any chemical blocks need to be repositioned
                     self.editor.check_and_link_vertical_blocks(self)
+                # Print debug snapshot of the whole structure after linking
+                try:
+                    if self.editor:
+                        self.debug_print_structure()
+                except Exception as e:
+                    if debug_flag.DEBUG_MODE:
+                        print(f"[DEBUG] Error printing structure: {e}")
 
     def show_context_menu(self, event):
         """Show context menu on right-click"""
@@ -222,35 +300,122 @@ class Block(QGraphicsRectItem):
         menu.exec(event.screenPos())
 
     def delete_block(self):
-        """Delete this block from the scene"""
-        if self.editor:
-            # Remove from editor's blocks list
-            if self in self.editor.blocks:
-                self.editor.blocks.remove(self)
-            
-            # Update horizontal chain connections (for action blocks)
-            if self.prev_block:
-                self.prev_block.next_block = self.next_block
-            if self.next_block:
-                self.next_block.prev_block = self.prev_block
-            
-            # Update vertical connections (for chemical blocks or if chemical is below this action)
+        """Delete this block from the scene and update connections accordingly
+        """
+        if not self.editor:
+            return
+
+        # Remove from editor's list (capture presence first)
+        if self in self.editor.blocks:
+            self.editor.blocks.remove(self)
+
+        # Update horizontal chain connections (for action blocks)
+        if self.prev_block:
+            self.prev_block.next_block = self.next_block
+        if self.next_block:
+            self.next_block.prev_block = self.prev_block
+
+        # If deleted block was in the middle of a horizontal chain, shift the right chain left
+        try:
+            if self.prev_block and self.next_block and self.editor:
+                prev = self.prev_block
+                right = self.next_block
+                prev_pos = prev.pos()
+                prev_w = prev.rect().width()
+                overlap = 20
+                desired_right_x = prev_pos.x() + prev_w - overlap
+                current_right_x = right.pos().x()
+                shift = desired_right_x - current_right_x
+                # Move the right chain to close the gap
+                if abs(shift) > 0.1:
+                    self.editor.push_chain(right, shift)
+                    # Align vertical position
+                    try:
+                        self.editor.align_chain_vertical(right, prev_pos.y())
+                    except Exception:
+                        pass
+                    # Reposition chemical blocks below the moved right chain to stay glued
+                    b = right
+                    while b:
+                        if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
+                            action_rect = b.rect()
+                            chem_rect = b.below_block.rect()
+                            snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
+                            snap_y = b.pos().y() + action_rect.height()
+                            b.below_block.setPos(snap_x, snap_y)
+                            try:
+                                self.editor.update_chemical_chain_below(b.below_block, snap_x, snap_y)
+                            except Exception:
+                                pass
+                        b = b.next_block
+        except Exception:
+            pass
+
+        # Update vertical connections (for chemical blocks or if chemical is below this action)
+        if self.above_block and self.below_block:
+            # Reattach the child under the parent so the chain closes the gap
+            parent = self.above_block
+            child = self.below_block
+            parent.below_block = child
+            child.above_block = parent
+
+            # Reposition child directly below parent
+            try:
+                parent_pos = parent.pos()
+                parent_rect = parent.rect()
+                child_rect = child.rect()
+                snap_x = parent_pos.x() + (parent_rect.width() - child_rect.width()) * 0.25
+                snap_y = parent_pos.y() + parent_rect.height()
+                child.setPos(snap_x, snap_y)
+                # Update sub-chain below
+                self.editor.update_chemical_chain_below(child, snap_x, snap_y)
+            except Exception:
+                pass
+
+            # Ensure connected visuals
+            parent.set_connected(True)
+            child.set_connected(True)
+        else:
+            # If only child exists, orphan it
             if self.below_block:
                 self.below_block.above_block = None
+                self.below_block.set_connected(False)
+            # If only parent exists, remove its reference to this block
             if self.above_block:
                 self.above_block.below_block = None
-                # Update connected state of block above. Should stay connected if still linked to something
-                self.above_block.set_connected(bool(
-                    self.above_block.prev_block or 
-                    self.above_block.next_block or 
-                    self.above_block.below_block
-                ))
-            
-            # Remove from scene
-            self.scene().removeItem(self)
-            
-            # Update linked sequence
-            self.editor.update_linked_sequence()
+                # Update connected state of block above based on its type
+                if isinstance(self.above_block, ChemicalBlock):
+                    self.above_block.set_connected(bool(self.above_block.above_block or self.above_block.below_block))
+                else:
+                    self.above_block.set_connected(bool(
+                        self.above_block.prev_block or 
+                        self.above_block.next_block or 
+                        self.above_block.below_block
+                    ))
+
+        # Clear this block's own references so it doesn't still point to neighbors
+        try:
+            self.prev_block = None
+            self.next_block = None
+            self.above_block = None
+            self.below_block = None
+            self.set_connected(False)
+        except Exception:
+            pass
+
+        # Remove from scene and refresh linked sequence
+        self.scene().removeItem(self)
+        self.editor.update_linked_sequence()
+        # Print debug snapshot after delete to help trace chain updates
+        try:
+            if self.editor:
+                if debug_flag.DEBUG_MODE:
+                    print("[DEBUG] Structure after delete:")
+                    # Use the debug helper to print current structure
+                    self.debug_print_structure()
+        except Exception as e:
+            if debug_flag.DEBUG_MODE:
+                print(f"[DEBUG] Error printing structure after delete: {e}")
 
     def make_first(self):
         """Mark this action as the first in the sequence"""
