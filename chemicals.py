@@ -1,13 +1,13 @@
 from config import KEY_NAME, KEY_FORMULA, KEY_SMILES, KEY_STRUCTURE
 
 class Chemical:
-    """Base class for laboratory actions"""
+    """Base class for chemicals"""
     def __init__(self, **kwargs):
         self.params = kwargs
     
     def to_dict(self):
         return {
-            "action": self.__class__.__name__,
+            "chemical": self.__class__.__name__,
             "params": self.params
         }
 

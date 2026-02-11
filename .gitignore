@@ -38,5 +38,5 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Optional: protocol export (uncomment if you want to ignore)
+# protocol export
 protocol.json

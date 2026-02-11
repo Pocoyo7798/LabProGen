@@ -605,20 +605,71 @@ class Editor(QGraphicsView):
             super().keyPressEvent(event)
 
     def export_protocol(self):
-        """Export the protocol to a JSON file using the linked_sequence of ordered actions"""
-        print(self.linked_sequence)
-        ordered_blocks = self.linked_sequence.copy()
-        # Clear and rebuild protocol with ordered blocks
+        """
+        Export the protocol to JSON. 
+        Ensures all blocks belong to a single, continuous chain.
+        """
+        if not self.blocks:
+            print("No blocks to export.")
+            return
+
+        # 1. Identify the starting point
+        # Priority 1: Block marked as 'is_first'
+        start_node = next((b for b in self.blocks if b.is_first), None)
+        
+        # Priority 2: If no 'is_first', pick any action and find its chain start
+        if not start_node:
+            action_blocks = [b for b in self.blocks if not isinstance(b, ChemicalBlock)]
+            if action_blocks:
+                # Get the head of the chain containing the first action found
+                start_node = self.find_chain_start(action_blocks[0])
+
+        if not start_node:
+            print("Error: Could not find a valid start for the protocol.")
+            return
+
+        # 2. Traverse and build the sequence while tracking visited blocks
+        visited = set()
         self.protocol.actions = []
-        for block in ordered_blocks:
-            action_classes = {
-                "Add": Add,
-                "ChangeTemperature": ChangeTemperature,
-                "Stir": Stir
-            }
-            action_class = action_classes.get(block.action)
-            if action_class:
-                action = action_class(**block.params)
-                self.protocol.add_action(action)
+        
+        # Mappings from UI strings to Data Classes
+        action_map = {"Add": Add, "ChangeTemperature": ChangeTemperature, "Stir": Stir}
+        chem_map = {"Molecule": Molecule, "Material": Material}
+
+        current_action = start_node
+        while current_action:
+            visited.add(current_action)
+            
+            # Create Action data object
+            action_cls = action_map.get(current_action.action)
+            if action_cls:
+                action_data = action_cls(**current_action.params)
+                
+                # Traverse Vertical chain for chemicals attached to this action
+                current_chem = current_action.below_block
+                while current_chem:
+                    visited.add(current_chem)
+                    chem_cls = chem_map.get(current_chem.action)
+                    if chem_cls:
+                        chem_data = chem_cls(**current_chem.params)
+                        action_data.add_chemical(chem_data)
+                    
+                    # Move to the next chemical in the vertical stack
+                    current_chem = current_chem.below_block
+                
+                self.protocol.add_action(action_data)
+            
+            # Move to the next action in the horizontal sequence
+            current_action = current_action.next_block
+
+        # 3. Validation: Ensure no blocks are left out (no orphans or second chains)
+        all_blocks_in_scene = set(self.blocks)
+        orphans = all_blocks_in_scene - visited
+        
+        if orphans:
+            print(f"Export Aborted: {len(orphans)} blocks are disconnected from the main chain.")
+            return
+
+        # 4. Success: Write to file
         self.protocol.export("protocol.json")
-        print("Protocol exported to protocol.json")
+        print(f"Protocol exported successfully ({len(self.protocol.actions)} actions included).")

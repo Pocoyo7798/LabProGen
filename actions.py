@@ -4,12 +4,22 @@ class Action:
     """Base class for laboratory actions"""
     def __init__(self, **kwargs):
         self.params = kwargs
+        self.chemicals = [] # Added to store attached chemicals
+
+    def add_chemical(self, chemical):
+        """Attaches a chemical object to this action"""
+        self.chemicals.append(chemical)
     
     def to_dict(self):
-        return {
+        """Convert to dictionary including nested chemicals"""
+        data = {
             "action": self.__class__.__name__,
             "params": self.params
         }
+        if self.chemicals:
+            # Export nested chemicals as a list of dictionaries
+            data["chemicals"] = [c.to_dict() for c in self.chemicals]
+        return data
 
 class Add(Action):
     """Add a component to the reaction"""
