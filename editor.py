@@ -420,12 +420,8 @@ class Editor(QGraphicsView):
                 self.update_chemical_chain_below(moved_block.below_block, snap_x, snap_y)
 
     def check_and_link_horizontal_blocks(self, moved_block):
-        """When a block is released, check if it touches another block on left/right
-        and update prev/next pointers accordingly.
-        If moved_block is to the right of other (their rects intersect and moved center x > other center x),
-        then other -> moved (moved placed after other). If moved is to the left, moved -> other.
-        """
-        # clear any preview highlights
+        """When a block is released, update pointers and reflow the chain to close gaps."""
+        # Clear preview highlights
         if hasattr(self, 'preview_pair') and self.preview_pair:
             a, b = self.preview_pair
             a.set_connected(False)
@@ -433,380 +429,91 @@ class Editor(QGraphicsView):
             self.preview_pair = None
 
         if moved_block not in self.blocks:
-            self.update_linked_sequence()
             return
-        overlap = 20
+
         moved_rect = moved_block.sceneBoundingRect()
         moved_center = moved_rect.center()
 
-        # Find any intersecting blocks (except itself) and consider
-        # the closest left and right neighbors so we can insert between them
+        # Find intersecting action blocks
         intersects = []
         for other in self.blocks:
-            if other is moved_block:
+            if other is moved_block or isinstance(other, ChemicalBlock):
                 continue
-            # Ignore chemical blocks for horizontal linking, only action blocks
-            if isinstance(other, ChemicalBlock):
-                continue
-            other_rect = other.sceneBoundingRect()
-            if moved_rect.intersects(other_rect):
-                other_center = other_rect.center()
-                dx = moved_center.x() - other_center.x()
-                dy = moved_center.y() - other_center.y()
-                if abs(dx) >= abs(dy):
-                    intersects.append((other, other_center))
+            if moved_rect.intersects(other.sceneBoundingRect()):
+                oc = other.sceneBoundingRect().center()
+                if abs(moved_center.x() - oc.x()) >= abs(moved_center.y() - oc.y()):
+                    intersects.append((other, oc))
 
-        if not intersects:
-            # no horizontal intersections. Block moved away from sequence
-            # Reconnect the blocks that were on either side of moved_block if needed
-            prev_block = moved_block.prev_block
-            next_block = moved_block.next_block
-            
-            if prev_block and next_block:
-                # Block was in the middle. Connect prev to next
-                prev_block.next_block = next_block
-                next_block.prev_block = prev_block
-                # Both blocks are still connected to each other horizontally, so both should be yellow
-                prev_block.set_connected(True)
-                next_block.set_connected(True)
-                
-                # Reposition next_block to be adjacent to prev_block (with overlap)
-                prev_pos = prev_block.pos()
-                prev_w = prev_block.rect().width()
-                overlap = 20
-                new_next_x = prev_pos.x() + prev_w - overlap
-                next_pos = next_block.pos()
-                next_block.setPos(new_next_x, prev_pos.y())
-                
-                # Reposition chemical block below next_block if it exists
-                if next_block.below_block:
-                    action_rect = next_block.rect()
-                    chem_rect = next_block.below_block.rect()
-                    snap_x = new_next_x + (action_rect.width() - chem_rect.width()) * 0.25
-                    snap_y = prev_pos.y() + action_rect.height()
-                    next_block.below_block.setPos(snap_x, snap_y)
-                    # Also move any chemicals attached below this chemical
-                    self.update_chemical_chain_below(next_block.below_block, snap_x, snap_y)
-                
-                # Align next block's vertical position with prev block
-                self.align_chain_vertical(next_block.next_block, prev_pos.y())
-                
-                # Reposition chemical blocks for all aligned blocks in the chain
-                b = next_block.next_block
-                while b:
-                    if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
-                        action_rect = b.rect()
-                        chem_rect = b.below_block.rect()
-                        snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
-                        snap_y = b.pos().y() + action_rect.height()
-                        b.below_block.setPos(snap_x, snap_y)
-                        # Also update any chemical chain below this chemical
-                        self.update_chemical_chain_below(b.below_block, snap_x, snap_y)
-                    b = b.next_block
-            else:
-                # Block was at start or end. Just clear connections
-                if prev_block:
-                    prev_block.next_block = None
-                    # Keep highlighted if it's still part of a chain (horizontal or vertical)
-                    if isinstance(prev_block, ChemicalBlock):
-                        is_connected = bool(prev_block.above_block or prev_block.below_block)
-                    else:
-                        is_connected = bool(prev_block.prev_block or prev_block.below_block)
-                    prev_block.set_connected(is_connected)
-                    # Update chemical block below if exists
-                    if prev_block.below_block:
-                        prev_block.below_block.set_connected(is_connected)
-                if next_block:
-                    next_block.prev_block = None
-                    # Keep highlighted if it's still part of a chain (horizontal or vertical)
-                    if isinstance(next_block, ChemicalBlock):
-                        is_connected = bool(next_block.above_block or next_block.below_block)
-                    else:
-                        is_connected = bool(next_block.next_block or next_block.below_block)
-                    next_block.set_connected(is_connected)
-                    # Update chemical block below if exists
-                    if next_block.below_block:
-                        next_block.below_block.set_connected(is_connected)
-            
-            # Clear the moved_block's links
-            moved_block.prev_block = None
-            moved_block.next_block = None
-            # Keep connected based on block type
-            if isinstance(moved_block, ChemicalBlock):
-                moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block))
-            else:
-                moved_block.set_connected(bool(moved_block.below_block))
-            self.update_linked_sequence()
-            return
-        self.update_linked_sequence()
-
-        # Find closest left (max x < moved.x) and closest right (min x > moved.x)
-        left = None
-        right = None
-        left_x = None
-        right_x = None
-        for other, oc in intersects:
-            ox = oc.x()
-            if ox < moved_center.x():
-                if left is None or ox > left_x:
-                    left = other
-                    left_x = ox
-            elif ox > moved_center.x():
-                if right is None or ox < right_x:
-                    right = other
-                    right_x = ox
-
-        # Store old connections before clearing
+        # 1. REMOVE: Disconnect moved_block from its old position
         old_prev = moved_block.prev_block
         old_next = moved_block.next_block
-        
-        # Clear the moved_block's links (will be reconnected if needed below)
-        moved_block.prev_block = None
-        moved_block.next_block = None
 
-        # If we have both left and right, insert between them
-        if left and right:
-            # Prevent linking if right block is a first block
-            if right.is_first:
-                # Can't link before a first block, so just move without linking
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                self.update_linked_sequence()
-                return
+        if old_prev: old_prev.next_block = old_next
+        if old_next: old_next.prev_block = old_prev
+
+        if not intersects:
+            # Case: Dropped in empty space
+            moved_block.prev_block = None
+            moved_block.next_block = None
+            if old_prev: self.reflow_chain(self.find_chain_start(old_prev))
+            elif old_next: self.reflow_chain(old_next)
             
-            # Prevent linking if moved block is a first block
-            if moved_block.is_first:
-                # Can't link a first block in the middle
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                self.update_linked_sequence()
-                return
-            
-            # Prevent Chemical blocks from linking to Elementary or Support actions
-            if self.is_incompatible_horizontal_link(moved_block, left) or self.is_incompatible_horizontal_link(moved_block, right):
-                # Can't link incompatible block types
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                # Restore highlighting on left and right if they're part of a chain
-                if isinstance(left, ChemicalBlock):
-                    left.set_connected(bool(left.above_block or left.below_block))
-                else:
-                    left.set_connected(bool(left.prev_block or left.next_block or left.below_block))
-                if isinstance(right, ChemicalBlock):
-                    right.set_connected(bool(right.above_block or right.below_block))
-                else:
-                    right.set_connected(bool(right.prev_block or right.next_block or right.below_block))
-                self.update_linked_sequence()
-                return
-            
-            # Reconnect old prev and next if they were connected
-            if old_prev and old_next:
-                old_prev.next_block = old_next
-                old_next.prev_block = old_prev
-                # Keep them highlighted
-                old_prev.set_connected(True)
-                old_next.set_connected(True)
-            elif old_prev:
-                # Block was at the end of chain, just clear prev's next reference
-                old_prev.next_block = None
-                # Keep highlighted if prev is still part of a chain
-                if isinstance(old_prev, ChemicalBlock):
-                    old_prev.set_connected(bool(old_prev.above_block or old_prev.below_block))
-                else:
-                    old_prev.set_connected(bool(old_prev.prev_block or old_prev.below_block))
-            elif old_next:
-                # Block was at the start of chain, just clear next's prev reference
-                old_next.prev_block = None
-                # Keep highlighted if next is still part of a chain
-                if isinstance(old_next, ChemicalBlock):
-                    old_next.set_connected(bool(old_next.above_block or old_next.below_block))
-                else:
-                    old_next.set_connected(bool(old_next.next_block or old_next.below_block))
-            
-            # Clean references on neighbors if pointing to moved
-            if left.next_block and left.next_block is moved_block:
-                left.next_block = None
-            if right.prev_block and right.prev_block is moved_block:
-                right.prev_block = None
-
-            # Insert moved between left and right
-            moved_block.prev_block = left
-            moved_block.next_block = right
-            left.next_block = moved_block
-            right.prev_block = moved_block
-
-            # Position moved between left and right
-            left_pos = left.pos()
-            left_w = left.rect().width()
-
-            # Make room by pushing the right chain so the right block
-            # ends up adjacent to the moved block (smaller gap).
-            moved_w = moved_block.rect().width()
-            desired_right_x = (left_pos.x() + left_w - overlap) + moved_w - overlap
-            current_right_x = right.pos().x()
-            shift = desired_right_x - current_right_x
-            if abs(shift) > 0.1:
-                self.push_chain(right, shift)
-
-            new_x = left_pos.x() + left_w - overlap
-            new_y = left_pos.y() + (left.rect().height() - moved_block.rect().height()) / 2
-            moved_block.setPos(new_x, new_y)
-
-            # Align right chain to the same vertical position as left block
-            self.align_chain_vertical(right, left_pos.y())
-            
-            # Reposition chemical blocks below aligned right chain to stay glued
-            b = right
-            while b:
-                if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
-                    action_rect = b.rect()
-                    chem_rect = b.below_block.rect()
-                    snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
-                    snap_y = b.pos().y() + action_rect.height()
-                    b.below_block.setPos(snap_x, snap_y)
-                    # Also update any chemical chain below this chemical
-                    self.update_chemical_chain_below(b.below_block, snap_x, snap_y)
-                b = b.next_block
-
-            left.set_connected(True)
-            right.set_connected(True)
-            moved_block.set_connected(True)
+            # Update visual state based on vertical connections
+            moved_block.set_connected(bool(moved_block.below_block))
             self.update_linked_sequence()
             return
 
-        # If only one neighbor, fall back to single-side insertion logic
-        other = left or right
-        other_rect = other.sceneBoundingRect()
-        other_center = other_rect.center()
-        dx = moved_center.x() - other_center.x()
-        # Clean old links on other if needed
-        if other.prev_block and other.prev_block is moved_block:
-            other.prev_block = None
-        if other.next_block and other.next_block is moved_block:
-            other.next_block = None
+        # 2. FIND NEW NEIGHBORS
+        left, right = None, None
+        lx, rx = None, None
+        for other, oc in intersects:
+            if oc.x() < moved_center.x():
+                if left is None or oc.x() > lx: left, lx = other, oc.x()
+            elif oc.x() > moved_center.x():
+                if right is None or oc.x() < rx: right, rx = other, oc.x()
 
-        if dx > 0:
-            # moved is to the right of other -> place moved after other
-            # Prevent linking if moved block is a first block (can't place first block after another)
-            if moved_block.is_first:
-                # Can't link a first block after another
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                self.update_linked_sequence()
-                return
-            
-            # Prevent Chemical blocks from linking to Elementary or Support actions
-            if self.is_incompatible_horizontal_link(moved_block, other):
-                # Can't link incompatible block types
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                # Restore highlighting on other if it's part of a chain
-                if isinstance(other, ChemicalBlock):
-                    other.set_connected(bool(other.above_block or other.below_block))
-                else:
-                    other.set_connected(bool(other.prev_block or other.next_block or other.below_block))
-                self.update_linked_sequence()
-                return
-            
-            old_next = other.next_block
-            moved_block.prev_block = other
-            moved_block.next_block = None
-            other.next_block = moved_block
+        # 3. INSERTION LOGIC WITH REJECTION HANDLING
+        link_formed = False
 
-            if old_next:
-                # connect moved -> old_next
-                moved_block.next_block = old_next
-                old_next.prev_block = moved_block
-                # make room: position old_next so it's adjacent to moved_block
-                moved_w = moved_block.rect().width()
-                desired_right_x = new_x + moved_w - overlap
-                current_right_x = old_next.pos().x()
-                shift = desired_right_x - current_right_x
-                if abs(shift) > 0.1:
-                    self.push_chain(old_next, shift)
+        if left and right:
+            # Check if we can actually insert here
+            if not right.is_first and not moved_block.is_first:
+                moved_block.prev_block = left
+                moved_block.next_block = right
+                left.next_block = moved_block
+                right.prev_block = moved_block
+                link_formed = True
+        elif left:
+            if not moved_block.is_first:
+                target_next = left.next_block
+                left.next_block = moved_block
+                moved_block.prev_block = left
+                moved_block.next_block = target_next
+                if target_next: target_next.prev_block = moved_block
+                link_formed = True
+        elif right:
+            # Rejection if we try to link to the left of a 'First' block
+            if not right.is_first:
+                target_prev = right.prev_block
+                right.prev_block = moved_block
+                moved_block.next_block = right
+                moved_block.prev_block = target_prev
+                if target_prev: target_prev.next_block = moved_block
+                link_formed = True
 
-            # snap moved to the right side of other
-            other_pos = other.pos()
-            other_w = other.rect().width()
-            new_x = other_pos.x() + other_w - overlap
-            new_y = other_pos.y() + (other.rect().height() - moved_block.rect().height()) / 2
-            moved_block.setPos(new_x, new_y)
-            other.set_connected(True)
-            moved_block.set_connected(True)
-        else:
-            # moved is to the left of other -> place moved before other
-            # Prevent linking if other is a first block (can't place anything before first)
-            if other.is_first:
-                # Can't link anything before a first block
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                self.update_linked_sequence()
-                return
-            
-            # Prevent Chemical blocks from linking to Elementary or Support actions
-            if self.is_incompatible_horizontal_link(moved_block, other):
-                # Can't link incompatible block types
-                moved_block.prev_block = None
-                moved_block.next_block = None
-                moved_block.set_connected(False)
-                # Restore highlighting on other if it's part of a chain
-                if isinstance(other, ChemicalBlock):
-                    other.set_connected(bool(other.above_block or other.below_block))
-                else:
-                    other.set_connected(bool(other.prev_block or other.next_block or other.below_block))
-                self.update_linked_sequence()
-                return
-            
-            old_prev = other.prev_block
-            moved_block.next_block = other
+        # 4. FINAL REFLOW AND VISUAL SYNC
+        # If no link was formed (e.g. rejected by is_first), clean up moved_block
+        if not link_formed:
             moved_block.prev_block = None
-            other.prev_block = moved_block
-            if old_prev:
-                # connect old_prev -> moved
-                old_prev.next_block = moved_block
-                moved_block.prev_block = old_prev
-            
-            # Keep moved_block at its current position
-            # Shift the other chain to the right to maintain overlap
-            moved_pos = moved_block.pos()
-            moved_w = moved_block.rect().width()
-            other_pos = other.pos()
-            
-            # Calculate desired position for other block
-            desired_other_x = moved_pos.x() + moved_w - overlap
-            shift = desired_other_x - other_pos.x()
-            
-            # Shift other and its chain
-            if abs(shift) > 0.1:
-                self.push_chain(other, shift)
-            
-            # Align other to same vertical position as moved
-            new_y = moved_pos.y() + (moved_block.rect().height() - other.rect().height()) / 2
-            other_pos = other.pos()
-            other.setPos(other_pos.x(), new_y)
-            self.align_chain_vertical(other.next_block, new_y)
-            
-            # Reposition chemical blocks below aligned blocks to stay glued
-            b = other
-            while b:
-                if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
-                    action_rect = b.rect()
-                    chem_rect = b.below_block.rect()
-                    snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
-                    snap_y = b.pos().y() + action_rect.height()
-                    b.below_block.setPos(snap_x, snap_y)
-                    # Also update any chemical chain below this chemical
-                    self.update_chemical_chain_below(b.below_block, snap_x, snap_y)
-                b = b.next_block
-            
-            other.set_connected(True)
-            moved_block.set_connected(True)
+            moved_block.next_block = None
+
+        # Reflow all involved chains to ensure positions and colors are correct
+        # Starting from the start of each affected chain
+        for b in [left, right, moved_block, old_prev, old_next]:
+            if b:
+                start = self.find_chain_start(b)
+                self.reflow_chain(start)
+
         self.update_linked_sequence()
 
     def push_chain(self, start_block, shift_x: float):
@@ -833,6 +540,48 @@ class Editor(QGraphicsView):
                 except Exception:
                     pass
             b = b.next_block
+
+    def reflow_chain(self, start_block):
+        """Ensures all blocks in the chain starting from start_block are perfectly snapped."""
+        if not start_block:
+            return
+            
+        overlap = 20
+        curr = start_block
+        
+        # Update current block's connected status
+        is_conn = bool(curr.prev_block or curr.next_block or curr.below_block)
+        curr.set_connected(is_conn)
+
+        while curr and curr.next_block:
+            prev = curr
+            nxt = curr.next_block
+            
+            # Snap next to prev
+            new_x = prev.pos().x() + prev.rect().width() - overlap
+            new_y = prev.pos().y()
+            nxt.setPos(new_x, new_y)
+            
+            # Update nxt visual status
+            nxt.set_connected(True)
+            
+            # Update chemicals for the block that just moved
+            if hasattr(nxt, 'below_block') and nxt.below_block:
+                a_rect = nxt.rect()
+                c_rect = nxt.below_block.rect()
+                snap_x = nxt.pos().x() + (a_rect.width() - c_rect.width()) * 0.25
+                snap_y = nxt.pos().y() + a_rect.height()
+                nxt.below_block.setPos(snap_x, snap_y)
+                self.update_chemical_chain_below(nxt.below_block, snap_x, snap_y)
+            
+            curr = nxt
+
+    def find_chain_start(self, block):
+        """Helper to find the first block of a horizontal chain."""
+        curr = block
+        while curr and curr.prev_block:
+            curr = curr.prev_block
+        return curr
 
     def align_chain_vertical(self, start_block, target_y: float):
         """Align start_block and all following blocks (via next_block)
