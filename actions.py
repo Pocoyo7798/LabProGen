@@ -1,3 +1,5 @@
+from config import KEY_DURATION, KEY_TEMPERATURE, KEY_COMPONENT
+
 class Action:
     """Base class for laboratory actions"""
     def __init__(self, **kwargs):
@@ -9,20 +11,25 @@ class Action:
             "params": self.params
         }
 
-
 class Add(Action):
     """Add a component to the reaction"""
     def __init__(self, component="", duration=0):
-        super().__init__(component=component, duration=duration)
-
+        # Use constants as keys in the params dictionary
+        super().__init__(**{
+            KEY_COMPONENT: component,
+            KEY_DURATION: duration
+        })
 
 class ChangeTemperature(Action):
     """Change the temperature of the reaction"""
     def __init__(self, temperature=50):
-        super().__init__(temperature=temperature)
-
+        super().__init__(**{
+            KEY_TEMPERATURE: temperature
+        })
 
 class Stir(Action):
     """Stir the reaction mixture"""
     def __init__(self, duration=30):
-        super().__init__(duration=duration)
+        super().__init__(**{
+            KEY_DURATION: duration
+        })

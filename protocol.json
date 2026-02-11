@@ -2,14 +2,14 @@
   {
     "action": "Add",
     "params": {
-      "component": "",
-      "duration": ""
+      "component": "aa",
+      "duration": "12 min"
     }
   },
   {
     "action": "ChangeTemperature",
     "params": {
-      "temperature": ""
+      "temperature": "37 \u00b0C"
     }
   }
 ]

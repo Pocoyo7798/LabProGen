@@ -2,10 +2,12 @@ import sys
 from PySide6.QtWidgets import (
     QApplication, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem,
-    QDialog, QFormLayout, QLineEdit, QPushButton, QMenu
+    QDialog, QFormLayout, QLineEdit, QPushButton, QMenu,
+    QHBoxLayout, QComboBox, QWidget
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
-from PySide6.QtGui import QPen, QColor, QFont
+from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator
+from config import FIELD_CONFIG, KEY_NAME, KEY_TEMPERATURE, KEY_DURATION, KEY_COMPONENT, KEY_FORMULA, KEY_SMILES, KEY_STRUCTURE
 import debug_flag
 import json
 
@@ -452,30 +454,81 @@ class Block(QGraphicsRectItem):
             current.setPos(pos.x() + dx, pos.y() + dy)
             current = current.next_block
 
+    def _get_field_widget(self, key, value):
+        """Creates appropriate widget based on FIELD_CONFIG registry."""
+        config = FIELD_CONFIG.get(key.lower(), {})
+        f_type = config.get("type", "text")
+        
+        if f_type == "unit":
+            container = QWidget()
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(8)
+
+            edit = QLineEdit()
+            edit.setPlaceholderText(config.get("placeholder", "Value"))
+            
+            v_min = -273.15 if key.lower() == KEY_TEMPERATURE else 0.0
+            val = QDoubleValidator(v_min, 999999.0, 2)
+            val.setNotation(QDoubleValidator.Notation.StandardNotation)
+            edit.setValidator(val)
+
+            combo = QComboBox()
+            combo.addItems(config.get("units", []))
+
+            str_val = str(value).strip()
+            if " " in str_val:
+                parts = str_val.split(" ")
+                edit.setText(parts[0])
+                idx = combo.findText(parts[1])
+                if idx >= 0: combo.setCurrentIndex(idx)
+            elif str_val and str_val not in config.get("defaults", []):
+                edit.setText(str_val)
+            else:
+                edit.setText("")
+
+            layout.addWidget(edit, 2)
+            layout.addWidget(combo, 1)
+            return container, (edit, combo)
+        
+        else:
+            edit = QLineEdit(str(value))
+            edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
+            return edit, edit
+
     def open_editor(self):
+        """Opens a dialog to edit block parameters based on registry settings."""
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
-        dialog.setFixedWidth(350)
-        layout = QFormLayout(dialog)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        dialog.setFixedWidth(400)
+        form_layout = QFormLayout(dialog)
+        form_layout.setSpacing(12)
+        form_layout.setContentsMargins(20, 20, 20, 20)
 
-        inputs = {}
+        input_map = {}
         for key, value in self.params.items():
-            field = QLineEdit(str(value))
-            layout.addRow(key + ":", field)
-            inputs[key] = field
+            # Retrieve label from config. Fallback to capitalized key string
+            config = FIELD_CONFIG.get(key.lower(), {})
+            label = config.get("label", key.capitalize())
+            
+            widget, tracker = self._get_field_widget(key, value)
+            form_layout.addRow(label + ":", widget)
+            input_map[key] = tracker
 
-        save = QPushButton("Save Changes")
-        layout.addWidget(save)
+        save_btn = QPushButton("Save Changes")
+        form_layout.addWidget(save_btn)
 
-        def apply():
-            for k, field in inputs.items():
-                self.params[k] = field.text()
+        def apply_changes():
+            for k, tracker in input_map.items():
+                if isinstance(tracker, tuple):
+                    edit_field, combo_field = tracker
+                    self.params[k] = f"{edit_field.text()} {combo_field.currentText()}"
+                else:
+                    self.params[k] = tracker.text()
             self.update_text()
             dialog.accept()
 
-        save.clicked.connect(apply)
+        save_btn.clicked.connect(apply_changes)
         dialog.exec()
 
 
@@ -591,7 +644,7 @@ class ChemicalBlock(Block):
     def update_text(self):
         """Update text to display the chemical name from params"""
         # Get the chemical name from params, default to action name if not available
-        chemical_name = self.params.get("name", self.action) or self.action
+        chemical_name = self.params.get(KEY_NAME, self.action) or self.action
         
         self.text.setPlainText(chemical_name)
         

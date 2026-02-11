@@ -182,6 +182,7 @@ class Editor(QGraphicsView):
         self.scene.addItem(block)
         self.blocks.append(block)
         self.update_linked_sequence()
+        block.open_editor()
 
     def add_chemical_block(self):
         """Show dialog to select chemical type and add appropriate block"""
@@ -209,6 +210,7 @@ class Editor(QGraphicsView):
                 self.scene.addItem(block)
                 self.blocks.append(block)
                 self.update_linked_sequence()
+                block.open_editor()
 
     def update_linked_sequence(self):
         """Update the linked_sequence list based on current block linkages.

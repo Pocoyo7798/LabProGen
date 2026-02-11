@@ -1,3 +1,5 @@
+from config import KEY_NAME, KEY_FORMULA, KEY_SMILES, KEY_STRUCTURE
+
 class Chemical:
     """Base class for laboratory actions"""
     def __init__(self, **kwargs):
@@ -9,13 +11,20 @@ class Chemical:
             "params": self.params
         }
 
-
 class Molecule(Chemical):
     """Simple Molecule"""
     def __init__(self, name="", formula="", smile=""):
-        super().__init__(name=name, formula=formula, smile=smile)
+        super().__init__(**{
+            KEY_NAME: name,
+            KEY_FORMULA: formula,
+            KEY_SMILES: smile
+        })
 
 class Material(Chemical):
     """Pure Crystalline Materials"""
     def __init__(self, name="", formula="", structure=""):
-        super().__init__(name=name, formula=formula, structure=structure)
+        super().__init__(**{
+            KEY_NAME: name,
+            KEY_FORMULA: formula,
+            KEY_STRUCTURE: structure
+        })
