@@ -312,101 +312,63 @@ class Editor(QGraphicsView):
         return current
 
     def _find_vertical_target(self, moved_block, look_below=False):
-        """Finds a target for snapping. Handles side-snapping for vertical chemicals."""
+        """Find the best vertical candidate using center-to-center distance."""
         moved_rect = moved_block.sceneBoundingRect()
-        moved_center_y = moved_rect.center().y()
-        
-        target = None
-        best_dist = float('inf')
+        moved_center = moved_rect.center()
+        best_target, best_score = None, float('inf')
 
         for other in self.blocks:
-            if other is moved_block: continue
+            if other is moved_block:
+                continue
+
+            # Actions cannot have Chemicals as flow parents
             if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock):
                 continue
-            
+
             other_rect = other.sceneBoundingRect()
+            other_center = other_rect.center()
 
-            if isinstance(moved_block, ChemicalBlock):
-                # --- SNAP LOGIC FOR CHEMICALS ---
-                is_on_top = moved_rect.intersects(other_rect)
-                
-                if other.orientation == "horizontal":
-                    dy = moved_rect.top() - other_rect.bottom()
-                    dx = abs(moved_rect.center().x() - other_rect.center().x())
-                    if is_on_top or (abs(dy) < 20 and dx < 70):
-                        dist = dx + abs(dy)
-                        if dist < best_dist: target, best_dist = other, dist
-                else:
-                    dx = moved_rect.right() - other_rect.left()
-                    dy = abs(moved_center_y - other_rect.center().y())
-                    # If dropped near the left side of the vertical target
-                    if is_on_top or (abs(dx) < 30 and dy < 80):
-                        dist = dy + abs(dx)
-                        if dist < best_dist: target, best_dist = other, dist
-            else:
-                # --- SNAP LOGIC FOR ACTIONS ---
-                other_height = other_rect.height()
-                dy = (other_rect.top() - moved_rect.bottom()) if look_below else (moved_rect.top() - other_rect.bottom())
-                dx = abs(moved_rect.center().x() - other_rect.center().x())
-                if -45 < dy < 25 and dx < 70:
-                    dist = dx + abs(dy)
-                    if dist < best_dist: target, best_dist = other, dist
-                    
-        return target, best_dist
-    
-    def _pluck_vertical(self, block):
-        """Sever vertical links and reset chemical orientation if necessary."""
-        p = block.above_block
-        c = block.below_block
-        
-        if p:
-            if isinstance(block, ChemicalBlock):
-                if isinstance(p, ChemicalBlock): p.below_block = c
-                else: p.chem_below = c
-            else:
-                if not isinstance(p, ChemicalBlock): p.below_block = c
-        
-        if c:
-            c.above_block = p
-            c.update()
+            # Center-to-center displacement
+            dx = abs(moved_center.x() - other_center.x())
+            dy = moved_center.y() - other_center.y()
 
-        block.above_block = None
-        block.below_block = None
-        
-        # If a chemical is plucked, it defaults back to horizontal
-        if isinstance(block, ChemicalBlock):
-            block.toggle_orientation("horizontal")
-            
-        return p, c
+            # Enforce horizontal alignment (40% width tolerance)
+            if dx > other_rect.width() * 0.4:
+                continue
+
+            # Check directional snap zones
+            if look_below:
+                # Snap above target: between 75% and 10% of height above center
+                is_valid = -other_rect.height() * 0.75 < dy < -other_rect.height() * 0.1
+            else:
+                # Snap below target: between 10% and 75% of height below center
+                is_valid = other_rect.height() * 0.1 < dy < other_rect.height() * 0.75
+
+            if not is_valid:
+                continue
+
+            # Select closest candidate via Manhattan distance
+            score = dx + abs(dy)
+            if score < best_score:
+                best_score = score
+                best_target = other
+
+        return best_target, best_score
     
     def _link_action_as_child_vertical(self, moved_block, target_above):
-        """Links moved_block BELOW target_above, snapping the moved block DOWN."""
-        overlap = 20
-        
-        # 1. Calculate SNAP position
-        target_pos = target_above.pos()
-        snap_x = target_pos.x() + (target_above.rect().width() - moved_block.rect().width()) / 2
-        snap_y = target_pos.y() + target_above.rect().height() - overlap
-        
-        # 2. Move the branch (the moved block and its horizontal/vertical cluster)
-        diff_x = snap_x - moved_block.pos().x()
-        diff_y = snap_y - moved_block.pos().y()
-        self._move_branch(moved_block, diff_x, diff_y)
-
-        # 3. Stitch in between target and its old child if necessary
+        """Establishes pointers for moved_block below target_above."""
         old_child = target_above.below_block
-        if old_child and not isinstance(old_child, ChemicalBlock):
-            # Insert between target_above and old_child
-            moved_block.below_block = old_child
-            old_child.above_block = moved_block
-            
+        
         target_above.below_block = moved_block
         moved_block.above_block = target_above
         
-        # Refresh visual notches
-        moved_block.update()
+        if old_child and not isinstance(old_child, ChemicalBlock):
+            moved_block.below_block = old_child
+            old_child.above_block = moved_block
+            
         target_above.update()
-   
+        moved_block.update()
+    
     def _link_action_flow_vertical(self, action, target):
         """Links an Action block to another Action block's vertical flow."""
         if not target or isinstance(target, ChemicalBlock):
@@ -456,59 +418,108 @@ class Editor(QGraphicsView):
         while isinstance(curr, ChemicalBlock) and curr.above_block:
             curr = curr.above_block
         self.reflow_chain(curr)
-    
-    def check_and_link_vertical_blocks(self, moved_block):
-        """Handles vertical linking ensuring parents act as fixed anchors."""
-        # Clear temporary drag highlights
-        if hasattr(self, 'preview_pair') and self.preview_pair:
-            for item in self.preview_pair:
-                if item: item.set_connected(False)
-            self.preview_pair = None
 
-        is_vert_action = not isinstance(moved_block, ChemicalBlock) and moved_block.orientation == "vertical"
+    def _get_target_and_zone(self, moved_block):
+        """
+        Determines which block is under the moved_block and in which zone 
+        (TOP, BOTTOM, LEFT, RIGHT) it was dropped.
+        """
+        moved_rect = moved_block.sceneBoundingRect()
+        moved_center = moved_rect.center()
         
-        # 1. Identify old neighbors
-        old_p, old_c = moved_block.above_block, moved_block.below_block
+        target = None
+        best_overlap = 0
 
-        # 2. Logical Disconnect (Pluck)
-        self._pluck_vertical(moved_block)
-
-        # 3. Find new Target
-        target, _ = self._find_vertical_target(moved_block, look_below=is_vert_action)
-
-        # 4. Link or Isolated State
-        if target:
-            if isinstance(moved_block, ChemicalBlock):
-                self._link_chemical_to_parent(moved_block, target)
-            else:
-                self._link_action_as_parent_vertical(moved_block, target)
-            # Use target as stable anchor
-            self.reflow_entire_cluster(target)
-        else:
-            # Drop in empty space
-            if isinstance(moved_block, ChemicalBlock):
-                moved_block.toggle_orientation("horizontal")
-                moved_block.set_connected(False)
-            else:
-                moved_block.below_block = None
-                moved_block.set_connected(bool(moved_block.prev_block or moved_block.next_block or moved_block.chem_below))
+        for other in self.blocks:
+            if other is moved_block:
+                continue
             
-            self.reflow_entire_cluster(moved_block)
+            other_rect = other.sceneBoundingRect()
+            
+            # Check for intersection
+            if moved_rect.intersects(other_rect):
+                # Calculate overlap area to pick the best target if overlapping multiple
+                overlap = moved_rect.intersected(other_rect).width() * moved_rect.intersected(other_rect).height()
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    target = other
 
-        # 5. Sync old chain: Close the gap where the block was
-        if old_p:
-            self.reflow_entire_cluster(old_p)
-        elif old_c:
-            self.reflow_entire_cluster(old_c)
+        if not target:
+            return None, None
 
-        self.update_linked_sequence()
+        # Determine zone based on relative center position
+        target_center = target.sceneBoundingRect().center()
+        
+        # Calculate horizontal and vertical bias
+        dx = moved_center.x() - target_center.x()
+        dy = moved_center.y() - target_center.y()
+
+        # If it's a chemical, it always wants to go to the ingredient zone (BOTTOM or SIDE)
+        if isinstance(moved_block, ChemicalBlock):
+            if target.orientation == "vertical": return target, "LEFT"
+            return target, "BOTTOM"
+
+        # For Action blocks, decide based on which distance is greater (Manhattan-ish)
+        if abs(dx) > abs(dy):
+            return target, "RIGHT" if dx > 0 else "LEFT"
+        else:
+            return target, "BOTTOM" if dy > 0 else "TOP"
     
-    def _move_branch(self, block, dx, dy):
-        """Moves the entire connected structure (Cluster) of a block."""
+    def check_and_link_horizontal_blocks(self, moved_block):
+        """Handles horizontal linking based on the drop quadrant."""
+        if moved_block.orientation == "vertical":
+            self.reflow_entire_cluster(moved_block)
+            return
+
+        # 1. Sever old links
+        old_p, old_n = self._pluck_horizontal(moved_block)
+
+        # 2. Find target and drop zone
+        target, zone = self._get_target_and_zone(moved_block)
+
+        # 3. Only process horizontal targets
+        if target and not isinstance(target, ChemicalBlock) and target.orientation == "horizontal":
+            if zone == "LEFT":
+                if not target.is_first:
+                    # Insert before target
+                    p = target.prev_block
+                    moved_block.next_block = target
+                    target.prev_block = moved_block
+                    if p:
+                        p.next_block = moved_block
+                        moved_block.prev_block = p
+            elif zone == "RIGHT":
+                if not moved_block.is_first:
+                    # Insert after target
+                    n = target.next_block
+                    target.next_block = moved_block
+                    moved_block.prev_block = target
+                    if n:
+                        moved_block.next_block = n
+                        n.prev_block = moved_block
+
+        # 4. Sync positions
+        if old_p: self.reflow_entire_cluster(old_p)
+        elif old_n: self.reflow_entire_cluster(old_n)
+        self.reflow_entire_cluster(moved_block)
+        self.update_linked_sequence()
+
+    def _move_branch(self, block, dx, dy, visited=None):
+        """Recursively moves a block and all its downstream connections (Right, Down, and Chemicals)."""
         if not block: return
-        cluster = self.get_full_cluster(block)
-        for b in cluster:
-            b.setPos(b.pos().x() + dx, b.pos().y() + dy)
+        if visited is None: visited = set()
+        if block in visited: return
+        visited.add(block)
+
+        block.setPos(block.pos().x() + dx, block.pos().y() + dy)
+
+        # Move everything that follows this block
+        if block.next_block:
+            self._move_branch(block.next_block, dx, dy, visited)
+        if block.below_block:
+            self._move_branch(block.below_block, dx, dy, visited)
+        if hasattr(block, 'chem_below') and block.chem_below:
+            self._move_branch(block.chem_below, dx, dy, visited)
     
     def _link_action_as_parent_vertical(self, moved_block, target_below):
         """
@@ -542,58 +553,76 @@ class Editor(QGraphicsView):
         moved_block.update()
         target_below.update()
 
-    def check_and_link_horizontal_blocks(self, moved_block):
-        """Handles horizontal linking without dragging the old chain along."""
-        if moved_block.orientation == "vertical":
-            moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block or moved_block.chem_below))
-            return
+    def check_and_link_vertical_blocks(self, moved_block):
+        """Handles vertical linking based on the drop quadrant."""
+        # Reset preview colors
+        if hasattr(self, 'preview_pair') and self.preview_pair:
+            for item in self.preview_pair:
+                if item: item.set_connected(False)
+            self.preview_pair = None
 
-        old_p = moved_block.prev_block
-        old_n = moved_block.next_block
+        # 1. Cut old links
+        old_p, old_c = self._pluck_vertical(moved_block)
 
-        # 1. Logical Disconnect
-        if old_p: old_p.next_block = old_n
-        if old_n: old_n.prev_block = old_p
-        moved_block.prev_block = None
-        moved_block.next_block = None
+        # 2. Find target and drop zone
+        target, zone = self._get_target_and_zone(moved_block)
 
-        # 2. Search for new neighbors
-        left, right = self._find_horizontal_neighbors(moved_block)
+        # 3. Apply logic based on block type
+        if target:
+            if isinstance(moved_block, ChemicalBlock):
+                # Chemicals follow the reflow positioning logic
+                self._link_chemical_to_parent(moved_block, target)
+            else:
+                # ACTION FLOW
+                if zone == "TOP":
+                    # Dropped on top half -> moved becomes parent
+                    if moved_block.orientation == "vertical":
+                        self._link_action_as_parent_vertical(moved_block, target)
+                elif zone == "BOTTOM":
+                    # Dropped on bottom half -> moved becomes child
+                    # Only allow if target is vertical (it's the only one with a bottom arrow)
+                    if target.orientation == "vertical":
+                        self._link_action_as_child_vertical(moved_block, target)
+                elif zone == "LEFT" and target.orientation == "vertical":
+                    # Allow horizontal to snap below vertical even if dropped slightly left
+                    self._link_action_as_child_vertical(moved_block, target)
 
-        # 3. Link
-        if left or right:
-            if left and right:
-                if not right.is_first and not moved_block.is_first:
-                    moved_block.prev_block, moved_block.next_block = left, right
-                    left.next_block, right.prev_block = moved_block, moved_block
-            elif left:
-                if not moved_block.is_first:
-                    target_next = left.next_block
-                    left.next_block = moved_block
-                    moved_block.prev_block = left
-                    moved_block.next_block = target_next
-                    if target_next: target_next.prev_block = moved_block
-            elif right:
-                if not right.is_first:
-                    target_prev = right.prev_block
-                    right.prev_block = moved_block
-                    moved_block.next_block = right
-                    moved_block.prev_block = target_prev
-                    if target_prev: target_prev.next_block = moved_block
-            
-            # Use the neighbor as anchor
-            anchor = left if left else right
-            self.reflow_chain(anchor)
-        else:
-            moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block or moved_block.chem_below))
-
-        # 4. Reflow the old chain
-        if old_p:
-            self.reflow_chain(old_p)
-        elif old_n:
-            self.reflow_chain(old_n)
+        # 4. Reflow everything
+        if old_p: self.reflow_entire_cluster(old_p)
+        if old_c: self.reflow_entire_cluster(old_c)
+        self.reflow_entire_cluster(moved_block)
+        if target: self.reflow_entire_cluster(target)
 
         self.update_linked_sequence()
+    
+    def _pluck_horizontal(self, block):
+        """Sever horizontal links and stitch the old neighbors."""
+        p, n = block.prev_block, block.next_block
+        if p: p.next_block = n
+        if n: n.prev_block = p
+        block.prev_block = None
+        block.next_block = None
+        return p, n
+
+    def _pluck_vertical(self, block):
+        """Sever all vertical links and return the old neighbors."""
+        p = block.above_block
+        c = block.below_block
+        
+        if p:
+            if isinstance(block, ChemicalBlock):
+                if isinstance(p, ChemicalBlock): p.below_block = c
+                else: p.chem_below = c
+            else:
+                if not isinstance(p, ChemicalBlock): p.below_block = c
+        
+        if c:
+            c.above_block = p
+            c.update()
+
+        block.above_block = None
+        block.below_block = None
+        return p, c
     
     def _find_horizontal_neighbors(self, moved_block):
         """Finds the closest left and right action blocks that intersect with moved_block."""
@@ -680,36 +709,37 @@ class Editor(QGraphicsView):
         return heads
 
     def reflow_entire_cluster(self, any_block):
-        """Synchronizes the entire connected graph starting from any node."""
+        """Starts the omnidirectional reflow from the given block."""
         if not any_block:
             return
-        self.reflow_chain(any_block)
+        # Use a fresh visited set for every full sync
+        self.reflow_chain(any_block, visited=set())
 
     def reflow_chain(self, block, visited=None):
-        """Recursive reflow: position flows DOWNWARDS, visual state flows BOTH ways."""
-        if not block: return
-        if visited is None: visited = set()
-        if block in visited: return
+        """Recursively align horizontal flows, vertical flows, and chemical stacks."""
+        if not block:
+            return
+        if visited is None:
+            visited = set()
+        if block in visited:
+            return
         visited.add(block)
 
+        # force visual update for dynamic notches
         block.update()
+        
         overlap = 20         
         border_overlap = 3   
-        precision = 0.01
+        arrow_size = 18      
+        precision = 0.01     
 
-        # 1. Update visual state
+        # update connected highlight state
         has_conn = bool(block.prev_block or block.next_block or 
                         block.above_block or block.below_block or 
                         (hasattr(block, 'chem_below') and block.chem_below))
         block.set_connected(has_conn)
 
-        # 2. Recurse upwards
-        if block.above_block:
-            self.reflow_chain(block.above_block, visited)
-        if block.prev_block:
-            self.reflow_chain(block.prev_block, visited)
-
-        # 3. Align horizontal next (Downstream)
+        # align horizontal next (right)
         if block.next_block:
             nb = block.next_block
             new_x = block.pos().x() + block.rect().width() - overlap
@@ -718,7 +748,16 @@ class Editor(QGraphicsView):
                 nb.setPos(new_x, new_y)
             self.reflow_chain(nb, visited)
 
-        # 4. Align vertical action below (Downstream)
+        # align horizontal prev (left) only if not triggered by a chemical
+        if not isinstance(block, ChemicalBlock) and block.prev_block:
+            pb = block.prev_block
+            new_x = block.pos().x() - pb.rect().width() + overlap
+            new_y = block.pos().y()
+            if abs(pb.pos().x() - new_x) > precision or abs(pb.pos().y() - new_y) > precision:
+                pb.setPos(new_x, new_y)
+            self.reflow_chain(pb, visited)
+
+        # align vertical action flow (down)
         if block.below_block and not isinstance(block.below_block, ChemicalBlock):
             bb = block.below_block
             new_x = block.pos().x() + (block.rect().width() - bb.rect().width()) / 2
@@ -727,26 +766,33 @@ class Editor(QGraphicsView):
                 bb.setPos(new_x, new_y)
             self.reflow_chain(bb, visited)
 
-        # 5. Align chemical stack (Ingredients)
+        # align vertical action flow (up) only if not triggered by a chemical
+        if not isinstance(block, ChemicalBlock) and block.above_block and not isinstance(block.above_block, ChemicalBlock):
+            ab = block.above_block
+            new_x = block.pos().x() + (block.rect().width() - ab.rect().width()) / 2
+            new_y = block.pos().y() - ab.rect().height() + overlap
+            if abs(ab.pos().x() - new_x) > precision or abs(ab.pos().y() - new_y) > precision:
+                ab.setPos(new_x, new_y)
+            self.reflow_chain(ab, visited)
+
+        # align chemical stack ingredients
         if hasattr(block, 'chem_below') and block.chem_below:
             cb = block.chem_below
             cb.toggle_orientation(block.orientation)
             
             action_rect = block.rect()
             chem_rect = cb.rect()
-            arrow_size = 18
 
             if block.orientation == "vertical":
-                # Vertical Action (Chemicals on the Left)
+                # side-aligned for vertical actions
                 new_x = block.pos().x() - chem_rect.width() + border_overlap
-                action_body_height = action_rect.height() - arrow_size
-                body_center_y = block.pos().y() + (action_body_height / 2)
-                new_y = body_center_y - (chem_rect.height() / 2)
+                body_h = action_rect.height() - arrow_size
+                body_center_y = block.pos().y() + (body_h / 2)
+                new_y = body_center_y - (chem_rect.height() / 2) - 4.5
             else:
-                # Horizontal Action (Chemicals Below)
-                nudge_left = 9 
-                offset_x = ((action_rect.width() - chem_rect.width()) / 2) - nudge_left
-                new_x = block.pos().x() + offset_x
+                # bottom-centered for horizontal actions
+                off_x = ((action_rect.width() - chem_rect.width()) / 2) - 9
+                new_x = block.pos().x() + off_x
                 new_y = block.pos().y() + action_rect.height() - border_overlap
 
             if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:

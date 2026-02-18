@@ -266,19 +266,41 @@ class Block(QGraphicsRectItem):
         print("[DEBUG] ===== end snapshot =====\n")
 
     def mousePressEvent(self, event):
-        """Handle mouse press events including right-click and Ctrl+click"""
+        """Handle mouse press and detach block from chains before dragging."""
         if event.button() == Qt.RightButton:
             self.show_context_menu(event)
-        elif event.modifiers() == Qt.ControlModifier:
-            # Ctrl+click: enable chain drag mode
+            return
+
+        if self.editor:
+            # handle vertical detachment
+            old_above = self.above_block
+            old_below = self.below_block
+
+            if old_above or old_below:
+                old_p, old_c = self.editor._pluck_vertical(self)
+                if old_p:
+                    self.editor.reflow_entire_cluster(old_p)
+                if old_c:
+                    self.editor.reflow_entire_cluster(old_c)
+
+            # handle horizontal detachment for vertical blocks
+            if self.orientation == "vertical":
+                old_p, old_n = self.editor._pluck_horizontal(self)
+                if old_p:
+                    self.editor.reflow_entire_cluster(old_p)
+                if old_n:
+                    self.editor.reflow_entire_cluster(old_n)
+
+        # move entire cluster if control is pressed
+        if event.modifiers() == Qt.ControlModifier:
             self.chain_drag_mode = True
-            # Bring block to foreground
             self.setZValue(1000)
             super().mousePressEvent(event)
-        else:
-            # Bring block to foreground
-            self.setZValue(1000)
-            super().mousePressEvent(event)
+            return
+
+        # normal single block movement
+        self.setZValue(1000)
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """Handle mouse move events including chain dragging"""
