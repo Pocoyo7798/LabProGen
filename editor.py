@@ -262,34 +262,37 @@ class Editor(QGraphicsView):
         return not (is_parent_action or is_parent_chemical)
 
     def preview_link(self, moved_block):
-        """While dragging, highlight the block that would be linked if released.
-        This sets a temporary connected visual on both blocks until release.
-        """
-        # Clear previous preview
+        """Visual feedback for both horizontal and vertical snapping."""
+        # Reset previous preview to their actual logical state
         if hasattr(self, 'preview_pair') and self.preview_pair:
             a, b = self.preview_pair
-            if a:
-                # Restore proper connected state: should be connected if part of a chain (horizontal or vertical)
-                a.set_connected(bool(a.prev_block or a.next_block or a.above_block or a.below_block))
-            if b:
-                # Restore proper connected state: should be connected if part of a chain (horizontal or vertical)
-                b.set_connected(bool(b.prev_block or b.next_block or b.above_block or b.below_block))
+            for item in [a, b]:
+                if item:
+                    # Check if the block is actually connected to something else
+                    is_conn = bool(item.prev_block or item.next_block or 
+                                   item.above_block or item.below_block or 
+                                   (hasattr(item, 'chem_below') and item.chem_below))
+                    item.set_connected(is_conn)
             self.preview_pair = None
 
         moved_rect = moved_block.sceneBoundingRect()
         for other in self.blocks:
-            if other is moved_block:
-                continue
+            if other is moved_block: continue
+            
             other_rect = other.sceneBoundingRect()
             if moved_rect.intersects(other_rect):
-                # highlight both as preview
+                # Highlight potential connection temporarily
                 moved_block.set_connected(True)
                 other.set_connected(True)
                 self.preview_pair = (moved_block, other)
                 return
-        # no intersection; clear moved highlight
-        moved_block.set_connected(False)
-
+        
+        # If no intersection, current moved block follows its logical state
+        is_conn = bool(moved_block.prev_block or moved_block.next_block or 
+                       moved_block.above_block or moved_block.below_block or 
+                       (hasattr(moved_block, 'chem_below') and moved_block.chem_below))
+        moved_block.set_connected(is_conn)
+    
     def update_chemical_chain_below(self, chemical_block, parent_x, parent_y):
         """Recursively update positions of chemical blocks below a chemical block."""
         if chemical_block.below_block:
@@ -308,214 +311,318 @@ class Editor(QGraphicsView):
             current = current.below_block
         return current
 
-    def check_and_link_vertical_blocks(self, moved_block):
-        """Check if a chemical block is below an action block or another chemical block and link them vertically.
-        If a block is dropped where another already exists, it inserts itself and pushes others down.
-        """
-        if isinstance(moved_block, ChemicalBlock):
-            moved_rect = moved_block.sceneBoundingRect()
-            moved_center_x = moved_rect.center().x()
-            moved_y = moved_rect.top()
-            
-            best_target = None
-            best_distance = float('inf')
-            
-            for other in self.blocks:
-                if other is moved_block:
-                    continue
-                
-                # The target can be an ActionBlock or a ChemicalBlock
-                if not isinstance(other, (ElementaryAction, SupportAction, ChemicalBlock)):
-                    continue
-                
-                other_rect = other.sceneBoundingRect()
-                other_center_x = other_rect.center().x()
-                other_bottom = other_rect.bottom()
-                
-                dx = abs(moved_center_x - other_center_x)
-                dy = moved_y - other_bottom
-                
-                # Tolerance for vertical proximity detection
-                if -30 < dy < 60 and dx < 80:
-                    distance = dx + abs(dy)
-                    if distance < best_distance:
-                        best_target = other
-                        best_distance = distance
-            
-            if best_target:
-                # 1. Remove moved_block from its current position in the chain (if any)
-                old_parent = moved_block.above_block
-                old_child = moved_block.below_block
-                
-                if old_parent:
-                    if old_child:
-                        old_parent.below_block = old_child
-                        old_child.above_block = old_parent
-                    else:
-                        old_parent.below_block = None
-                    
-                    # If the previous parent was a ChemicalBlock, update its visual state
-                    if isinstance(old_parent, ChemicalBlock):
-                        old_parent.set_connected(bool(old_parent.above_block or old_parent.below_block))
-                
-                # 2. Insert moved_block between best_target and its current below_block
-                target_old_child = best_target.below_block
-                
-                best_target.below_block = moved_block
-                moved_block.above_block = best_target
-                
-                if target_old_child:
-                    moved_block.below_block = target_old_child
-                    target_old_child.above_block = moved_block
-                else:
-                    moved_block.below_block = None
-
-                # 3. Reposition moved_block and the entire chain below it
-                target_pos = best_target.pos()
-                target_rect = best_target.rect()
-                moved_rect_internal = moved_block.rect()
-                
-                # Visual alignment (snap)
-                snap_x = target_pos.x() + (target_rect.width() - moved_rect_internal.width()) * 0.25
-                snap_y = target_pos.y() + target_rect.height()
-                moved_block.setPos(snap_x, snap_y)
-                
-                # Update visual state
-                moved_block.set_connected(True)
-                best_target.set_connected(True)
-                
-                # 4. Recursively push any blocks below to follow the new position
-                self.update_chemical_chain_below(moved_block, snap_x, snap_y)
-                
-            else:
-                # If dropped on empty space, disconnect from the vertical chain
-                if moved_block.above_block:
-                    parent = moved_block.above_block
-                    child = moved_block.below_block
-                    
-                    if child:
-                        parent.below_block = child
-                        child.above_block = parent
-                        p_pos = parent.pos()
-                        self.update_chemical_chain_below(parent, p_pos.x(), p_pos.y())
-                    else:
-                        parent.below_block = None
-                        if isinstance(parent, ChemicalBlock):
-                            parent.set_connected(bool(parent.above_block))
-                
-                moved_block.above_block = None
-                moved_block.below_block = None
-                moved_block.set_connected(False)
+    def _find_vertical_target(self, moved_block, look_below=False):
+        """Finds a target for snapping. Handles side-snapping for vertical chemicals."""
+        moved_rect = moved_block.sceneBoundingRect()
+        moved_center_y = moved_rect.center().y()
         
-        elif isinstance(moved_block, (ElementaryAction, SupportAction)):
-            # If an action block is moved, ensure its first chemical child follows
-            if moved_block.below_block:
-                m_pos = moved_block.pos()
-                m_rect = moved_block.rect()
-                c_rect = moved_block.below_block.rect()
-                
-                snap_x = m_pos.x() + (m_rect.width() - c_rect.width()) * 0.25
-                snap_y = m_pos.y() + m_rect.height()
-                moved_block.below_block.setPos(snap_x, snap_y)
-                self.update_chemical_chain_below(moved_block.below_block, snap_x, snap_y)
+        target = None
+        best_dist = float('inf')
 
-    def check_and_link_horizontal_blocks(self, moved_block):
-        """When a block is released, update pointers and reflow the chain to close gaps."""
-        # Clear preview highlights
+        for other in self.blocks:
+            if other is moved_block: continue
+            if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock):
+                continue
+            
+            other_rect = other.sceneBoundingRect()
+
+            if isinstance(moved_block, ChemicalBlock):
+                # --- SNAP LOGIC FOR CHEMICALS ---
+                is_on_top = moved_rect.intersects(other_rect)
+                
+                if other.orientation == "horizontal":
+                    dy = moved_rect.top() - other_rect.bottom()
+                    dx = abs(moved_rect.center().x() - other_rect.center().x())
+                    if is_on_top or (abs(dy) < 20 and dx < 70):
+                        dist = dx + abs(dy)
+                        if dist < best_dist: target, best_dist = other, dist
+                else:
+                    dx = moved_rect.right() - other_rect.left()
+                    dy = abs(moved_center_y - other_rect.center().y())
+                    # If dropped near the left side of the vertical target
+                    if is_on_top or (abs(dx) < 30 and dy < 80):
+                        dist = dy + abs(dx)
+                        if dist < best_dist: target, best_dist = other, dist
+            else:
+                # --- SNAP LOGIC FOR ACTIONS ---
+                other_height = other_rect.height()
+                dy = (other_rect.top() - moved_rect.bottom()) if look_below else (moved_rect.top() - other_rect.bottom())
+                dx = abs(moved_rect.center().x() - other_rect.center().x())
+                if -45 < dy < 25 and dx < 70:
+                    dist = dx + abs(dy)
+                    if dist < best_dist: target, best_dist = other, dist
+                    
+        return target, best_dist
+    
+    def _pluck_vertical(self, block):
+        """Sever vertical links and reset chemical orientation if necessary."""
+        p = block.above_block
+        c = block.below_block
+        
+        if p:
+            if isinstance(block, ChemicalBlock):
+                if isinstance(p, ChemicalBlock): p.below_block = c
+                else: p.chem_below = c
+            else:
+                if not isinstance(p, ChemicalBlock): p.below_block = c
+        
+        if c:
+            c.above_block = p
+            c.update()
+
+        block.above_block = None
+        block.below_block = None
+        
+        # If a chemical is plucked, it defaults back to horizontal
+        if isinstance(block, ChemicalBlock):
+            block.toggle_orientation("horizontal")
+            
+        return p, c
+    
+    def _link_action_as_child_vertical(self, moved_block, target_above):
+        """Links moved_block BELOW target_above, snapping the moved block DOWN."""
+        overlap = 20
+        
+        # 1. Calculate SNAP position
+        target_pos = target_above.pos()
+        snap_x = target_pos.x() + (target_above.rect().width() - moved_block.rect().width()) / 2
+        snap_y = target_pos.y() + target_above.rect().height() - overlap
+        
+        # 2. Move the branch (the moved block and its horizontal/vertical cluster)
+        diff_x = snap_x - moved_block.pos().x()
+        diff_y = snap_y - moved_block.pos().y()
+        self._move_branch(moved_block, diff_x, diff_y)
+
+        # 3. Stitch in between target and its old child if necessary
+        old_child = target_above.below_block
+        if old_child and not isinstance(old_child, ChemicalBlock):
+            # Insert between target_above and old_child
+            moved_block.below_block = old_child
+            old_child.above_block = moved_block
+            
+        target_above.below_block = moved_block
+        moved_block.above_block = target_above
+        
+        # Refresh visual notches
+        moved_block.update()
+        target_above.update()
+   
+    def _link_action_flow_vertical(self, action, target):
+        """Links an Action block to another Action block's vertical flow."""
+        if not target or isinstance(target, ChemicalBlock):
+            return
+        
+        # Insert between target and its current vertical child
+        old_child = target.below_block
+        target.below_block = action
+        action.above_block = target
+        
+        if old_child:
+            action.below_block = old_child
+            old_child.above_block = action
+        
+        # Determine the start of the chain for reflow
+        root = self.find_chain_start(target)
+        self.reflow_chain(root)
+
+    def _link_chemical_to_parent(self, chem, target):
+        """Links chemical and positions it correctly based on target orientation."""
+        border_overlap = 3
+
+        if isinstance(target, (ElementaryAction, SupportAction)):
+            old_stack = target.chem_below
+            target.chem_below = chem
+            chem.above_block = target
+            if old_stack:
+                chem.below_block = old_stack
+                old_stack.above_block = chem
+        elif isinstance(target, ChemicalBlock):
+            # Target is another Chemical
+            old_child = target.below_block
+            target.below_block = chem
+            chem.above_block = target
+            if old_child:
+                chem.below_block = old_child
+                old_child.above_block = chem
+            
+            # Snap position manually before reflow to prevent jumping
+            if target.orientation == "vertical":
+                chem.setPos(target.pos().x() - chem.rect().width() + border_overlap, target.pos().y())
+            else:
+                chem.setPos(target.pos().x(), target.pos().y() + target.rect().height() - border_overlap)
+
+        # Trigger full reflow from the top action anchor
+        curr = target
+        while isinstance(curr, ChemicalBlock) and curr.above_block:
+            curr = curr.above_block
+        self.reflow_chain(curr)
+    
+    def check_and_link_vertical_blocks(self, moved_block):
+        """Handles vertical linking ensuring parents act as fixed anchors."""
+        # Clear temporary drag highlights
         if hasattr(self, 'preview_pair') and self.preview_pair:
-            a, b = self.preview_pair
-            a.set_connected(False)
-            b.set_connected(False)
+            for item in self.preview_pair:
+                if item: item.set_connected(False)
             self.preview_pair = None
 
-        if moved_block not in self.blocks:
+        is_vert_action = not isinstance(moved_block, ChemicalBlock) and moved_block.orientation == "vertical"
+        
+        # 1. Identify old neighbors
+        old_p, old_c = moved_block.above_block, moved_block.below_block
+
+        # 2. Logical Disconnect (Pluck)
+        self._pluck_vertical(moved_block)
+
+        # 3. Find new Target
+        target, _ = self._find_vertical_target(moved_block, look_below=is_vert_action)
+
+        # 4. Link or Isolated State
+        if target:
+            if isinstance(moved_block, ChemicalBlock):
+                self._link_chemical_to_parent(moved_block, target)
+            else:
+                self._link_action_as_parent_vertical(moved_block, target)
+            # Use target as stable anchor
+            self.reflow_entire_cluster(target)
+        else:
+            # Drop in empty space
+            if isinstance(moved_block, ChemicalBlock):
+                moved_block.toggle_orientation("horizontal")
+                moved_block.set_connected(False)
+            else:
+                moved_block.below_block = None
+                moved_block.set_connected(bool(moved_block.prev_block or moved_block.next_block or moved_block.chem_below))
+            
+            self.reflow_entire_cluster(moved_block)
+
+        # 5. Sync old chain: Close the gap where the block was
+        if old_p:
+            self.reflow_entire_cluster(old_p)
+        elif old_c:
+            self.reflow_entire_cluster(old_c)
+
+        self.update_linked_sequence()
+    
+    def _move_branch(self, block, dx, dy):
+        """Moves the entire connected structure (Cluster) of a block."""
+        if not block: return
+        cluster = self.get_full_cluster(block)
+        for b in cluster:
+            b.setPos(b.pos().x() + dx, b.pos().y() + dy)
+    
+    def _link_action_as_parent_vertical(self, moved_block, target_below):
+        """
+        Connects a vertical action as the parent of target_below.
+        Shifts the upstream branch UP to keep the target (and its horizontal chain) stable.
+        """
+        overlap = 20
+        
+        # 1. Calculate the ideal centered position over the target
+        snap_x = target_below.pos().x() + (target_below.rect().width() - moved_block.rect().width()) / 2
+        snap_y = target_below.pos().y() - moved_block.rect().height() + overlap
+        
+        # 2. Calculate the distance needed to move the moved_block to that position
+        diff_x = snap_x - moved_block.pos().x()
+        diff_y = snap_y - moved_block.pos().y()
+        
+        # 3. Move the moved_block and its upstream ancestors (Above and Left) to the snap position
+        self._move_branch(moved_block, diff_x, diff_y)
+
+        # 4. Establish the logical links
+        old_parent = target_below.above_block
+        if old_parent and not isinstance(old_parent, ChemicalBlock):
+            # Insert moved_block between the old vertical parent and the target
+            old_parent.below_block = moved_block
+            moved_block.above_block = old_parent
+            
+        moved_block.below_block = target_below
+        target_below.above_block = moved_block
+        
+        # 5. Visual update for both to ensure notches/arrows are drawn
+        moved_block.update()
+        target_below.update()
+
+    def check_and_link_horizontal_blocks(self, moved_block):
+        """Handles horizontal linking without dragging the old chain along."""
+        if moved_block.orientation == "vertical":
+            moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block or moved_block.chem_below))
             return
 
+        old_p = moved_block.prev_block
+        old_n = moved_block.next_block
+
+        # 1. Logical Disconnect
+        if old_p: old_p.next_block = old_n
+        if old_n: old_n.prev_block = old_p
+        moved_block.prev_block = None
+        moved_block.next_block = None
+
+        # 2. Search for new neighbors
+        left, right = self._find_horizontal_neighbors(moved_block)
+
+        # 3. Link
+        if left or right:
+            if left and right:
+                if not right.is_first and not moved_block.is_first:
+                    moved_block.prev_block, moved_block.next_block = left, right
+                    left.next_block, right.prev_block = moved_block, moved_block
+            elif left:
+                if not moved_block.is_first:
+                    target_next = left.next_block
+                    left.next_block = moved_block
+                    moved_block.prev_block = left
+                    moved_block.next_block = target_next
+                    if target_next: target_next.prev_block = moved_block
+            elif right:
+                if not right.is_first:
+                    target_prev = right.prev_block
+                    right.prev_block = moved_block
+                    moved_block.next_block = right
+                    moved_block.prev_block = target_prev
+                    if target_prev: target_prev.next_block = moved_block
+            
+            # Use the neighbor as anchor
+            anchor = left if left else right
+            self.reflow_chain(anchor)
+        else:
+            moved_block.set_connected(bool(moved_block.above_block or moved_block.below_block or moved_block.chem_below))
+
+        # 4. Reflow the old chain
+        if old_p:
+            self.reflow_chain(old_p)
+        elif old_n:
+            self.reflow_chain(old_n)
+
+        self.update_linked_sequence()
+    
+    def _find_horizontal_neighbors(self, moved_block):
+        """Finds the closest left and right action blocks that intersect with moved_block."""
         moved_rect = moved_block.sceneBoundingRect()
         moved_center = moved_rect.center()
+        
+        left, right = None, None
+        lx, rx = None, None
 
-        # Find intersecting action blocks
-        intersects = []
         for other in self.blocks:
             if other is moved_block or isinstance(other, ChemicalBlock):
                 continue
+            
+            # Skip if the other block is vertical
+            if other.orientation == "vertical":
+                continue
+
             if moved_rect.intersects(other.sceneBoundingRect()):
                 oc = other.sceneBoundingRect().center()
+                # Check horizontal proximity
                 if abs(moved_center.x() - oc.x()) >= abs(moved_center.y() - oc.y()):
-                    intersects.append((other, oc))
-
-        # 1. REMOVE: Disconnect moved_block from its old position
-        old_prev = moved_block.prev_block
-        old_next = moved_block.next_block
-
-        if old_prev: old_prev.next_block = old_next
-        if old_next: old_next.prev_block = old_prev
-
-        if not intersects:
-            # Case: Dropped in empty space
-            moved_block.prev_block = None
-            moved_block.next_block = None
-            if old_prev: self.reflow_chain(self.find_chain_start(old_prev))
-            elif old_next: self.reflow_chain(old_next)
-            
-            # Update visual state based on vertical connections
-            moved_block.set_connected(bool(moved_block.below_block))
-            self.update_linked_sequence()
-            return
-
-        # 2. FIND NEW NEIGHBORS
-        left, right = None, None
-        lx, rx = None, None
-        for other, oc in intersects:
-            if oc.x() < moved_center.x():
-                if left is None or oc.x() > lx: left, lx = other, oc.x()
-            elif oc.x() > moved_center.x():
-                if right is None or oc.x() < rx: right, rx = other, oc.x()
-
-        # 3. INSERTION LOGIC WITH REJECTION HANDLING
-        link_formed = False
-
-        if left and right:
-            # Check if we can actually insert here
-            if not right.is_first and not moved_block.is_first:
-                moved_block.prev_block = left
-                moved_block.next_block = right
-                left.next_block = moved_block
-                right.prev_block = moved_block
-                link_formed = True
-        elif left:
-            if not moved_block.is_first:
-                target_next = left.next_block
-                left.next_block = moved_block
-                moved_block.prev_block = left
-                moved_block.next_block = target_next
-                if target_next: target_next.prev_block = moved_block
-                link_formed = True
-        elif right:
-            # Rejection if we try to link to the left of a 'First' block
-            if not right.is_first:
-                target_prev = right.prev_block
-                right.prev_block = moved_block
-                moved_block.next_block = right
-                moved_block.prev_block = target_prev
-                if target_prev: target_prev.next_block = moved_block
-                link_formed = True
-
-        # 4. FINAL REFLOW AND VISUAL SYNC
-        # If no link was formed (e.g. rejected by is_first), clean up moved_block
-        if not link_formed:
-            moved_block.prev_block = None
-            moved_block.next_block = None
-
-        # Reflow all involved chains to ensure positions and colors are correct
-        # Starting from the start of each affected chain
-        for b in [left, right, moved_block, old_prev, old_next]:
-            if b:
-                start = self.find_chain_start(b)
-                self.reflow_chain(start)
-
-        self.update_linked_sequence()
-
+                    if oc.x() < moved_center.x(): # Other is on the left
+                        if left is None or oc.x() > lx:
+                            left, lx = other, oc.x()
+                    else: # Other is on the right
+                        if right is None or oc.x() < rx:
+                            right, rx = other, oc.x()
+        return left, right
+    
     def push_chain(self, start_block, shift_x: float):
         """Move start_block and all following blocks (via next_block)
         horizontally by shift_x (positive -> right).
@@ -541,41 +648,137 @@ class Editor(QGraphicsView):
                     pass
             b = b.next_block
 
-    def reflow_chain(self, start_block):
-        """Ensures all blocks in the chain starting from start_block are perfectly snapped."""
-        if not start_block:
+    def get_full_cluster(self, start_block):
+        """Finds all blocks connected in the same graph using BFS."""
+        cluster = set()
+        queue = [start_block]
+        while queue:
+            curr = queue.pop(0)
+            if curr not in cluster:
+                cluster.add(curr)
+                # Check all 5 possible directions
+                neighbors = [
+                    curr.prev_block, curr.next_block, 
+                    curr.above_block, curr.below_block, 
+                    curr.chem_below
+                ]
+                for n in neighbors:
+                    if n and n not in cluster:
+                        queue.append(n)
+        return cluster
+
+    def get_cluster_heads(self, cluster):
+        """Returns all blocks in the cluster that have no incoming connections."""
+        heads = []
+        for b in cluster:
+            if isinstance(b, ChemicalBlock):
+                continue
+            # A head is an action block with no PREV and no ABOVE 
+            has_above_action = b.above_block and not isinstance(b.above_block, ChemicalBlock)
+            if not b.prev_block and not has_above_action:
+                heads.append(b)
+        return heads
+
+    def reflow_entire_cluster(self, any_block):
+        """Synchronizes the entire connected graph starting from any node."""
+        if not any_block:
             return
+        self.reflow_chain(any_block)
+
+    def reflow_chain(self, block, visited=None):
+        """Recursive reflow: position flows DOWNWARDS, visual state flows BOTH ways."""
+        if not block: return
+        if visited is None: visited = set()
+        if block in visited: return
+        visited.add(block)
+
+        block.update()
+        overlap = 20         
+        border_overlap = 3   
+        precision = 0.01
+
+        # 1. Update visual state
+        has_conn = bool(block.prev_block or block.next_block or 
+                        block.above_block or block.below_block or 
+                        (hasattr(block, 'chem_below') and block.chem_below))
+        block.set_connected(has_conn)
+
+        # 2. Recurse upwards
+        if block.above_block:
+            self.reflow_chain(block.above_block, visited)
+        if block.prev_block:
+            self.reflow_chain(block.prev_block, visited)
+
+        # 3. Align horizontal next (Downstream)
+        if block.next_block:
+            nb = block.next_block
+            new_x = block.pos().x() + block.rect().width() - overlap
+            new_y = block.pos().y()
+            if abs(nb.pos().x() - new_x) > precision or abs(nb.pos().y() - new_y) > precision:
+                nb.setPos(new_x, new_y)
+            self.reflow_chain(nb, visited)
+
+        # 4. Align vertical action below (Downstream)
+        if block.below_block and not isinstance(block.below_block, ChemicalBlock):
+            bb = block.below_block
+            new_x = block.pos().x() + (block.rect().width() - bb.rect().width()) / 2
+            new_y = block.pos().y() + block.rect().height() - overlap
+            if abs(bb.pos().x() - new_x) > precision or abs(bb.pos().y() - new_y) > precision:
+                bb.setPos(new_x, new_y)
+            self.reflow_chain(bb, visited)
+
+        # 5. Align chemical stack (Ingredients)
+        if hasattr(block, 'chem_below') and block.chem_below:
+            cb = block.chem_below
+            cb.toggle_orientation(block.orientation)
             
-        overlap = 20
-        curr = start_block
+            action_rect = block.rect()
+            chem_rect = cb.rect()
+            arrow_size = 18
+
+            if block.orientation == "vertical":
+                # Vertical Action (Chemicals on the Left)
+                new_x = block.pos().x() - chem_rect.width() + border_overlap
+                action_body_height = action_rect.height() - arrow_size
+                body_center_y = block.pos().y() + (action_body_height / 2)
+                new_y = body_center_y - (chem_rect.height() / 2)
+            else:
+                # Horizontal Action (Chemicals Below)
+                nudge_left = 9 
+                offset_x = ((action_rect.width() - chem_rect.width()) / 2) - nudge_left
+                new_x = block.pos().x() + offset_x
+                new_y = block.pos().y() + action_rect.height() - border_overlap
+
+            if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
+                cb.setPos(new_x, new_y)
+            
+            self.reflow_chemicals(cb, block.orientation)
+    
+    def reflow_chemicals(self, first_chem, orientation):
+        """Stacks chemicals based on orientation: Downwards if Horizontal, Leftwards if Vertical."""
+        curr = first_chem
+        border_overlap = 3 
         
-        # Update current block's connected status
-        is_conn = bool(curr.prev_block or curr.next_block or curr.below_block)
-        curr.set_connected(is_conn)
-
-        while curr and curr.next_block:
-            prev = curr
-            nxt = curr.next_block
-            
-            # Snap next to prev
-            new_x = prev.pos().x() + prev.rect().width() - overlap
-            new_y = prev.pos().y()
-            nxt.setPos(new_x, new_y)
-            
-            # Update nxt visual status
-            nxt.set_connected(True)
-            
-            # Update chemicals for the block that just moved
-            if hasattr(nxt, 'below_block') and nxt.below_block:
-                a_rect = nxt.rect()
-                c_rect = nxt.below_block.rect()
-                snap_x = nxt.pos().x() + (a_rect.width() - c_rect.width()) * 0.25
-                snap_y = nxt.pos().y() + a_rect.height()
-                nxt.below_block.setPos(snap_x, snap_y)
-                self.update_chemical_chain_below(nxt.below_block, snap_x, snap_y)
-            
-            curr = nxt
-
+        while curr:
+            curr.set_connected(True)
+            if curr.below_block:
+                nxt = curr.below_block
+                nxt.toggle_orientation(orientation)
+                
+                if orientation == "vertical":
+                    # Stack to the left: New chemical right border overlaps current left border
+                    new_x = curr.pos().x() - nxt.rect().width() + border_overlap
+                    new_y = curr.pos().y()
+                else:
+                    # Stack downwards: Standard vertical list
+                    new_x = curr.pos().x()
+                    new_y = curr.pos().y() + curr.rect().height() - border_overlap
+                
+                nxt.setPos(new_x, new_y)
+                curr = nxt
+            else:
+                break
+    
     def find_chain_start(self, block):
         """Helper to find the first block of a horizontal chain."""
         curr = block
@@ -606,70 +809,98 @@ class Editor(QGraphicsView):
 
     def export_protocol(self):
         """
-        Export the protocol to JSON. 
-        Ensures all blocks belong to a single, continuous chain.
+        Exports the protocol by identifying horizontal and vertical heads separately.
+        This allows intersecting chains to be recognized as distinct flows.
         """
         if not self.blocks:
             print("No blocks to export.")
             return
 
-        # 1. Identify the starting point
-        # Priority 1: Block marked as 'is_first'
-        start_node = next((b for b in self.blocks if b.is_first), None)
-        
-        # Priority 2: If no 'is_first', pick any action and find its chain start
-        if not start_node:
-            action_blocks = [b for b in self.blocks if not isinstance(b, ChemicalBlock)]
-            if action_blocks:
-                # Get the head of the chain containing the first action found
-                start_node = self.find_chain_start(action_blocks[0])
+        flows_list = []
+        visited_globally = set()
 
-        if not start_node:
-            print("Error: Could not find a valid start for the protocol.")
-            return
-
-        # 2. Traverse and build the sequence while tracking visited blocks
-        visited = set()
-        self.protocol.actions = []
-        
-        # Mappings from UI strings to Data Classes
-        action_map = {"Add": Add, "ChangeTemperature": ChangeTemperature, "Stir": Stir}
-        chem_map = {"Molecule": Molecule, "Material": Material}
-
-        current_action = start_node
-        while current_action:
-            visited.add(current_action)
+        # Helper to build step data
+        def get_step_data(block):
+            visited_globally.add(block)
+            data = {
+                "action": block.action,
+                "params": block.params.copy()
+            }
             
-            # Create Action data object
-            action_cls = action_map.get(current_action.action)
-            if action_cls:
-                action_data = action_cls(**current_action.params)
-                
-                # Traverse Vertical chain for chemicals attached to this action
-                current_chem = current_action.below_block
-                while current_chem:
-                    visited.add(current_chem)
-                    chem_cls = chem_map.get(current_chem.action)
-                    if chem_cls:
-                        chem_data = chem_cls(**current_chem.params)
-                        action_data.add_chemical(chem_data)
+            # Add nested chemicals
+            chemicals = []
+            curr_chem = block.chem_below
+            while curr_chem:
+                visited_globally.add(curr_chem)
+                chemicals.append({
+                    "chemical": curr_chem.action,
+                    "params": curr_chem.params.copy()
+                })
+                curr_chem = curr_chem.below_block
+            
+            if chemicals:
+                data["chemicals"] = chemicals
+            return data
+
+        # --- 1. Identify horizontal flows ---
+        # A horizontal root has no prev_block but has a next_block or is marked is_first
+        for b in self.blocks:
+            if isinstance(b, ChemicalBlock): continue
+            
+            if b.prev_block is None:
+                # Check if it starts a horizontal sequence
+                if b.next_block is not None or (b.is_first and b.orientation == "horizontal"):
+                    content = []
+                    curr = b
+                    while curr:
+                        content.append(get_step_data(curr))
+                        curr = curr.next_block
                     
-                    # Move to the next chemical in the vertical stack
-                    current_chem = current_chem.below_block
-                
-                self.protocol.add_action(action_data)
+                    flows_list.append({
+                        "flow_id": len(flows_list) + 1,
+                        "type": "horizontal",
+                        "is_explicit_first": b.is_first,
+                        "steps": content
+                    })
+
+        # --- 2. Identify vertical flows ---
+        # A vertical root has no Action above it but has a below_block or is marked is_first
+        for b in self.blocks:
+            if isinstance(b, ChemicalBlock): continue
             
-            # Move to the next action in the horizontal sequence
-            current_action = current_action.next_block
+            has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
+            
+            if not has_action_above:
+                # Check if it starts a vertical sequence
+                if b.below_block is not None or (b.is_first and b.orientation == "vertical"):
+                    content = []
+                    curr = b
+                    while curr:
+                        content.append(get_step_data(curr))
+                        curr = curr.below_block
+                        # Stop if we hit a chemical or end of chain
+                        if isinstance(curr, ChemicalBlock) or curr is None:
+                            break
+                    
+                    flows_list.append({
+                        "flow_id": len(flows_list) + 1,
+                        "type": "vertical",
+                        "is_explicit_first": b.is_first,
+                        "steps": content
+                    })
 
-        # 3. Validation: Ensure no blocks are left out (no orphans or second chains)
-        all_blocks_in_scene = set(self.blocks)
-        orphans = all_blocks_in_scene - visited
-        
+        # --- 3. Validation ---
+        orphans = set(self.blocks) - visited_globally
         if orphans:
-            print(f"Export Aborted: {len(orphans)} blocks are disconnected from the main chain.")
-            return
+            print(f"Export Warning: {len(orphans)} blocks are disconnected from all flows.")
 
-        # 4. Success: Write to file
-        self.protocol.export("protocol.json")
-        print(f"Protocol exported successfully ({len(self.protocol.actions)} actions included).")
+        final_output = {
+            "protocol_name": "Laboratory Procedure",
+            "total_flows": len(flows_list),
+            "flows": flows_list
+        }
+
+        with open("protocol.json", "w", encoding="utf-8") as f:
+            json.dump(final_output, f, indent=2, ensure_ascii=False)
+            
+        print(f"Protocol exported with {len(flows_list)} flows.")

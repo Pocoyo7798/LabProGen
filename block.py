@@ -13,17 +13,24 @@ import json
 
 class Block(QGraphicsRectItem):
     def __init__(self, action, params, editor=None):
-        super().__init__(0, 0, 140, 60)
+        super().__init__(0, 0, 170, 60)
         self.action = action
         self.params = params
         self.editor = editor
-        self.next_block = None  # Reference to the next block in the sequence (horizontal)
-        self.prev_block = None  # Reference to the previous block (horizontal)
-        self.below_block = None  # Reference to blocks below (vertical connection)
-        self.above_block = None  # Reference to block above (vertical connection)
-        self.is_first = False  # Whether this is the first action in the sequence
-        self.connected = False  # whether currently connected to a neighbor
-        self.chain_drag_mode = False  # Whether we're dragging the entire chain
+        
+        # Pointers for Action Flow
+        self.next_block = None   # Horizontal Right
+        self.prev_block = None   # Horizontal Left
+        self.below_block = None  # Vertical Down (Action)
+        self.above_block = None  # Vertical Up (Action)
+        
+        # Pointer for Chemical Stack
+        self.chem_below = None   # Points to the first ChemicalBlock
+        
+        self.orientation = "horizontal" # Default orientation
+        self.is_first = False
+        self.connected = False
+        self.chain_drag_mode = False
         
         # Hover tooltip support
         self.hover_timer = QTimer()
@@ -42,59 +49,91 @@ class Block(QGraphicsRectItem):
         self.update_text()
 
     def paint(self, painter, option, widget=None):
+        """Paints the block with a centered notch on top that matches the incoming arrow size."""
         from PySide6.QtGui import QPainterPath, QPainter
-
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
-        w = rect.width()
-        h = rect.height()
-
-        # Chevron dimensions
-        arrow_width = 18  # Width of the arrow point
-
+        w, h = rect.width(), rect.height()
+        arrow_size = 18 
+        m = 4 # margin
         path = QPainterPath()
 
-        if self.is_first:
-            # First block: flat back (left), arrow on right
-            path.moveTo(4, 4)
-            path.lineTo(w - arrow_width - 4, 4)
-            path.lineTo(w - 4, h / 2)
-            path.lineTo(w - arrow_width - 4, h - 4)
-            path.lineTo(4, h - 4)
-            path.lineTo(4, 4)
-        else:
-            # Normal block: arrow on left and right
-            path.moveTo(4, 4)
-            path.lineTo(w - arrow_width - 4, 4)
-            path.lineTo(w - 4, h / 2)
-            path.lineTo(w - arrow_width - 4, h - 4)
-            path.lineTo(4, h - 4)
-            path.lineTo(arrow_width + 4, h / 2)
-            path.lineTo(4, 4)
+        has_left_indent = self.prev_block is not None
+        has_top_indent = self.above_block is not None and not isinstance(self.above_block, ChemicalBlock)
+        is_horz = self.orientation == "horizontal"
+        is_vert = self.orientation == "vertical"
 
-        # Close the path
+        # --- 1. Start at top-left ---
+        path.moveTo(m, m)
+
+        # --- 2. Top edge ---
+        if has_top_indent:
+            # Notch width is 2x arrow size to accommodate the incoming vertical arrow
+            notch_half_width = 26
+            
+            path.lineTo(w / 2 - notch_half_width, m) # Straight line to notch start
+            path.lineTo(w / 2, m + arrow_size)       # Depth of the notch
+            path.lineTo(w / 2 + notch_half_width, m) # Straight line to notch end
+        
+        # Stop before the Top-Right corner if we need to start a horizontal arrow
+        if is_horz:
+            path.lineTo(w - m - arrow_size, m)
+        else:
+            path.lineTo(w - m, m)
+
+        # --- 3. Right edge ---
+        if is_horz:
+            path.lineTo(w - m, h / 2)
+            path.lineTo(w - m - arrow_size, h - m)
+        else:
+            if is_vert:
+                path.lineTo(w - m, h - m - arrow_size) # Stop before bottom arrow starts
+            else:
+                path.lineTo(w - m, h - m)
+
+        # --- 4. Bottom edge ---
+        if is_vert:
+            path.lineTo(w / 2, h - m)
+            path.lineTo(m, h - m - arrow_size)
+        else:
+            path.lineTo(m, h - m)
+
+        # --- 5. Left edge ---
+        if has_left_indent:
+            path.lineTo(m + arrow_size, h / 2)
+        
         path.closeSubpath()
 
-        # Draw shadow effect
+        # Rendering
         painter.setOpacity(0.15)
-        shadow_path = QPainterPath(path)
         painter.setBrush(QColor(0, 0, 0))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPath(shadow_path.translated(2, 2))
+        painter.drawPath(path.translated(2, 2)) # Shadow
         
-        # Draw main shape
         painter.setOpacity(1.0)
         painter.setBrush(self.brush())
-        painter.setPen(self.pen())
+        
+        pen = QPen(self.pen())
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
         painter.drawPath(path)
+    
+    def _draw_vertical_path(self, path, w, h, arrow_size):
+        """Draws a block with a downward pointing arrow."""
+        path.moveTo(4, 4)
+        path.lineTo(w - 4, 4)
+        path.lineTo(w - 4, h - arrow_size - 4)
+        path.lineTo(w / 2, h - 4)
+        path.lineTo(4, h - arrow_size - 4)
+        path.closeSubpath()
     
     def update_visual_style(self):
         """Update the visual style based on first status and connected state"""
         if self.is_first:
-            self.setBrush(QColor(255, 159, 64))  # Modern orange for first block
+            self.setBrush(QColor(255, 159, 64))  # Orange for first block
         else:
-            self.setBrush(QColor(107, 76, 255))  # Modern purple for normal blocks
+            self.setBrush(QColor(107, 76, 255))  # Purple for normal blocks
         
         if self.is_first:
             self.default_pen = QPen(QColor(230, 126, 34), 3)  # Darker orange
@@ -102,7 +141,7 @@ class Block(QGraphicsRectItem):
             self.default_pen = QPen(QColor(88, 56, 220), 3)  # Darker purple
         
         if self.connected:
-            self.setPen(QPen(QColor(46, 204, 113), 3))  # Modern green
+            self.setPen(QPen(QColor(46, 204, 113), 3))  # Green
         else:
             self.setPen(self.default_pen)
 
@@ -110,35 +149,33 @@ class Block(QGraphicsRectItem):
         """Mark visual connected state (changes border color)"""
         self.connected = connected
         if connected:
-            self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
+            self.setPen(QPen(QColor(255, 193, 7), 3))  # Yellow
         else:
             self.setPen(self.default_pen)
 
     def update_text(self):
-        # Insert newline before each uppercase letter
-        formatted_action = ""
-        for i, char in enumerate(self.action):
-            if char.isupper() and i > 0:
-                formatted_action += "\n" + char
-            else:
-                formatted_action += char
+        """Rotates and centers text based on block orientation."""
+        self.text.setPlainText(self.action)
         
-        self.text.setPlainText(formatted_action)
-        
-        # Set modern font
         font = QFont("Segoe UI", 10)
         font.setBold(True)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
-        # Center the text in the block
         text_rect = self.text.boundingRect()
         block_rect = self.rect()
         
-        # Calculate centered position
-        x = (block_rect.width() - text_rect.width()) / 2
-        y = (block_rect.height() - text_rect.height()) / 2
-        
+        if self.orientation == "horizontal":
+            self.text.setRotation(0)
+            x = (block_rect.width() - text_rect.width()) / 2
+            y = (block_rect.height() - text_rect.height()) / 2
+        else:
+            # Rotate 90 degrees
+            self.text.setRotation(90)
+            # Calibration for rotated item coordinates
+            x = (block_rect.width() + text_rect.height()) / 2
+            y = (block_rect.height() - text_rect.width()) / 2
+            
         self.text.setPos(x, y)
 
     def mouseDoubleClickEvent(self, event):
@@ -165,72 +202,66 @@ class Block(QGraphicsRectItem):
         self.setToolTip("")
 
     def debug_print_structure(self):
-        """Print a readable snapshot of the editor blocks and their links.
-
-        This prints each block in `self.editor.blocks` with its id, type,
-        action name, position and references to prev/next/above/below.
-        Shows only chains (horizontal and vertical), isolated blocks are omitted.
-        """
-        # Check simple module-level debug flag
-        if not debug_flag.DEBUG_MODE:
-            return
-        if not self.editor:
-            print("[DEBUG] No editor reference available for this block")
+        """Print a readable snapshot of the grid, action flows, and chemical stacks."""
+        if not debug_flag.DEBUG_MODE or not self.editor:
             return
 
-        print("\n[DEBUG] ===== Blocks structure snapshot =====")
+        print("\n[DEBUG] ===== Grid structure snapshot =====")
         for idx, b in enumerate(self.editor.blocks):
-            try:
-                px = b.pos().x()
-                py = b.pos().y()
-            except Exception:
-                px = py = None
-
-            def rid(x):
-                return hex(id(x)) if x is not None else None
-
+            def rid(x): return hex(id(x)) if x is not None else "None"
+            
+            # Identify the block type and its orientation
+            b_type = b.__class__.__name__
+            orient = getattr(b, 'orientation', 'N/A')
+            
             print(
-                f"[{idx}] {b.__class__.__name__}('{b.action}') id={hex(id(b))} pos=({px},{py}) "
-                f"prev={rid(b.prev_block)} next={rid(b.next_block)} "
-                f"above={rid(b.above_block)} below={rid(b.below_block)} connected={b.connected}"
+                f"[{idx}] {b_type}('{b.action}') id={hex(id(b))} | "
+                f"Orient={orient} | "
+                f"H_prev={rid(b.prev_block)} H_next={rid(b.next_block)} | "
+                f"V_above={rid(b.above_block)} V_below={rid(b.below_block)} | "
+                f"Chem_Stack={rid(getattr(b, 'chem_below', None))}"
             )
 
-        # Show horizontal chains (action blocks linked left-right via prev/next)
-        # Chemical blocks are vertical-only and should not appear in horizontal chains.
-        print("[DEBUG] Horizontal chains (left <-> ... <-> right):")
+        # 1. Show Horizontal Action Chains
+        print("[DEBUG] Horizontal Action Flows:")
         h_seen = set()
         for b in self.editor.blocks:
-            # Skip chemical blocks when enumerating horizontal chains
-            if isinstance(b, ChemicalBlock):
-                continue
-            if b.prev_block is None and b not in h_seen:
-                # Start of a horizontal chain (no prev_block)
+            if not isinstance(b, ChemicalBlock) and b.prev_block is None and b not in h_seen:
                 h_chain = []
                 cur = b
-                while cur and not isinstance(cur, ChemicalBlock):
-                    h_chain.append(f"{cur.__class__.__name__}('{cur.action}')")
+                while cur:
+                    h_chain.append(f"{cur.action}")
                     h_seen.add(cur)
                     cur = cur.next_block
-                # Print only if it's actually a chain (more than 1 action)
-                # or if this action has a chemical attached below (shows vertical children)
-                if len(h_chain) > 1 or (hasattr(b, 'below_block') and b.below_block is not None):
-                    print("  " + " <-> ".join(h_chain))
+                if len(h_chain) > 1:
+                    print("  (H) " + " <-> ".join(h_chain))
 
-        # Show vertical chains (chemicals linked top-bottom via above/below)
-        print("[DEBUG] Vertical chains (top -> ... -> bottom):")
+        # 2. Show Vertical Action Chains
+        print("[DEBUG] Vertical Action Flows:")
         v_seen = set()
         for b in self.editor.blocks:
-            if b.above_block is None and b not in v_seen:
-                # This is the start of a vertical chain (no above_block)
+            # We only follow above_block if it's not a ChemicalBlock
+            is_v_head = b.above_block is None or isinstance(b.above_block, ChemicalBlock)
+            if not isinstance(b, ChemicalBlock) and is_v_head and b not in v_seen:
                 v_chain = []
                 cur = b
-                while cur:
-                    v_chain.append(f"{cur.__class__.__name__}('{cur.action}')")
+                while cur and not isinstance(cur, ChemicalBlock):
+                    v_chain.append(f"{cur.action}")
                     v_seen.add(cur)
                     cur = cur.below_block
-                # Only print if it's actually a chain (more than 1 element)
                 if len(v_chain) > 1:
-                    print("  " + " -> ".join(v_chain))
+                    print("  (V) " + " | ".join(v_chain))
+
+        # 3. Show Chemical Stacks per Action
+        print("[DEBUG] Chemical Ingredient Stacks:")
+        for b in self.editor.blocks:
+            if not isinstance(b, ChemicalBlock) and b.chem_below:
+                c_stack = []
+                cur_c = b.chem_below
+                while cur_c:
+                    c_stack.append(f"{cur_c.params.get('name', cur_c.action)}")
+                    cur_c = cur_c.below_block
+                print(f"  [{b.action}] uses -> " + " + ".join(c_stack))
 
         print("[DEBUG] ===== end snapshot =====\n")
 
@@ -287,172 +318,169 @@ class Block(QGraphicsRectItem):
                         print(f"[DEBUG] Error printing structure: {e}")
 
     def show_context_menu(self, event):
-        """Show context menu on right-click"""
+        """Show context menu. Only allows manual orientation for Action blocks."""
         menu = QMenu()
-        if not self.is_first:
-            make_first_action = menu.addAction("Make it First")
-            make_first_action.triggered.connect(self.make_first)
-        else:
-            menu.addAction("This is the First action")
+
+        is_connected = bool(self.prev_block or self.next_block or 
+                            self.above_block or self.below_block or self.chem_below)
+
+        # 1. Orientation toggle. Only for Actions, not for ChemicalBlocks
+        if not isinstance(self, ChemicalBlock):
+            label = "Set Vertical" if self.orientation == "horizontal" else "Set Horizontal"
+            toggle_orient = menu.addAction(label)
+            if is_connected:
+                toggle_orient.setEnabled(False)
+                toggle_orient.setText(f"{label} (Disconnect first)")
+            else:
+                toggle_orient.triggered.connect(self.toggle_orientation)
+            menu.addSeparator()
+
+        # 2. 'First' logic: Only for Actions
+        if not isinstance(self, ChemicalBlock):
+            if self.is_first:
+                menu.addAction("Unmark as First").triggered.connect(self.make_first)
+            else:
+                action_first = menu.addAction("Make it First")
+                if self.has_first_in_path():
+                    action_first.setEnabled(False)
+                    action_first.setText("Make it First (Chain already has a start)")
+                else:
+                    action_first.triggered.connect(self.make_first)
+            menu.addSeparator()
         
-        # Add delete option
-        delete_action = menu.addAction("Delete")
-        delete_action.triggered.connect(self.delete_block)
-        
+        # 3. Delete
+        menu.addAction("Delete").triggered.connect(self.delete_block)
         menu.exec(event.screenPos())
+    
+    def toggle_orientation(self):
+        """Switches dimensions and updates shape/text rotation."""
+        self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
+        
+        if self.orientation == "vertical":
+            self.setRect(0, 0, 60, 170)
+        else:
+            self.setRect(0, 0, 170, 60)
+            
+        self.update_text()
+        self.update()
+        
+        if self.editor:
+            self.editor.reflow_entire_cluster(self)
 
     def delete_block(self):
-        """Delete this block from the scene and update connections accordingly
-        """
-        if not self.editor:
-            return
+        """Removes the block and stitches all 3 possible chains (Horizontal, Vertical, Chemicals)."""
+        if not self.editor: return
 
-        # Remove from editor's list (capture presence first)
+        # Remove from main list
         if self in self.editor.blocks:
             self.editor.blocks.remove(self)
 
-        # Update horizontal chain connections (for action blocks)
-        if self.prev_block:
-            self.prev_block.next_block = self.next_block
-        if self.next_block:
-            self.next_block.prev_block = self.prev_block
+        # Stitch Horizontal
+        if self.prev_block or self.next_block:
+            p, n = self.prev_block, self.next_block
+            if p: p.next_block = n
+            if n: n.prev_block = p
+            # Reflow the remaining horizontal chain
+            head = self.editor.find_chain_start(p if p else n)
+            self.editor.reflow_chain(head)
 
-        # If deleted block was in the middle of a horizontal chain, shift the right chain left
-        try:
-            if self.prev_block and self.next_block and self.editor:
-                prev = self.prev_block
-                right = self.next_block
-                prev_pos = prev.pos()
-                prev_w = prev.rect().width()
-                overlap = 20
-                desired_right_x = prev_pos.x() + prev_w - overlap
-                current_right_x = right.pos().x()
-                shift = desired_right_x - current_right_x
-                # Move the right chain to close the gap
-                if abs(shift) > 0.1:
-                    self.editor.push_chain(right, shift)
-                    # Align vertical position
-                    try:
-                        self.editor.align_chain_vertical(right, prev_pos.y())
-                    except Exception:
-                        pass
-                    # Reposition chemical blocks below the moved right chain to stay glued
-                    b = right
-                    while b:
-                        if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
-                            action_rect = b.rect()
-                            chem_rect = b.below_block.rect()
-                            snap_x = b.pos().x() + (action_rect.width() - chem_rect.width()) * 0.25
-                            snap_y = b.pos().y() + action_rect.height()
-                            b.below_block.setPos(snap_x, snap_y)
-                            try:
-                                self.editor.update_chemical_chain_below(b.below_block, snap_x, snap_y)
-                            except Exception:
-                                pass
-                        b = b.next_block
-        except Exception:
-            pass
+        # Stitch Vertical Action Flow
+        if self.above_block or self.below_block:
+            # Only stitch if parent and child are Actions
+            if not isinstance(self.above_block, ChemicalBlock):
+                a, b = self.above_block, self.below_block
+                if a: a.below_block = b
+                if b: b.above_block = a
+                # Reflow vertical
+                top = self
+                while top.above_block: top = top.above_block
+                self.editor.reflow_chain(top)
 
-        # Update vertical connections (for chemical blocks or if chemical is below this action)
-        if self.above_block and self.below_block:
-            # Reattach the child under the parent so the chain closes the gap
-            parent = self.above_block
-            child = self.below_block
-            parent.below_block = child
-            child.above_block = parent
+        # Handle Chemical Stack
+        if self.chem_below:
+            # If we delete the action, the chemicals lose their parent
+            self.chem_below.above_block = None
 
-            # Reposition child directly below parent
-            try:
-                parent_pos = parent.pos()
-                parent_rect = parent.rect()
-                child_rect = child.rect()
-                snap_x = parent_pos.x() + (parent_rect.width() - child_rect.width()) * 0.25
-                snap_y = parent_pos.y() + parent_rect.height()
-                child.setPos(snap_x, snap_y)
-                # Update sub-chain below
-                self.editor.update_chemical_chain_below(child, snap_x, snap_y)
-            except Exception:
-                pass
-
-            # Ensure connected visuals
-            parent.set_connected(True)
-            child.set_connected(True)
-        else:
-            # If only child exists, orphan it
-            if self.below_block:
-                self.below_block.above_block = None
-                self.below_block.set_connected(False)
-            # If only parent exists, remove its reference to this block
-            if self.above_block:
-                self.above_block.below_block = None
-                # Update connected state of block above based on its type
-                if isinstance(self.above_block, ChemicalBlock):
-                    self.above_block.set_connected(bool(self.above_block.above_block or self.above_block.below_block))
-                else:
-                    self.above_block.set_connected(bool(
-                        self.above_block.prev_block or 
-                        self.above_block.next_block or 
-                        self.above_block.below_block
-                    ))
-
-        # Clear this block's own references so it doesn't still point to neighbors
-        try:
-            self.prev_block = None
-            self.next_block = None
-            self.above_block = None
-            self.below_block = None
-            self.set_connected(False)
-        except Exception:
-            pass
-
-        # Remove from scene and refresh linked sequence
-        self.scene().removeItem(self)
+        # Clear its own pointers
+        self.prev_block = self.next_block = self.above_block = self.below_block = self.chem_below = None
+        
+        if self.scene():
+            self.scene().removeItem(self)
         self.editor.update_linked_sequence()
-        # Print debug snapshot after delete to help trace chain updates
-        try:
-            if self.editor:
-                if debug_flag.DEBUG_MODE:
-                    print("[DEBUG] Structure after delete:")
-                    # Use the debug helper to print current structure
-                    self.debug_print_structure()
-        except Exception as e:
-            if debug_flag.DEBUG_MODE:
-                print(f"[DEBUG] Error printing structure after delete: {e}")
+
+    def has_first_in_path(self):
+        """Checks if any block in the current logical path (upstream or downstream) is already 'is_first'."""
+        
+        # Check Upstream (Ancestors)
+        visited_up = set()
+        def check_up(b):
+            if not b or b in visited_up: return False
+            visited_up.add(b)
+            if b != self and getattr(b, 'is_first', False): return True
+            # Action flow ancestors
+            parents = [b.prev_block]
+            if b.above_block and not isinstance(b.above_block, ChemicalBlock):
+                parents.append(b.above_block)
+            return any(check_up(p) for p in parents)
+
+        # Check Downstream (Descendants)
+        visited_down = set()
+        def check_down(b):
+            if not b or b in visited_down: return False
+            visited_down.add(b)
+            if b != self and getattr(b, 'is_first', False): return True
+            # Action flow descendants
+            children = [b.next_block]
+            if b.below_block and not isinstance(b.below_block, ChemicalBlock):
+                children.append(b.below_block)
+            return any(check_down(c) for c in children)
+
+        return check_up(self) or check_down(self)
 
     def make_first(self):
-        """Mark this action as the first in the sequence"""
-        if self.editor:
-            # Unmark any previous first action
-            for block in self.editor.blocks:
-                if block != self and block.is_first:
-                    block.is_first = False
-                    block.update_visual_style()
-            
-            # Mark this as first
+        """Toggles the 'is_first' state and isolates the head if activating."""
+        if not self.editor: return
+        self.prepareGeometryChange()
+
+        if self.is_first:
+            self.is_first = False
+        else:
             self.is_first = True
-            self.update_visual_style()
+            # Store neighbors for reflow
+            old_p, old_a = self.prev_block, self.above_block
             
-            # Disconnect from previous block
+            # Break incoming connections (An entry point cannot have parents)
             if self.prev_block:
                 self.prev_block.next_block = None
-            self.prev_block = None
+                self.prev_block = None
+            if self.above_block and not isinstance(self.above_block, ChemicalBlock):
+                self.above_block.below_block = None
+                self.above_block = None
             
-            # Redraw to update the shape
-            self.update()
+            # Close the gaps left behind
+            if old_p: self.editor.reflow_entire_cluster(old_p)
+            if old_a: self.editor.reflow_entire_cluster(old_a)
 
-    def move_chain(self, dx: float, dy: float):
-        """Move the entire chain (both left and right) by dx, dy"""
-        # Find the start of the chain (block with no prev_block)
-        chain_start = self
-        while chain_start.prev_block:
-            chain_start = chain_start.prev_block
-        
-        # Move all blocks from chain_start onwards
-        current = chain_start
-        while current:
-            pos = current.pos()
-            current.setPos(pos.x() + dx, pos.y() + dy)
-            current = current.next_block
+        self.update_visual_style()
+        self.update()
+        self.editor.reflow_entire_cluster(self)
+        self.editor.update_linked_sequence()
+    
+    def move_chain(self, dx, dy):
+        """Moves the entire connected cluster as a single unit."""
+        visited = set()
+        def _move_recursive(b):
+            if not b or b in visited: return
+            visited.add(b)
+            b.setPos(b.pos().x() + dx, b.pos().y() + dy)
+            # Move all directions
+            _move_recursive(b.prev_block)
+            _move_recursive(b.next_block)
+            _move_recursive(b.above_block)
+            _move_recursive(b.below_block)
+            _move_recursive(b.chem_below)
+            
+        _move_recursive(self)
 
     def _get_field_widget(self, key, value):
         """Creates appropriate widget based on FIELD_CONFIG registry."""
@@ -580,10 +608,14 @@ class ChemicalBlock(Block):
         self.action = action
         self.params = params
         self.editor = editor
-        self.next_block = None  # Horizontal links between action blocks (not used for chemicals)
-        self.prev_block = None  # Horizontal links between action blocks (not used for chemicals)
-        self.below_block = None  # Vertical link to chemical block below
-        self.above_block = None  # Vertical link to block above (could be action or chemical)
+        
+        self.orientation = "horizontal" 
+        
+        self.next_block = None  
+        self.prev_block = None  
+        self.below_block = None  
+        self.above_block = None  
+        self.chem_below = None 
         self.is_first = False
         self.connected = False
         self.chain_drag_mode = False
@@ -641,25 +673,39 @@ class ChemicalBlock(Block):
         else:
             self.setPen(self.default_pen)
     
-    def update_text(self):
-        """Update text to display the chemical name from params"""
-        # Get the chemical name from params, default to action name if not available
-        chemical_name = self.params.get(KEY_NAME, self.action) or self.action
+    def toggle_orientation(self, new_orientation):
+        """Forces the chemical block to a specific orientation and swaps dimensions."""
+        self.prepareGeometryChange()
+        self.orientation = new_orientation
         
+        if self.orientation == "vertical":
+            self.setRect(0, 0, 30, 115)
+        else:
+            self.setRect(0, 0, 115, 30)
+            
+        self.update_text()
+        self.update()
+
+    def update_text(self):
+        """Update text and rotation to display the chemical name centered."""
+        chemical_name = self.params.get(KEY_NAME, self.action) or self.action
         self.text.setPlainText(chemical_name)
         
-        # Set modern font (smaller for chemical blocks)
         font = QFont("Segoe UI", 8)
         font.setBold(True)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
-        # Center the text in the block
         text_rect = self.text.boundingRect()
         block_rect = self.rect()
         
-        # Calculate centered position
-        x = (block_rect.width() - text_rect.width()) / 2
-        y = (block_rect.height() - text_rect.height()) / 2
-        
+        if self.orientation == "horizontal":
+            self.text.setRotation(0)
+            x = (block_rect.width() - text_rect.width()) / 2
+            y = (block_rect.height() - text_rect.height()) / 2
+        else:
+            self.text.setRotation(90)
+            x = (block_rect.width() + text_rect.height()) / 2
+            y = (block_rect.height() - text_rect.width()) / 2
+            
         self.text.setPos(x, y)
