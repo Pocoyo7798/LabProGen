@@ -120,14 +120,17 @@ class Editor(QGraphicsView):
         self.add_action_btn = QPushButton("+ Add Action")
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
+        self.import_btn = QPushButton("📂 Import Protocol")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
         self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
+        self.import_btn.clicked.connect(self.import_protocol)
         
         button_layout.addWidget(self.add_action_btn)
         button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
+        button_layout.addWidget(self.import_btn)
         main_layout.addLayout(button_layout)
         
         # Canvas
@@ -853,27 +856,114 @@ class Editor(QGraphicsView):
         else:
             super().keyPressEvent(event)
 
+    def import_protocol(self):
+        """Import protocol and reconstruct intersections using block ids."""
+        from PySide6.QtWidgets import QFileDialog
+        filename, _ = QFileDialog.getOpenFileName(self, "Import Protocol", "", "JSON Files (*.json)")
+        if not filename: return
+
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            self.scene.clear()
+            self.blocks = []
+            self.protocol.actions = []
+            
+            # map to track already created blocks
+            id_to_block = {}
+            flows = data.get("flows", [])
+            
+            for i, flow in enumerate(flows):
+                flow_type = flow.get("type", "horizontal")
+                is_explicit_first = flow.get("is_explicit_first", False)
+                steps = flow.get("steps", [])
+                prev_step_block = None
+                
+                for j, step in enumerate(steps):
+                    b_id = step.get("block_id")
+                    action_name = step.get("action")
+                    params = step.get("params", {})
+                    
+                    # reuse block if it was already created in another flow
+                    if b_id in id_to_block:
+                        new_block = id_to_block[b_id]
+                    else:
+                        new_block = self._create_block_by_name(action_name, params)
+                        new_block.setPos(100 + i * 350, 100 + j * 200)
+                        new_block.toggle_orientation(flow_type)
+                        id_to_block[b_id] = new_block
+                        
+                        # handle chemicals only for new blocks
+                        chemicals_data = step.get("chemicals", [])
+                        prev_chem = None
+                        for chem_step in chemicals_data:
+                            chem_block = ChemicalBlock(chem_step.get("chemical"), chem_step.get("params", {}), editor=self)
+                            self.scene.addItem(chem_block)
+                            self.blocks.append(chem_block)
+                            if prev_chem is None:
+                                new_block.chem_below = chem_block
+                                chem_block.above_block = new_block
+                            else:
+                                prev_chem.below_block = chem_block
+                                chem_block.above_block = prev_chem
+                            prev_chem = chem_block
+
+                    if j == 0 and is_explicit_first:
+                        new_block.is_first = True
+                        new_block.update_visual_style()
+
+                    # establish connections
+                    if prev_step_block:
+                        if flow_type == "vertical":
+                            prev_step_block.below_block = new_block
+                            new_block.above_block = prev_step_block
+                        else:
+                            prev_step_block.next_block = new_block
+                            new_block.prev_block = prev_step_block
+                    
+                    prev_step_block = new_block
+
+            # sync all clusters for perfect alignment
+            for b in self.blocks:
+                if not isinstance(b, ChemicalBlock):
+                    self.reflow_entire_cluster(b)
+            
+            self.update_linked_sequence()
+
+        except Exception as e:
+            print(f"Error importing protocol: {e}")
+    
+    def _create_block_by_name(self, name, params):
+        """Helper to instantiate the correct block class."""
+        if name == "ChangeTemperature":
+            block = SupportAction(name, params, editor=self)
+        else:
+            block = ElementaryAction(name, params, editor=self)
+        
+        self.scene.addItem(block)
+        self.blocks.append(block)
+        return block
+
     def export_protocol(self):
-        """
-        Exports the protocol by identifying horizontal and vertical heads separately.
-        This allows intersecting chains to be recognized as distinct flows.
-        """
+        """Export the protocol with block ids to handle intersections."""
         if not self.blocks:
             print("No blocks to export.")
             return
 
+        # map each block to a unique id for this session
+        block_to_id = {block: i for i, block in enumerate(self.blocks)}
         flows_list = []
         visited_globally = set()
 
-        # Helper to build step data
         def get_step_data(block):
             visited_globally.add(block)
             data = {
+                "block_id": block_to_id[block], # unique id for intersection tracking
                 "action": block.action,
                 "params": block.params.copy()
             }
             
-            # Add nested chemicals
             chemicals = []
             curr_chem = block.chem_below
             while curr_chem:
@@ -888,20 +978,16 @@ class Editor(QGraphicsView):
                 data["chemicals"] = chemicals
             return data
 
-        # --- 1. Identify horizontal flows ---
-        # A horizontal root has no prev_block but has a next_block or is marked is_first
+        # process horizontal flows
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
-            
             if b.prev_block is None:
-                # Check if it starts a horizontal sequence
                 if b.next_block is not None or (b.is_first and b.orientation == "horizontal"):
                     content = []
                     curr = b
                     while curr:
                         content.append(get_step_data(curr))
                         curr = curr.next_block
-                    
                     flows_list.append({
                         "flow_id": len(flows_list) + 1,
                         "type": "horizontal",
@@ -909,36 +995,24 @@ class Editor(QGraphicsView):
                         "steps": content
                     })
 
-        # --- 2. Identify vertical flows ---
-        # A vertical root has no Action above it but has a below_block or is marked is_first
+        # process vertical flows
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
-            
             has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
-            
             if not has_action_above:
-                # Check if it starts a vertical sequence
                 if b.below_block is not None or (b.is_first and b.orientation == "vertical"):
                     content = []
                     curr = b
                     while curr:
                         content.append(get_step_data(curr))
                         curr = curr.below_block
-                        # Stop if we hit a chemical or end of chain
-                        if isinstance(curr, ChemicalBlock) or curr is None:
-                            break
-                    
+                        if isinstance(curr, ChemicalBlock) or curr is None: break
                     flows_list.append({
                         "flow_id": len(flows_list) + 1,
                         "type": "vertical",
                         "is_explicit_first": b.is_first,
                         "steps": content
                     })
-
-        # --- 3. Validation ---
-        orphans = set(self.blocks) - visited_globally
-        if orphans:
-            print(f"Export Warning: {len(orphans)} blocks are disconnected from all flows.")
 
         final_output = {
             "protocol_name": "Laboratory Procedure",
@@ -948,5 +1022,3 @@ class Editor(QGraphicsView):
 
         with open("protocol.json", "w", encoding="utf-8") as f:
             json.dump(final_output, f, indent=2, ensure_ascii=False)
-            
-        print(f"Protocol exported with {len(flows_list)} flows.")

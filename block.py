@@ -374,9 +374,14 @@ class Block(QGraphicsRectItem):
         menu.addAction("Delete").triggered.connect(self.delete_block)
         menu.exec(event.screenPos())
     
-    def toggle_orientation(self):
-        """Switches dimensions and updates shape/text rotation."""
-        self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
+    def toggle_orientation(self, target_orient=None):
+        """Switches or sets orientation (Horizontal or Vertical)."""
+        self.prepareGeometryChange()
+        
+        if target_orient:
+            self.orientation = target_orient
+        else:
+            self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
             self.setRect(0, 0, 60, 170)
@@ -695,10 +700,14 @@ class ChemicalBlock(Block):
         else:
             self.setPen(self.default_pen)
     
-    def toggle_orientation(self, new_orientation):
-        """Forces the chemical block to a specific orientation and swaps dimensions."""
+    def toggle_orientation(self, target_orient=None):
+        """Switches or sets chemical orientation (Horizontal or Vertical)."""
         self.prepareGeometryChange()
-        self.orientation = new_orientation
+        
+        if target_orient:
+            self.orientation = target_orient
+        else:
+            self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
             self.setRect(0, 0, 30, 115)
