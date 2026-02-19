@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QFont, QPainter
+from PySide6.QtGui import QFont, QPainter, QColor, QPen
 import json
 from block import Block, ElementaryAction, SupportAction, ChemicalBlock
 from actions import Add, ChangeTemperature, Stir
@@ -104,6 +104,13 @@ class Editor(QGraphicsView):
         main_layout = QVBoxLayout()
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)
+
+        # configure navigation behavior and rendering quality
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
         # Title bar
         title = QLabel("Laboratory Protocol Builder")
@@ -149,6 +156,38 @@ class Editor(QGraphicsView):
         # Store reference to container for use in main window
         self.container = container
 
+    def wheelEvent(self, event):
+        """zoom using ctrl + wheel and handle mousepad horizontal signals."""
+        # only zoom if control key is pressed
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            zoom_in_factor = 1.15
+            zoom_out_factor = 1 / zoom_in_factor
+
+            # use only vertical delta for zooming logic
+            angle = event.angleDelta().y()
+
+            if angle > 0:
+                scale_factor = zoom_in_factor
+            elif angle < 0:
+                scale_factor = zoom_out_factor
+            else:
+                return
+
+            # check current scale to prevent infinite zoom out/in (crash prevention)
+            current_scale = self.transform().m11()
+            if (current_scale > 5.0 and scale_factor > 1) or (current_scale < 0.1 and scale_factor < 1):
+                return
+
+            self.scale(scale_factor, scale_factor)
+        else:
+            # allow normal scrolling/panning if ctrl is not pressed
+            super().wheelEvent(event)
+
+    def drawBackground(self, painter, rect):
+        """fill the background with a clean solid color."""
+        # light gray-blue background
+        painter.fillRect(rect, QColor(241, 245, 249))
+    
     def show_action_dialog(self):
         dialog = ActionSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_action:
@@ -857,20 +896,21 @@ class Editor(QGraphicsView):
             super().keyPressEvent(event)
 
     def import_protocol(self):
-        """Import protocol and reconstruct intersections using block ids."""
+        """Import protocol from json and reconstruct the grid layout."""
         from PySide6.QtWidgets import QFileDialog
-        filename, _ = QFileDialog.getOpenFileName(self, "Import Protocol", "", "JSON Files (*.json)")
+        filename, _ = QFileDialog.getOpenFileName(self, "import protocol", "", "json files (*.json)")
         if not filename: return
 
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
+            # clear current scene state
             self.scene.clear()
             self.blocks = []
             self.protocol.actions = []
             
-            # map to track already created blocks
+            # map to track and reuse blocks at intersections
             id_to_block = {}
             flows = data.get("flows", [])
             
@@ -885,16 +925,22 @@ class Editor(QGraphicsView):
                     action_name = step.get("action")
                     params = step.get("params", {})
                     
-                    # reuse block if it was already created in another flow
+                    # reuse existing block if id was already processed
                     if b_id in id_to_block:
                         new_block = id_to_block[b_id]
                     else:
                         new_block = self._create_block_by_name(action_name, params)
-                        new_block.setPos(100 + i * 350, 100 + j * 200)
+                        
+                        # retrieve saved x/y coordinates with grid fallback
+                        saved_x = step.get("x", 100 + i * 350)
+                        saved_y = step.get("y", 100 + j * 200)
+                        new_block.setPos(saved_x, saved_y)
+                        
+                        # set orientation according to flow type
                         new_block.toggle_orientation(flow_type)
                         id_to_block[b_id] = new_block
                         
-                        # handle chemicals only for new blocks
+                        # recreate chemical stack for new blocks
                         chemicals_data = step.get("chemicals", [])
                         prev_chem = None
                         for chem_step in chemicals_data:
@@ -909,11 +955,12 @@ class Editor(QGraphicsView):
                                 chem_block.above_block = prev_chem
                             prev_chem = chem_block
 
+                    # mark as first action if applicable
                     if j == 0 and is_explicit_first:
                         new_block.is_first = True
                         new_block.update_visual_style()
 
-                    # establish connections
+                    # restore logical connections between steps
                     if prev_step_block:
                         if flow_type == "vertical":
                             prev_step_block.below_block = new_block
@@ -924,15 +971,16 @@ class Editor(QGraphicsView):
                     
                     prev_step_block = new_block
 
-            # sync all clusters for perfect alignment
+            # finalize cluster synchronization for perfect alignment
             for b in self.blocks:
                 if not isinstance(b, ChemicalBlock):
                     self.reflow_entire_cluster(b)
             
             self.update_linked_sequence()
+            print(f"imported {len(flows)} flows successfully.")
 
         except Exception as e:
-            print(f"Error importing protocol: {e}")
+            print(f"error importing protocol: {e}")
     
     def _create_block_by_name(self, name, params):
         """Helper to instantiate the correct block class."""
@@ -946,24 +994,28 @@ class Editor(QGraphicsView):
         return block
 
     def export_protocol(self):
-        """Export the protocol with block ids to handle intersections."""
+        """Export the protocol grid with coordinates and ids."""
         if not self.blocks:
-            print("No blocks to export.")
+            print("no blocks to export.")
             return
 
-        # map each block to a unique id for this session
+        # map each block to a unique id for intersection tracking
         block_to_id = {block: i for i, block in enumerate(self.blocks)}
         flows_list = []
         visited_globally = set()
 
         def get_step_data(block):
             visited_globally.add(block)
+            # include spatial coordinates for visual persistence
             data = {
-                "block_id": block_to_id[block], # unique id for intersection tracking
+                "block_id": block_to_id[block],
                 "action": block.action,
-                "params": block.params.copy()
+                "params": block.params.copy(),
+                "x": block.pos().x(),
+                "y": block.pos().y()
             }
             
+            # handle nested chemicals
             chemicals = []
             curr_chem = block.chem_below
             while curr_chem:
@@ -978,7 +1030,7 @@ class Editor(QGraphicsView):
                 data["chemicals"] = chemicals
             return data
 
-        # process horizontal flows
+        # process horizontal flows (starting from heads)
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
             if b.prev_block is None:
@@ -995,7 +1047,7 @@ class Editor(QGraphicsView):
                         "steps": content
                     })
 
-        # process vertical flows
+        # process vertical flows (starting from heads)
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
             has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
@@ -1015,10 +1067,13 @@ class Editor(QGraphicsView):
                     })
 
         final_output = {
-            "protocol_name": "Laboratory Procedure",
+            "protocol_name": "laboratory procedure",
             "total_flows": len(flows_list),
             "flows": flows_list
         }
 
         with open("protocol.json", "w", encoding="utf-8") as f:
             json.dump(final_output, f, indent=2, ensure_ascii=False)
+            
+        print(f"protocol exported with {len(flows_list)} flows.")
+    

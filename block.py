@@ -301,19 +301,7 @@ class Block(QGraphicsRectItem):
         # normal single block movement
         self.setZValue(1000)
         super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        """Handle mouse move events including chain dragging"""
-        if self.chain_drag_mode:
-            # Move the entire chain (both directions from this block)
-            delta = event.scenePos() - event.lastScenePos()
-            self.move_chain(delta.x(), delta.y())
-        else:
-            # Normal single-block movement
-            super().mouseMoveEvent(event)
-            if self.editor:
-                self.editor.preview_link(self)
-
+    
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
         if self.chain_drag_mode:
@@ -338,6 +326,19 @@ class Block(QGraphicsRectItem):
                 except Exception as e:
                     if debug_flag.DEBUG_MODE:
                         print(f"[DEBUG] Error printing structure: {e}")
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events including chain dragging"""
+        if self.chain_drag_mode:
+            # Move the entire chain (both directions from this block)
+            delta = event.scenePos() - event.lastScenePos()
+            self.move_chain(delta.x(), delta.y())
+        else:
+            # Normal single-block movement
+            super().mouseMoveEvent(event)
+            if self.editor:
+                self.editor.preview_link(self)
+
 
     def show_context_menu(self, event):
         """Show context menu. Only allows manual orientation for Action blocks."""
