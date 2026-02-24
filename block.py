@@ -13,7 +13,7 @@ import json
 
 class Block(QGraphicsRectItem):
     def __init__(self, action, params, editor=None):
-        super().__init__(0, 0, 170, 60)
+        super().__init__(0, 0, 140, 60)
         self.action = action
         self.params = params
         self.editor = editor
@@ -45,7 +45,6 @@ class Block(QGraphicsRectItem):
         self.update_visual_style()
 
         self.text = QGraphicsTextItem(self)
-        self.text.setPos(20, 10)
         self.update_text()
 
     def paint(self, painter, option, widget=None):
@@ -154,30 +153,43 @@ class Block(QGraphicsRectItem):
             self.setPen(self.default_pen)
 
     def update_text(self):
-        """Rotates and centers text based on block orientation."""
-        self.text.setPlainText(self.action)
+        """splits text by uppercase letters and centers it."""
+        # logic to split multiple words action names
+        formatted_action = ""
+        for i, char in enumerate(self.action):
+            if i > 0 and char.isupper():
+                formatted_action += "\n" + char
+            else:
+                formatted_action += char
+        
+        self.text.setPlainText(formatted_action)
         
         font = QFont("Segoe UI", 10)
         font.setBold(True)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
+        # adjust alignment
+        option = self.text.document().defaultTextOption()
+        option.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text.document().setDefaultTextOption(option)
+        self.text.setTextWidth(self.rect().width()) # ensures alignment works
+        
         text_rect = self.text.boundingRect()
         block_rect = self.rect()
         
         if self.orientation == "horizontal":
             self.text.setRotation(0)
-            x = (block_rect.width() - text_rect.width()) / 2
+            x = 0
             y = (block_rect.height() - text_rect.height()) / 2
         else:
-            # Rotate 90 degrees
             self.text.setRotation(90)
-            # Calibration for rotated item coordinates
+            # reposition for vertical orientation
             x = (block_rect.width() + text_rect.height()) / 2
             y = (block_rect.height() - text_rect.width()) / 2
             
         self.text.setPos(x, y)
-
+    
     def mouseDoubleClickEvent(self, event):
         self.open_editor()
 
@@ -376,7 +388,7 @@ class Block(QGraphicsRectItem):
         menu.exec(event.screenPos())
     
     def toggle_orientation(self, target_orient=None):
-        """Switches or sets orientation (Horizontal or Vertical)."""
+        """switches or sets orientation (140x60 <-> 60x140)."""
         self.prepareGeometryChange()
         
         if target_orient:
@@ -385,16 +397,16 @@ class Block(QGraphicsRectItem):
             self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
-            self.setRect(0, 0, 60, 170)
+            self.setRect(0, 0, 60, 140)
         else:
-            self.setRect(0, 0, 170, 60)
+            self.setRect(0, 0, 140, 60)
             
         self.update_text()
         self.update()
         
         if self.editor:
             self.editor.reflow_entire_cluster(self)
-
+    
     def delete_block(self):
         """Removes the block and stitches all 3 possible chains (Horizontal, Vertical, Chemicals)."""
         if not self.editor: return
@@ -629,10 +641,10 @@ class SupportAction(Block):
 
 
 class ChemicalBlock(Block):
-    """Chemical action block - green rectangle with 1/3 width"""
+    """Chemical action block"""
     def __init__(self, action, params, editor=None):
         # Call parent's parent __init__ to avoid Block.__init__
-        QGraphicsRectItem.__init__(self, 0, 0, 115, 30)  # 1/3 width
+        QGraphicsRectItem.__init__(self, 0, 0, 114, 30)
         self.action = action
         self.params = params
         self.editor = editor
@@ -702,7 +714,7 @@ class ChemicalBlock(Block):
             self.setPen(self.default_pen)
     
     def toggle_orientation(self, target_orient=None):
-        """Switches or sets chemical orientation (Horizontal or Vertical)."""
+        """switches or sets chemical orientation (114x30 <-> 30x114)."""
         self.prepareGeometryChange()
         
         if target_orient:
@@ -711,13 +723,13 @@ class ChemicalBlock(Block):
             self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
-            self.setRect(0, 0, 30, 115)
+            self.setRect(0, 0, 30, 114)
         else:
-            self.setRect(0, 0, 115, 30)
+            self.setRect(0, 0, 114, 30)
             
         self.update_text()
         self.update()
-
+    
     def update_text(self):
         """Update text and rotation to display the chemical name centered."""
         chemical_name = self.params.get(KEY_NAME, self.action) or self.action

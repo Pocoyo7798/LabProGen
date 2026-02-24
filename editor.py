@@ -790,7 +790,7 @@ class Editor(QGraphicsView):
                 nb.setPos(new_x, new_y)
             self.reflow_chain(nb, visited)
 
-        # align horizontal prev (left) only if not triggered by a chemical
+        # align horizontal prev (left)
         if not isinstance(block, ChemicalBlock) and block.prev_block:
             pb = block.prev_block
             new_x = block.pos().x() - pb.rect().width() + overlap
@@ -808,7 +808,7 @@ class Editor(QGraphicsView):
                 bb.setPos(new_x, new_y)
             self.reflow_chain(bb, visited)
 
-        # align vertical action flow (up) only if not triggered by a chemical
+        # align vertical action flow (up)
         if not isinstance(block, ChemicalBlock) and block.above_block and not isinstance(block.above_block, ChemicalBlock):
             ab = block.above_block
             new_x = block.pos().x() + (block.rect().width() - ab.rect().width()) / 2
@@ -826,15 +826,12 @@ class Editor(QGraphicsView):
             chem_rect = cb.rect()
 
             if block.orientation == "vertical":
-                # side-aligned for vertical actions
                 new_x = block.pos().x() - chem_rect.width() + border_overlap
                 body_h = action_rect.height() - arrow_size
-                body_center_y = block.pos().y() + (body_h / 2)
-                new_y = body_center_y - (chem_rect.height() / 2) - 4.5
+                new_y = block.pos().y() + (body_h - chem_rect.height()) / 2
             else:
-                # bottom-centered for horizontal actions
-                off_x = ((action_rect.width() - chem_rect.width()) / 2) - 9
-                new_x = block.pos().x() + off_x
+                body_w = action_rect.width() - arrow_size
+                new_x = block.pos().x() + (body_w - chem_rect.width()) / 2
                 new_y = block.pos().y() + action_rect.height() - border_overlap
 
             if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
@@ -994,9 +991,22 @@ class Editor(QGraphicsView):
         return block
 
     def export_protocol(self):
-        """Export the protocol grid with coordinates and ids."""
+        """export the protocol grid with coordinates and ids to a user-selected file."""
         if not self.blocks:
             print("no blocks to export.")
+            return
+
+        # open a file dialog to choose the save path
+        from PySide6.QtWidgets import QFileDialog
+        filename, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export Protocol", 
+            "protocol.json", 
+            "JSON Files (*.json)"
+        )
+        
+        # if the user cancels the dialog, stop the export
+        if not filename:
             return
 
         # map each block to a unique id for intersection tracking
@@ -1030,7 +1040,7 @@ class Editor(QGraphicsView):
                 data["chemicals"] = chemicals
             return data
 
-        # process horizontal flows (starting from heads)
+        # process horizontal flows
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
             if b.prev_block is None:
@@ -1047,7 +1057,7 @@ class Editor(QGraphicsView):
                         "steps": content
                     })
 
-        # process vertical flows (starting from heads)
+        # process vertical flows
         for b in self.blocks:
             if isinstance(b, ChemicalBlock): continue
             has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
@@ -1072,8 +1082,11 @@ class Editor(QGraphicsView):
             "flows": flows_list
         }
 
-        with open("protocol.json", "w", encoding="utf-8") as f:
-            json.dump(final_output, f, indent=2, ensure_ascii=False)
-            
-        print(f"protocol exported with {len(flows_list)} flows.")
+        # save to the selected path
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(final_output, f, indent=2, ensure_ascii=False)
+            print(f"protocol exported to {filename}")
+        except Exception as e:
+            print(f"error saving protocol: {e}")
     
