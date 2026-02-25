@@ -36,6 +36,28 @@ QPushButton:pressed {
     background-color: #5a3de8;
 }
 
+/* Style for zoom buttons specifically */
+QPushButton#zoom_in, QPushButton#zoom_out {
+    background-color: rgba(107, 76, 255, 150);
+    color: white;
+    border-radius: 3px;
+    font-size: 14px;
+    font-weight: bold;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0px;
+}
+
+QPushButton#zoom_in:hover, QPushButton#zoom_out:hover {
+    background-color: rgba(107, 76, 255, 255);
+}
+
+QPushButton#zoom_in:pressed, QPushButton#zoom_out:pressed {
+    background-color: #5a3de8;
+}
+
 QLineEdit, QComboBox {
     background-color: white;
     color: #2c3e50;
@@ -115,6 +137,7 @@ QGraphicsView {
     background-color: #ffffff;
     border: 1px solid #e0e4eb;
     border-radius: 8px;
+    outline: none;
 }
 
 /* Context Menu styling */

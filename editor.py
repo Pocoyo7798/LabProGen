@@ -145,6 +145,13 @@ class Editor(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        # ensure scrollbars appear when needed but don't clutter the UI
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # setup floating zoom controls
+        self.setup_zoom_buttons()
         
         # Title bar
         title = QLabel("Laboratory Protocol Builder")
@@ -257,27 +264,71 @@ class Editor(QGraphicsView):
                 action = action_class(**params)
                 self.protocol.add_action(action)
                 self.add_block(dialog.selected_action, params)
+
+    def setup_zoom_buttons(self):
+        """creates small fixed zoom buttons side by side in the top right corner."""
+        self.zoom_widget = QWidget(self)
+        zoom_layout = QHBoxLayout(self.zoom_widget)
+        zoom_layout.setSpacing(2)
+        zoom_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_in = QPushButton("+")
+        self.btn_out = QPushButton("-")
+        
+        self.btn_in.setObjectName("zoom_in")
+        self.btn_out.setObjectName("zoom_out")
+
+        self.btn_in.clicked.connect(self.zoom_in)
+        self.btn_out.clicked.connect(self.zoom_out)
+
+        zoom_layout.addWidget(self.btn_in)
+        zoom_layout.addWidget(self.btn_out)
+        
+        self.zoom_widget.adjustSize()
+        self.update_zoom_widget_pos()
+    
+    def update_zoom_widget_pos(self):
+        """positions the zoom widget in the top right corner."""
+        if hasattr(self, 'zoom_widget'):
+            padding = 15
+            x = self.viewport().width() - self.zoom_widget.width() - padding
+            self.zoom_widget.move(x, padding)
+
+    def resizeEvent(self, event):
+        """reposition zoom buttons when window is resized."""
+        super().resizeEvent(event)
+        self.update_zoom_widget_pos()
+
+    def zoom_in(self):
+        """increases the view scale."""
+        self.scale(1.15, 1.15)
+
+    def zoom_out(self):
+        """decreases the view scale."""
+        self.scale(1/1.15, 1/1.15)
+
+    def adapt_scene_rect(self):
+        """updates the canvas size based on the position of all blocks."""
+        items_rect = self.scene.itemsBoundingRect()
+        if items_rect.isNull():
+            return
+            
+        new_rect = items_rect.adjusted(-500, -500, 500, 500)
+        self.setSceneRect(new_rect)
     
     def add_block(self, action, params):
-        # lists to define visual style
-        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
+        block = self._create_block_by_name(action, params)
         
-        # choose the appropriate block class based on type
-        if action in elementary_list:
-            block = ElementaryAction(action, params, editor=self)
-        else:
-            # everything else is a Support Action (Blue)
-            block = SupportAction(action, params, editor=self)
-            
-        # find a vertical position that doesn't overlap existing blocks
         block.setPos(50, 50 + len(self.blocks) * 80)
-        self.scene.addItem(block)
-        self.blocks.append(block)
         self.update_linked_sequence()
+        
+        # update scene size and focus camera
+        self.adapt_scene_rect()
+        self.centerOn(block)
         
         if params:
             block.open_editor()
-
+    
     def add_chemical_block(self):
         """Show dialog to select chemical type and add appropriate block"""
         dialog = ChemicalSelectionDialog(self)
@@ -304,6 +355,10 @@ class Editor(QGraphicsView):
                 self.scene.addItem(block)
                 self.blocks.append(block)
                 self.update_linked_sequence()
+                
+                # update scene size and focus camera
+                self.adapt_scene_rect()
+                self.centerOn(block)
                 block.open_editor()
 
     def update_linked_sequence(self):
@@ -405,61 +460,92 @@ class Editor(QGraphicsView):
             current = current.below_block
         return current
 
-    def _find_vertical_target(self, moved_block, look_below=False):
-        """Find the best vertical candidate using center-to-center distance."""
+    def _find_vertical_target(self, moved_block):
+        """Find the best vertical candidate using an expanded snap zone."""
         moved_rect = moved_block.sceneBoundingRect()
         moved_center = moved_rect.center()
-        best_target, best_score = None, float('inf')
+        moved_half_h = moved_rect.height() / 2
+        
+        best_target = None
+        best_score = float('inf')
+        detected_role = None 
 
         for other in self.blocks:
             if other is moved_block:
                 continue
 
-            # Actions cannot have Chemicals as flow parents
             if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock):
                 continue
 
             other_rect = other.sceneBoundingRect()
             other_center = other_rect.center()
+            other_half_h = other_rect.height() / 2
 
-            # Center-to-center displacement
+            # horizontal alignment check
             dx = abs(moved_center.x() - other_center.x())
+            if dx > other_rect.width() * 0.6:
+                continue
+
+            # vertical distance between centers
             dy = moved_center.y() - other_center.y()
+            
+            # snap zone settings
+            snap_buffer = 50 # external reach
+            inner_limit = 10 # how close to center it stops snapping
+            
+            # calculate max distance for a snap to occur
+            max_dist = moved_half_h + other_half_h + snap_buffer
 
-            # Enforce horizontal alignment (40% width tolerance)
-            if dx > other_rect.width() * 0.4:
-                continue
-
-            # Check directional snap zones
-            if look_below:
-                # Snap above target: between 75% and 10% of height above center
-                is_valid = -other_rect.height() * 0.75 < dy < -other_rect.height() * 0.1
+            if -max_dist < dy < -inner_limit:
+                # moved block is above the target or entering from the top
+                role = "parent"
+            elif inner_limit < dy < max_dist:
+                # moved block is below the target or entering from the bottom
+                role = "child"
             else:
-                # Snap below target: between 10% and 75% of height below center
-                is_valid = other_rect.height() * 0.1 < dy < other_rect.height() * 0.75
-
-            if not is_valid:
                 continue
 
-            # Select closest candidate via Manhattan distance
+            # validate orientation rules for action flow
+            if not isinstance(moved_block, ChemicalBlock):
+                if role == "parent" and moved_block.orientation != "vertical":
+                    continue
+                if role == "child" and other.orientation != "vertical":
+                    continue
+
+            # pick the closest target
             score = dx + abs(dy)
             if score < best_score:
                 best_score = score
                 best_target = other
+                detected_role = role
 
-        return best_target, best_score
+        return best_target, detected_role
     
     def _link_action_as_child_vertical(self, moved_block, target_above):
-        """Establishes pointers for moved_block below target_above."""
+        """links moved_block below target_above, moving only the incoming block."""
+        overlap = 20
+        
+        # Calculate snap position based on the stable target
+        target_pos = target_above.pos()
+        snap_x = target_pos.x() + (target_above.rect().width() - moved_block.rect().width()) / 2
+        # position exactly below using target's Y as anchor
+        snap_y = target_pos.y() + target_above.rect().height() - overlap
+        
+        # Move the incoming block (and its cluster) to the snap position
+        diff_x = snap_x - moved_block.pos().x()
+        diff_y = snap_y - moved_block.pos().y()
+        self._move_branch(moved_block, diff_x, diff_y)
+
+        # Establish links
         old_child = target_above.below_block
-        
-        target_above.below_block = moved_block
-        moved_block.above_block = target_above
-        
         if old_child and not isinstance(old_child, ChemicalBlock):
             moved_block.below_block = old_child
             old_child.above_block = moved_block
             
+        target_above.below_block = moved_block
+        moved_block.above_block = target_above
+        
+        # update visuals
         target_above.update()
         moved_block.update()
     
@@ -596,6 +682,8 @@ class Editor(QGraphicsView):
         if old_p: self.reflow_entire_cluster(old_p)
         elif old_n: self.reflow_entire_cluster(old_n)
         self.reflow_entire_cluster(moved_block)
+
+        self.adapt_scene_rect()
         self.update_linked_sequence()
 
     def _move_branch(self, block, dx, dy, visited=None):
@@ -616,76 +704,77 @@ class Editor(QGraphicsView):
             self._move_branch(block.chem_below, dx, dy, visited)
     
     def _link_action_as_parent_vertical(self, moved_block, target_below):
-        """
-        Connects a vertical action as the parent of target_below.
-        Shifts the upstream branch UP to keep the target (and its horizontal chain) stable.
-        """
+        """links moved_block on top of target_below, moving only the incoming block."""
         overlap = 20
         
-        # 1. Calculate the ideal centered position over the target
-        snap_x = target_below.pos().x() + (target_below.rect().width() - moved_block.rect().width()) / 2
-        snap_y = target_below.pos().y() - moved_block.rect().height() + overlap
+        # Calculate snap position based on the stable target
+        target_pos = target_below.pos()
+        # center moved_block over the target
+        snap_x = target_pos.x() + (target_below.rect().width() - moved_block.rect().width()) / 2
+        # position exactly above using the target's Y as anchor
+        snap_y = target_pos.y() - moved_block.rect().height() + overlap
         
-        # 2. Calculate the distance needed to move the moved_block to that position
+        # Move the incoming block (and its cluster) to the snap position
         diff_x = snap_x - moved_block.pos().x()
         diff_y = snap_y - moved_block.pos().y()
-        
-        # 3. Move the moved_block and its upstream ancestors (Above and Left) to the snap position
         self._move_branch(moved_block, diff_x, diff_y)
 
-        # 4. Establish the logical links
+        # Establish links
         old_parent = target_below.above_block
         if old_parent and not isinstance(old_parent, ChemicalBlock):
-            # Insert moved_block between the old vertical parent and the target
             old_parent.below_block = moved_block
             moved_block.above_block = old_parent
             
         moved_block.below_block = target_below
         target_below.above_block = moved_block
         
-        # 5. Visual update for both to ensure notches/arrows are drawn
+        # update visuals
         moved_block.update()
         target_below.update()
-
+    
     def check_and_link_vertical_blocks(self, moved_block):
-        """Handles vertical linking based on the drop quadrant."""
-        # Reset preview colors
+        """Handle vertical linking and ensure chemicals always act as children."""
         if hasattr(self, 'preview_pair') and self.preview_pair:
             for item in self.preview_pair:
                 if item: item.set_connected(False)
             self.preview_pair = None
 
-        # 1. Cut old links
-        old_p, old_c = self._pluck_vertical(moved_block)
+        old_parent = moved_block.above_block
+        old_child = moved_block.below_block
 
-        # 2. Find target and drop zone
-        target, zone = self._get_target_and_zone(moved_block)
+        # disconnect from current structure
+        self._pluck_vertical(moved_block)
 
-        # 3. Apply logic based on block type
+        target, role = self._find_vertical_target(moved_block)
+
         if target:
             if isinstance(moved_block, ChemicalBlock):
-                # Chemicals follow the reflow positioning logic
+                # chemicals always connect to the block above
                 self._link_chemical_to_parent(moved_block, target)
+            elif role == "parent":
+                # vertical action dropped on top half area
+                self._link_action_as_parent_vertical(moved_block, target)
             else:
-                # ACTION FLOW
-                if zone == "TOP":
-                    # Dropped on top half -> moved becomes parent
-                    if moved_block.orientation == "vertical":
-                        self._link_action_as_parent_vertical(moved_block, target)
-                elif zone == "BOTTOM":
-                    # Dropped on bottom half -> moved becomes child
-                    # Only allow if target is vertical (it's the only one with a bottom arrow)
-                    if target.orientation == "vertical":
-                        self._link_action_as_child_vertical(moved_block, target)
-                elif zone == "LEFT" and target.orientation == "vertical":
-                    # Allow horizontal to snap below vertical even if dropped slightly left
-                    self._link_action_as_child_vertical(moved_block, target)
+                # action dropped on bottom half area
+                self._link_action_as_child_vertical(moved_block, target)
+            
+            # anchor the cluster to the target
+            self.reflow_entire_cluster(target)
+        else:
+            # handle standalone state
+            if isinstance(moved_block, ChemicalBlock):
+                moved_block.toggle_orientation("horizontal")
+                moved_block.set_connected(False)
+            else:
+                moved_block.below_block = None
+                is_connected = bool(moved_block.prev_block or moved_block.next_block or moved_block.chem_below)
+                moved_block.set_connected(is_connected)
+            
+            self.reflow_entire_cluster(moved_block)
 
-        # 4. Reflow everything
-        if old_p: self.reflow_entire_cluster(old_p)
-        if old_c: self.reflow_entire_cluster(old_c)
-        self.reflow_entire_cluster(moved_block)
-        if target: self.reflow_entire_cluster(target)
+        # fix gaps in the old chain
+        if old_parent: self.reflow_entire_cluster(old_parent)
+        elif old_child: self.reflow_entire_cluster(old_child)
 
         self.update_linked_sequence()
     
@@ -819,8 +908,8 @@ class Editor(QGraphicsView):
             return
         visited.add(block)
 
-        # force visual update for dynamic notches
         block.update()
+        block.update_text()
         
         overlap = 20         
         border_overlap = 3   
@@ -878,10 +967,12 @@ class Editor(QGraphicsView):
             chem_rect = cb.rect()
 
             if block.orientation == "vertical":
+                # side-aligned for vertical actions
                 new_x = block.pos().x() - chem_rect.width() + border_overlap
                 body_h = action_rect.height() - arrow_size
                 new_y = block.pos().y() + (body_h - chem_rect.height()) / 2
             else:
+                # bottom-centered for horizontal actions
                 body_w = action_rect.width() - arrow_size
                 new_x = block.pos().x() + (body_w - chem_rect.width()) / 2
                 new_y = block.pos().y() + action_rect.height() - border_overlap
@@ -1025,6 +1116,7 @@ class Editor(QGraphicsView):
                 if not isinstance(b, ChemicalBlock):
                     self.reflow_entire_cluster(b)
             
+            self.adapt_scene_rect()
             self.update_linked_sequence()
             print(f"imported {len(flows)} flows successfully.")
 
@@ -1032,11 +1124,14 @@ class Editor(QGraphicsView):
             print(f"error importing protocol: {e}")
     
     def _create_block_by_name(self, name, params):
-        """Helper to instantiate the correct block class."""
-        if name == "ChangeTemperature":
-            block = SupportAction(name, params, editor=self)
-        else:
+        """helper to instantiate the correct block class with proper colors."""
+        # centralized list of elementary actions
+        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
+        
+        if name in elementary_list:
             block = ElementaryAction(name, params, editor=self)
+        else:
+            block = SupportAction(name, params, editor=self)
         
         self.scene.addItem(block)
         self.blocks.append(block)

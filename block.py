@@ -148,41 +148,80 @@ class Block(QGraphicsRectItem):
         else:
             self.setPen(self.default_pen)
 
+    def _get_balanced_text(self, text):
+        """splits camelcase text into two balanced lines."""
+        # Extract words by uppercase letters
+        words = []
+        current_word = ""
+        for i, char in enumerate(text):
+            if char.isupper() and i > 0:
+                words.append(current_word)
+                current_word = char
+            else:
+                current_word += char
+        words.append(current_word)
+
+        # Handle simple cases
+        if len(words) == 1:
+            return words[0]
+        if len(words) == 2:
+            return f"{words[0]}\n{words[1]}"
+
+        # Balance multiple words into two lines
+        best_split = ""
+        min_diff = float('inf')
+
+        for i in range(1, len(words)):
+            line1 = " ".join(words[:i])
+            line2 = " ".join(words[i:])
+            diff = abs(len(line1) - len(line2))
+            
+            if diff < min_diff:
+                min_diff = diff
+                best_split = f"{line1}\n{line2}"
+
+        return best_split
+
     def update_text(self):
         """splits text by uppercase letters and centers it."""
-        # logic to split multiple words action names
-        formatted_action = ""
-        for i, char in enumerate(self.action):
-            if i > 0 and char.isupper():
-                formatted_action += "\n" + char
-            else:
-                formatted_action += char
+        display_text = self._get_balanced_text(self.action)
+        self.text.setPlainText(display_text)
         
-        self.text.setPlainText(formatted_action)
+        # check if the text was split into two lines
+        is_multiline = "\n" in display_text
         
-        font = QFont("Segoe UI", 10)
-        font.setBold(True)
+        font = QFont("Segoe UI", 10, QFont.Bold)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
-        # adjust alignment
+        block_rect = self.rect()
+        # only detect actions above, as chemicals don't create notches
+        has_top_action = self.above_block is not None and not isinstance(self.above_block, ChemicalBlock)
+
         option = self.text.document().defaultTextOption()
         option.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text.document().setDefaultTextOption(option)
-        self.text.setTextWidth(self.rect().width()) # ensures alignment works
-        
-        text_rect = self.text.boundingRect()
-        block_rect = self.rect()
         
         if self.orientation == "horizontal":
             self.text.setRotation(0)
-            x = 0
+            self.text.setTextWidth(block_rect.width() - 20)
+            text_rect = self.text.boundingRect()
+
+            # absolute horizontal and vertical center
+            x = (block_rect.width() - text_rect.width()) / 2 - 5
             y = (block_rect.height() - text_rect.height()) / 2
+
+            # nudge down slightly only if multiline and has connection above
+            if has_top_action and is_multiline:
+                y += 6 # subtle shift to avoid the top notch
         else:
+            # vertical orientation centering
             self.text.setRotation(90)
-            # reposition for vertical orientation
+            self.text.setTextWidth(block_rect.height() - 20)
+            text_rect = self.text.boundingRect()
+
             x = (block_rect.width() + text_rect.height()) / 2
-            y = (block_rect.height() - text_rect.width()) / 2
+            y = (block_rect.height() - text_rect.width()) / 2 - 5
             
         self.text.setPos(x, y)
     
@@ -274,33 +313,31 @@ class Block(QGraphicsRectItem):
         print("[DEBUG] ===== end snapshot =====\n")
 
     def mousePressEvent(self, event):
-        """Handle mouse press and detach block from chains before dragging."""
+        """handle mouse press and detach block from chains before dragging, unless Ctrl is held."""
         if event.button() == Qt.RightButton:
             self.show_context_menu(event)
             return
 
-        if self.editor:
-            # handle vertical detachment
+        # determine if we are trying to move the whole chain (Ctrl held)
+        is_moving_cluster = event.modifiers() == Qt.ControlModifier
+
+        if self.editor and not is_moving_cluster:
+            # only detach from parents if moving this block alone
             old_above = self.above_block
             old_below = self.below_block
 
             if old_above or old_below:
                 old_p, old_c = self.editor._pluck_vertical(self)
-                if old_p:
-                    self.editor.reflow_entire_cluster(old_p)
-                if old_c:
-                    self.editor.reflow_entire_cluster(old_c)
+                if old_p: self.editor.reflow_entire_cluster(old_p)
+                if old_c: self.editor.reflow_entire_cluster(old_c)
 
-            # handle horizontal detachment for vertical blocks
             if self.orientation == "vertical":
                 old_p, old_n = self.editor._pluck_horizontal(self)
-                if old_p:
-                    self.editor.reflow_entire_cluster(old_p)
-                if old_n:
-                    self.editor.reflow_entire_cluster(old_n)
+                if old_p: self.editor.reflow_entire_cluster(old_p)
+                if old_n: self.editor.reflow_entire_cluster(old_n)
 
-        # move entire cluster if control is pressed
-        if event.modifiers() == Qt.ControlModifier:
+        if is_moving_cluster:
+            # enable chain drag mode and skip detachment
             self.chain_drag_mode = True
             self.setZValue(1000)
             super().mousePressEvent(event)
