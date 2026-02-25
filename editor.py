@@ -1,15 +1,16 @@
-import sys
-from PySide6.QtWidgets import (
-    QApplication, QGraphicsView, QGraphicsScene,
-    QGraphicsRectItem, QGraphicsTextItem, QDialog,
-    QFormLayout, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
-    QWidget, QLabel, QGraphicsDropShadowEffect
-)
-from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QFont, QPainter, QColor, QPen
 import json
-from block import Block, ElementaryAction, SupportAction, ChemicalBlock
-from actions import Add, ChangeTemperature, Stir
+from PySide6.QtWidgets import (
+    QGraphicsView, QGraphicsScene, QDialog, QPushButton,
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel
+)
+from PySide6.QtCore import Qt, QPointF
+from PySide6.QtGui import QFont, QPainter, QColor
+from block import ElementaryAction, SupportAction, ChemicalBlock
+from actions import ( 
+    Add, ChangeTemperature, Stir, Repeat, Grind, Separate, Sieve, 
+    Wait, ChangeAtmosphere, ChangeRecipient, NewMixture, SubProductCreation
+)
+from config import *
 from chemicals import Molecule, Material
 from protocol import Protocol
 
@@ -17,34 +18,67 @@ class ActionSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Action")
-        self.setFixedWidth(300)
+        self.setFixedWidth(500)
         self.selected_action = None
-        layout = QVBoxLayout()
-        layout.setSpacing(10)
-        layout.setContentsMargins(20, 20, 20, 20)
         
-        # Title
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        
         title = QLabel("Select an Action")
-        title_font = title.font()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        title.setFont(QFont("Segoe UI", 14, QFont.Bold))
+        main_layout.addWidget(title)
         
-        self.add_btn = QPushButton("+ Add")
-        self.change_temp_btn = QPushButton("🌡 Change Temperature")
-        self.stir_btn = QPushButton("🔄 Stir")
+        grid = QHBoxLayout()
         
-        self.add_btn.clicked.connect(lambda: self.select_action("Add"))
-        self.change_temp_btn.clicked.connect(lambda: self.select_action("ChangeTemperature"))
-        self.stir_btn.clicked.connect(lambda: self.select_action("Stir"))
+        # elementary actions column
+        elem_layout = QVBoxLayout()
+        elem_label = QLabel("Elementary Actions")
+        elem_label.setStyleSheet("color: #6b4cff; font-weight: bold;")
+        elem_layout.addWidget(elem_label)
         
-        layout.addWidget(self.add_btn)
-        layout.addWidget(self.change_temp_btn)
-        layout.addWidget(self.stir_btn)
-        layout.addStretch()
+        self.btn_elementary = {
+            "Add": "+ Add",
+            "Grind": "🔨 Grind",
+            "Separate": "⚗ Separate",
+            "Sieve": "🏁 Sieve",
+            "Stir": "🔄 Stir",
+            "Wait": "⏳ Wait"
+        }
         
-        self.setLayout(layout)
+        for action_id, label in self.btn_elementary.items():
+            btn = QPushButton(label)
+            # elementary actions use the brand purple
+            btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
+            elem_layout.addWidget(btn)
+        
+        # support actions column
+        supp_layout = QVBoxLayout()
+        supp_label = QLabel("Support Actions")
+        supp_label.setStyleSheet("color: #3498db; font-weight: bold;")
+        supp_layout.addWidget(supp_label)
+        
+        self.btn_support = {
+            "ChangeAtmosphere": "☁ Change Atmosphere",
+            "ChangeTemperature": "🌡 Change Temperature",
+            "ChangeRecipient": "🧪 Change Recipient",
+            "NewMixture": "🥣 New Mixture",
+            "SubProductCreation": "📦 SubProduct Creation",
+            "Repeat": "🔁 Repeat"
+        }
+        
+        for action_id, label in self.btn_support.items():
+            btn = QPushButton(label)
+            # use a blue color for support actions buttons
+            btn.setStyleSheet("background-color: #3498db;") 
+            btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
+            supp_layout.addWidget(btn)
+            
+        grid.addLayout(elem_layout)
+        grid.addLayout(supp_layout)
+        main_layout.addLayout(grid)
+        
+        self.setLayout(main_layout)
     
     def select_action(self, action):
         self.selected_action = action
@@ -191,40 +225,58 @@ class Editor(QGraphicsView):
     def show_action_dialog(self):
         dialog = ActionSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_action:
-            # Map action names to action classes
-            action_classes = {
-                "Add": Add,
-                "ChangeTemperature": ChangeTemperature,
-                "Stir": Stir
+            action_map = {
+                "Add": Add, "Grind": Grind, "Separate": Separate, 
+                "Sieve": Sieve, "Stir": Stir, "Wait": Wait,
+                "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
+                "ChangeRecipient": ChangeRecipient, "NewMixture": NewMixture,
+                "SubProductCreation": SubProductCreation, "Repeat": Repeat
             }
             
-            # Define empty parameters for each action type
+            # Numeric values should be strings with units for the reflow parser
             default_params = {
-                "Add": {"component": "", "duration": ""},
-                "ChangeTemperature": {"temperature": ""},
-                "Stir": {"duration": ""}
+                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "Normal"},
+                "Grind": {},
+                "Separate": {KEY_PHASE: "Liquid", KEY_METHOD: "Filtration"},
+                "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
+                "Stir": {KEY_DURATION: "30 min", KEY_STIR_TYPE: "Automatic", KEY_SPEED: "0 rpm"},
+                "Wait": {KEY_DURATION: "10 min"},
+                "ChangeAtmosphere": {KEY_GASES: "", KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
+                "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "Electrical", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
+                "ChangeRecipient": {KEY_RECIPIENT: "Beaker", KEY_MATERIAL: "Glass", KEY_VOLUME: "250 mL"},
+                "NewMixture": {KEY_MIXTURE_NAME: ""},
+                "SubProductCreation": {KEY_SUBSTANCE: ""},
+                "Repeat": {KEY_AMOUNT: "1"}
             }
             
             params = default_params.get(dialog.selected_action, {})
-            action_class = action_classes.get(dialog.selected_action)
+            action_class = action_map.get(dialog.selected_action)
             
-            # Create actual action object and add to protocol
             if action_class:
+                # instantiate action data and add to scene
                 action = action_class(**params)
                 self.protocol.add_action(action)
                 self.add_block(dialog.selected_action, params)
     
     def add_block(self, action, params):
-        # Choose the appropriate block class based on action type
-        if action in ["Add", "Stir"]:
+        # lists to define visual style
+        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
+        
+        # choose the appropriate block class based on type
+        if action in elementary_list:
             block = ElementaryAction(action, params, editor=self)
-        elif action == "ChangeTemperature":
+        else:
+            # everything else is a Support Action (Blue)
             block = SupportAction(action, params, editor=self)
+            
+        # find a vertical position that doesn't overlap existing blocks
         block.setPos(50, 50 + len(self.blocks) * 80)
         self.scene.addItem(block)
         self.blocks.append(block)
         self.update_linked_sequence()
-        block.open_editor()
+        
+        if params:
+            block.open_editor()
 
     def add_chemical_block(self):
         """Show dialog to select chemical type and add appropriate block"""

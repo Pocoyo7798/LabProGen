@@ -1,4 +1,4 @@
-from config import KEY_NAME, KEY_FORMULA, KEY_SMILES, KEY_STRUCTURE
+from config import *
 
 class Chemical:
     """Base class for chemicals"""

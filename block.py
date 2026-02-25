@@ -1,15 +1,11 @@
-import sys
 from PySide6.QtWidgets import (
-    QApplication, QGraphicsView, QGraphicsScene,
-    QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem,
-    QDialog, QFormLayout, QLineEdit, QPushButton, QMenu,
-    QHBoxLayout, QComboBox, QWidget
+    QGraphicsRectItem, QGraphicsTextItem, QDialog, QFormLayout, 
+    QLineEdit, QPushButton, QMenu, QHBoxLayout, QComboBox, QWidget
 )
-from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator
-from config import FIELD_CONFIG, KEY_NAME, KEY_TEMPERATURE, KEY_DURATION, KEY_COMPONENT, KEY_FORMULA, KEY_SMILES, KEY_STRUCTURE
+from config import *
 import debug_flag
-import json
 
 class Block(QGraphicsRectItem):
     def __init__(self, action, params, editor=None):
@@ -559,13 +555,26 @@ class Block(QGraphicsRectItem):
             layout.addWidget(combo, 1)
             return container, (edit, combo)
         
+        elif f_type == "dropdown":
+            combo = QComboBox()
+            combo.addItems(config.get("options", []))
+            # Set the current value if it exists in params
+            current_val = str(value)
+            idx = combo.findText(current_val)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            return combo, combo
+        
         else:
             edit = QLineEdit(str(value))
             edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
             return edit, edit
 
     def open_editor(self):
-        """Opens a dialog to edit block parameters based on registry settings."""
+        """opens a dialog to edit block parameters. skips if no parameters."""
+        if not self.params:
+            return
+
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
         dialog.setFixedWidth(400)
@@ -589,9 +598,14 @@ class Block(QGraphicsRectItem):
         def apply_changes():
             for k, tracker in input_map.items():
                 if isinstance(tracker, tuple):
+                    # For Unit fields (LineEdit, ComboBox)
                     edit_field, combo_field = tracker
                     self.params[k] = f"{edit_field.text()} {combo_field.currentText()}"
+                elif isinstance(tracker, QComboBox):
+                    # For standalone Dropdown fields
+                    self.params[k] = tracker.currentText()
                 else:
+                    # For standard Text fields (LineEdit)
                     self.params[k] = tracker.text()
             self.update_text()
             dialog.accept()
