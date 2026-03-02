@@ -6,12 +6,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QFont, QPainter, QColor
 from block import ElementaryAction, SupportAction, ChemicalBlock
-from actions import ( 
-    Add, ChangeTemperature, Stir, Repeat, Grind, Separate, Sieve, 
-    Wait, ChangeAtmosphere, ChangeRecipient, NewMixture, SubProductCreation
-)
 from config import *
-from chemicals import Molecule, Material
+from actions import *
+from chemicals import *
 from protocol import Protocol
 
 class ActionSelectionDialog(QDialog):
@@ -87,30 +84,34 @@ class ActionSelectionDialog(QDialog):
 class ChemicalSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Chemical")
-        self.setFixedWidth(300)
+        self.setWindowTitle("Add Chemical Entity")
+        self.setFixedWidth(350)
         self.selected_chemical = None
         layout = QVBoxLayout()
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # Title
-        title = QLabel("Select a Chemical")
-        title_font = title.font()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title.setFont(title_font)
+        title = QLabel("Select an Entity Type")
+        title.setFont(QFont("Segoe UI", 12, QFont.Bold))
         layout.addWidget(title)
         
-        self.molecule_btn = QPushButton("Molecule")
-        self.material_btn = QPushButton("Material")
+        # list of all entities from the data model
+        entities = {
+            "Substance": "Substance (Simple)",
+            "UnknownSubstance": "Unknown Substance",
+            "Solution": "Solution (Mixture)",
+            "Material": "Material (Crystal)",
+            "ComplexMaterial": "Complex Material",
+            "HeterogeneousMaterial": "Heterogeneous Material",
+            "ComplexHeterogeneousMaterial": "Complex Heterogeneous Mat."
+        }
         
-        self.molecule_btn.clicked.connect(lambda: self.select_chemical("Molecule"))
-        self.material_btn.clicked.connect(lambda: self.select_chemical("Material"))
-        
-        layout.addWidget(self.molecule_btn)
-        layout.addWidget(self.material_btn)
-        layout.addStretch()
+        for key, label in entities.items():
+            btn = QPushButton(label)
+            # use a green style for chemicals
+            btn.setStyleSheet("background-color: #2ecc71;") 
+            btn.clicked.connect(lambda checked=False, k=key: self.select_chemical(k))
+            layout.addWidget(btn)
         
         self.setLayout(layout)
     
@@ -330,24 +331,59 @@ class Editor(QGraphicsView):
             block.open_editor()
 
     def add_chemical_block(self):
-        """create a chemical block and update support logic."""
+        """show dialog and add the specific chemical entity to the scene."""
         dialog = ChemicalSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
-            chemical_classes = {"Molecule": Molecule, "Material": Material}
-            params = {"Molecule": {"name": "", "formula": "", "smile": ""},
-                     "Material": {"name": "", "formula": "", "structure": ""}}.get(dialog.selected_chemical, {})
+            # mapping keys to classes from chemicals.py
+            from chemicals import (
+                Substance, UnknownSubstance, Solution, Material, 
+                ComplexMaterial, HeterogeneousMaterial, ComplexHeterogeneousMaterial
+            )
             
-            chemical_class = chemical_classes.get(dialog.selected_chemical)
-            if chemical_class:
-                block = ChemicalBlock(dialog.selected_chemical, params, editor=self)
-                block.setPos(50, 50 + len(self.blocks) * 80)
+            chemical_map = {
+                "Substance": Substance,
+                "UnknownSubstance": UnknownSubstance,
+                "Solution": Solution,
+                "Material": Material,
+                "ComplexMaterial": ComplexMaterial,
+                "HeterogeneousMaterial": HeterogeneousMaterial,
+                "ComplexHeterogeneousMaterial": ComplexHeterogeneousMaterial
+            }
+            
+            # define initial parameters for each type using config keys
+            default_params_map = {
+                "Substance": {KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: "", KEY_QUANTITY: "0 g"},
+                "UnknownSubstance": {KEY_NAME: "", KEY_QUANTITY: "0 g"},
+                "Solution": {KEY_SOLVENT: "", KEY_SOLUTES: "", KEY_QUANTITY: "0 mL"},
+                "Material": {KEY_ATOMIC_COMP: "", KEY_STRUCT_DESC: "", KEY_QUANTITY: "0 g"},
+                "ComplexMaterial": {KEY_BASE_MAT: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: "", KEY_QUANTITY: "0 g"},
+                "HeterogeneousMaterial": {KEY_MAT_LIST: "", KEY_QUANTITY: "0 g"},
+                "ComplexHeterogeneousMaterial": {KEY_BASE_COMPLEX: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: "", KEY_QUANTITY: "0 g"}
+            }
+            
+            chem_type = dialog.selected_chemical
+            params = default_params_map.get(chem_type, {})
+            chem_class = chemical_map.get(chem_type)
+            
+            if chem_class:
+                # create data object (for protocol logic)
+                chemical_data = chem_class(**params)
+                
+                # create visual block
+                block = ChemicalBlock(chem_type, params, editor=self)
+                
+                # position the block
+                block.setPos(150, 50 + len(self.blocks) * 40)
                 self.scene.addItem(block)
                 self.blocks.append(block)
+                
                 self.update_linked_sequence()
                 self.adapt_scene_rect()
+                self.centerOn(block)
                 
-                # trigger logic for chemicals to inherit active influences
+                # refresh support action influences
                 self.update_support_logic()
+                
                 block.open_editor()
     
     def update_linked_sequence(self):
@@ -450,7 +486,7 @@ class Editor(QGraphicsView):
         return current
 
     def _find_vertical_target(self, moved_block):
-        """Find the best vertical candidate using an expanded snap zone."""
+        """Find the best vertical candidate using adjusted snap zones for chemicals and actions."""
         moved_rect = moved_block.sceneBoundingRect()
         moved_center = moved_rect.center()
         moved_half_h = moved_rect.height() / 2
@@ -470,19 +506,26 @@ class Editor(QGraphicsView):
             other_center = other_rect.center()
             other_half_h = other_rect.height() / 2
 
-            # horizontal alignment check
+            # logic for chemical blocks snapping to vertical actions (side snap)
+            if isinstance(moved_block, ChemicalBlock) and other.orientation == "vertical":
+                dx = moved_center.x() - other_center.x()
+                dy = abs(moved_center.y() - other_center.y())
+                
+                if -80 < dx < 10 and dy < other_rect.height() * 0.7:
+                    role = "child" # chemicals always act as children
+                    score = abs(dx) + dy
+                    if score < best_score:
+                        best_score, best_target, detected_role = score, other, role
+                continue
+
+            # logic for action flow or chemicals on horizontal actions (vertical snap)
             dx = abs(moved_center.x() - other_center.x())
             if dx > other_rect.width() * 0.6:
                 continue
 
-            # vertical distance between centers
             dy = moved_center.y() - other_center.y()
-            
-            # snap zone settings
-            snap_buffer = 50 # external reach
-            inner_limit = 10 # how close to center it stops snapping
-            
-            # calculate max distance for a snap to occur
+            snap_buffer = 50 
+            inner_limit = 10 
             max_dist = moved_half_h + other_half_h + snap_buffer
 
             if -max_dist < dy < -inner_limit:
@@ -504,9 +547,7 @@ class Editor(QGraphicsView):
             # pick the closest target
             score = dx + abs(dy)
             if score < best_score:
-                best_score = score
-                best_target = other
-                detected_role = role
+                best_score, best_target, detected_role = score, other, role
 
         return best_target, detected_role
     

@@ -27,10 +27,21 @@ KEY_VOLUME = "volume"
 KEY_MIXTURE_NAME = "mixture_name"
 KEY_SUBSTANCE = "substance"
 KEY_AMOUNT = "amount"
+KEY_INCHI = "inchi"
+KEY_QUANTITY = "quantity"
+KEY_SOLVENT = "solvent"
+KEY_SOLUTES = "solutes"
+KEY_ATOMIC_COMP = "atomic_composition"
+KEY_STRUCT_DESC = "structure_descriptor"
+KEY_BASE_MAT = "base_material"
+KEY_TEXTURAL_DESC = "textural_descriptors"
+KEY_CHEM_DESC = "chemical_descriptors"
+KEY_MAT_LIST = "materials_list"
+KEY_BASE_COMPLEX = "base_complex_material"
 
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
-    # Unit fields (Numeric + Dropdown)
+    # unit fields
     KEY_DURATION: {"label": "Duration", "type": "unit", "units": ["s", "min", "h"], "defaults": ["0", "10", "30"], "placeholder": "Time"},
     KEY_TEMPERATURE: {"label": "Temperature", "type": "unit", "units": ["°C", "°F"], "defaults": ["50"], "placeholder": "Value"},
     KEY_MIN_SIZE: {"label": "Min Size", "type": "unit", "units": ["μm", "mm", "m"], "defaults": ["0"], "placeholder": "Size"},
@@ -41,8 +52,9 @@ FIELD_CONFIG = {
     KEY_RAMP: {"label": "Ramp", "type": "unit", "units": ["°C/min", "K/min"], "defaults": ["0"], "placeholder": "Slope"},
     KEY_POWER: {"label": "Power", "type": "unit", "units": ["W", "kW"], "defaults": ["0"], "placeholder": "Power"},
     KEY_VOLUME: {"label": "Volume", "type": "unit", "units": ["μL", "mL", "L"], "defaults": ["0"], "placeholder": "Volume"},
+    KEY_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["mg", "g", "kg", "mL", "L", "mol", "mmol"], "defaults": ["0"], "placeholder": "Amount"},
 
-    # Dropdown fields (Standalone selection)
+    # dropdown fields
     KEY_ADD_TYPE: {"label": "Add Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"]},
     KEY_STIR_TYPE: {"label": "Stirring Type", "type": "dropdown", "options": ["Manual", "Automatic"]},
     KEY_PHASE: {"label": "Phase to Keep", "type": "dropdown", "options": ["Liquid", "Solid", "Aqueous", "Organic"]},
@@ -51,13 +63,23 @@ FIELD_CONFIG = {
     KEY_RECIPIENT: {"label": "Recipient", "type": "dropdown", "options": ["Beaker", "Flask", "Autoclave"]},
     KEY_MATERIAL: {"label": "Material", "type": "dropdown", "options": ["Glass", "Plastic", "Ceramic"]},
 
-    # Text fields
+    # text fields
+    KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity name..."},
+    KEY_FORMULA: {"label": "Formula", "type": "text", "placeholder": "Chemical formula..."},
+    KEY_SMILES: {"label": "SMILES", "type": "text", "placeholder": "SMILES string..."},
+    KEY_INCHI: {"label": "InChi", "type": "text", "placeholder": "InChi string..."},
+    KEY_SOLVENT: {"label": "Solvent", "type": "text", "placeholder": "Main solvent..."},
+    KEY_SOLUTES: {"label": "Solutes", "type": "text", "placeholder": "List of solutes..."},
+    KEY_ATOMIC_COMP: {"label": "Atomic Comp.", "type": "text", "placeholder": "Atoms and % m/m..."},
+    KEY_STRUCT_DESC: {"label": "Structure Desc.", "type": "text", "placeholder": "Structure description..."},
+    KEY_TEXTURAL_DESC: {"label": "Textural Desc.", "type": "text", "placeholder": "Textural properties..."},
+    KEY_CHEM_DESC: {"label": "Chem Desc.", "type": "text", "placeholder": "Chemical descriptors..."},
+    KEY_MAT_LIST: {"label": "Materials List", "type": "text", "placeholder": "List of materials..."},
+    KEY_BASE_MAT: {"label": "Base Material", "type": "text", "placeholder": "Base entity name..."},
+    KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity..."},
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name..."},
     KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases..."},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity..."},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture..."},
     KEY_AMOUNT: {"label": "Repetitions", "type": "text", "placeholder": "Number of times..."},
-    KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity name..."},
-    KEY_FORMULA: {"label": "Formula", "type": "text", "placeholder": "Chemical formula..."},
-    KEY_SMILES: {"label": "SMILES", "type": "text", "placeholder": "SMILES string..."},
 }
