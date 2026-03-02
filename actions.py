@@ -5,19 +5,21 @@ class Action:
     def __init__(self, **kwargs):
         self.params = kwargs
         self.chemicals = [] # stores attached Chemical entities
+        self.subproducts = [] # stores subproducts created in this action
 
     def add_chemical(self, chemical):
         """attaches a chemical ingredient to this action."""
         self.chemicals.append(chemical)
     
+    def add_subproduct(self, subproduct):
+        self.subproducts.append(subproduct)
+
     def to_dict(self):
-        """converts action and its nested chemicals to dictionary."""
-        data = {
-            "action": self.__class__.__name__,
-            "params": self.params
-        }
+        data = {"action": self.__class__.__name__, "params": self.params}
         if self.chemicals:
             data["chemicals"] = [c.to_dict() for c in self.chemicals]
+        if self.subproducts:
+            data["subproducts"] = [s.to_dict() for s in self.subproducts]
         return data
 
 # --- Elementary Actions ---

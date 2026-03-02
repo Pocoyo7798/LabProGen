@@ -22,6 +22,7 @@ class Block(QGraphicsRectItem):
         
         # Pointer for Chemical Stack
         self.chem_below = None   # Points to the first ChemicalBlock
+        self.subproduct_below = None # Points to the SubproductBlock (if any)
         
         self.orientation = "horizontal" # Default orientation
         self.is_first = False
@@ -48,7 +49,7 @@ class Block(QGraphicsRectItem):
         self.update_text()
 
     def paint(self, painter, option, widget=None):
-        """paints the block body, shadow, and then badges on top."""
+        """paints action blocks with dynamic chevrons or subproduct shape."""
         from PySide6.QtGui import QPainterPath, QPainter
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -58,42 +59,51 @@ class Block(QGraphicsRectItem):
         m = 4 
         path = QPainterPath()
 
-        has_left_indent = self.prev_block is not None
-        has_top_indent = self.above_block is not None and not isinstance(self.above_block, ChemicalBlock)
-        is_horz = self.orientation == "horizontal"
-        is_vert = self.orientation == "vertical"
-
-        # --- 1. path construction (clockwise) ---
-        path.moveTo(m, m)
-        if has_top_indent:
-            notch_half_width = 26
-            path.lineTo(w / 2 - notch_half_width, m)
-            path.lineTo(w / 2, m + arrow_size)
-            path.lineTo(w / 2 + notch_half_width, m)
-        
-        if is_horz:
-            path.lineTo(w - m - arrow_size, m)
-            path.lineTo(w - m, h / 2)
-            path.lineTo(w - m - arrow_size, h - m)
-        else:
-            path.lineTo(w - m, m)
-            if is_vert:
-                path.lineTo(w - m, h - m - arrow_size)
-            else:
-                path.lineTo(w - m, h - m)
-
-        if is_vert:
-            path.lineTo(w / 2, h - m)
-            path.lineTo(m, h - m - arrow_size)
-        else:
+        if self.action == "SubProductCreation":
+            # upward arrow for subproducts
+            path.moveTo(w / 2, m)
+            path.lineTo(w - m, m + arrow_size)
+            path.lineTo(w - m, h - m)
             path.lineTo(m, h - m)
+            path.lineTo(m, m + arrow_size)
+            path.closeSubpath()
+        else:
+            # standard action blocks
+            has_left_indent = self.prev_block is not None
+            has_top_indent = self.above_block is not None and not isinstance(self.above_block, ChemicalBlock)
+            is_horz = self.orientation == "horizontal"
+            is_vert = self.orientation == "vertical"
 
-        if has_left_indent:
-            path.lineTo(m + arrow_size, h / 2)
-        
-        path.closeSubpath()
+            path.moveTo(m, m)
+            if has_top_indent:
+                notch_w = 26
+                path.lineTo(w / 2 - notch_w, m)
+                path.lineTo(w / 2, m + arrow_size)
+                path.lineTo(w / 2 + notch_w, m)
+            
+            if is_horz:
+                path.lineTo(w - m - arrow_size, m)
+                path.lineTo(w - m, h / 2)
+                path.lineTo(w - m - arrow_size, h - m)
+            else:
+                path.lineTo(w - m, m)
+                if is_vert:
+                    path.lineTo(w - m, h - m - arrow_size)
+                else:
+                    path.lineTo(w - m, h - m)
 
-        # --- 2. render shadow and body ---
+            if is_vert:
+                path.lineTo(w / 2, h - m)
+                path.lineTo(m, h - m - arrow_size)
+            else:
+                path.lineTo(m, h - m)
+
+            if has_left_indent:
+                path.lineTo(m + arrow_size, h / 2)
+            
+            path.closeSubpath()
+
+        # rendering body
         painter.setOpacity(0.15)
         painter.setBrush(QColor(0, 0, 0))
         painter.setPen(Qt.PenStyle.NoPen)
@@ -105,10 +115,10 @@ class Block(QGraphicsRectItem):
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.drawPath(path)
-
-        # --- 3. draw badges last so they appear on top ---
+        
+        # draw influence badges on top
         self._draw_influence_badges(painter)
-
+    
     def _draw_influence_badges(self, painter):
         """draw smaller badges with custom 4-1-1 distribution and rotation support."""
         rect = self.rect()
@@ -144,7 +154,7 @@ class Block(QGraphicsRectItem):
         x_offset_right = arrow_size if is_action else 2
 
         # 1. draw own id badge at top-left for support actions
-        if self.support_id:
+        if self.support_id and self.action != "SubProductCreation":
             painter.setPen(Qt.PenStyle.NoPen)
             bg_color = getattr(self, 'support_color', QColor(44, 62, 80, 220))
             painter.setBrush(bg_color)
@@ -260,50 +270,61 @@ class Block(QGraphicsRectItem):
         return best_split
 
     def update_text(self):
-        """splits text by uppercase letters and centers it."""
+        """rotate and center text, with special logic for anchored subproducts."""
         display_text = self._get_balanced_text(self.action)
         self.text.setPlainText(display_text)
         
-        # check if the text was split into two lines
         is_multiline = "\n" in display_text
-        
         font = QFont("Segoe UI", 10, QFont.Bold)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
         block_rect = self.rect()
-        # only detect actions above, as chemicals don't create notches
+        arrow_size = 18
+        
+        # Action block above check
         has_top_action = self.above_block is not None and not isinstance(self.above_block, ChemicalBlock)
 
         option = self.text.document().defaultTextOption()
         option.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text.document().setDefaultTextOption(option)
         
+        # special case for subproduct (upward arrow at the top)
+        if self.action == "SubProductCreation":
+            self.text.setRotation(90)
+            # define available height inside the body (below the arrow tip)
+            self.text.setTextWidth(block_rect.height() - arrow_size - 10)
+            text_rect = self.text.boundingRect()
+            
+            x = (block_rect.width() + text_rect.height()) / 2
+            # start calculation after the arrow tip
+            top_offset = arrow_size
+            y = top_offset + (block_rect.height() - top_offset - text_rect.width()) / 2
+            self.text.setPos(x, y)
+            return
+
+        # standard orientation logic
         if self.orientation == "horizontal":
             self.text.setRotation(0)
             self.text.setTextWidth(block_rect.width() - 20)
             text_rect = self.text.boundingRect()
-
-            # absolute horizontal and vertical center
-            x = (block_rect.width() - text_rect.width()) / 2 - 5
+            x = (block_rect.width() - text_rect.width()) / 2
             y = (block_rect.height() - text_rect.height()) / 2
-
-            # nudge down slightly only if multiline and has connection above
             if has_top_action and is_multiline:
-                y += 6 # subtle shift to avoid the top notch
+                y += 6 
         else:
-            # vertical orientation centering
             self.text.setRotation(90)
             self.text.setTextWidth(block_rect.height() - 20)
             text_rect = self.text.boundingRect()
-
             x = (block_rect.width() + text_rect.height()) / 2
-            y = (block_rect.height() - text_rect.width()) / 2 - 5
+            y = (block_rect.height() - text_rect.width()) / 2
             
         self.text.setPos(x, y)
     
     def mouseDoubleClickEvent(self, event):
-        self.open_editor()
+        """opens editor except for subproduct creation which is automatic."""
+        if self.action != "SubProductCreation":
+            self.open_editor()
 
     def hoverEnterEvent(self, event):
         """Start the timer when mouse enters the block"""
@@ -390,40 +411,112 @@ class Block(QGraphicsRectItem):
         print("[DEBUG] ===== end snapshot =====\n")
 
     def mousePressEvent(self, event):
-        """handle mouse press and detach block from chains before dragging, unless Ctrl is held."""
+        """handle mouse press, bringing item to front and blocking subproduct drag."""
         if event.button() == Qt.RightButton:
             self.show_context_menu(event)
             return
 
-        # determine if we are trying to move the whole chain (Ctrl held)
-        is_moving_cluster = event.modifiers() == Qt.ControlModifier
+        # check for anchored subproduct
+        is_subproduct = self.action == "SubProductCreation" and self.above_block
+        is_ctrl = event.modifiers() == Qt.ControlModifier
 
-        if self.editor and not is_moving_cluster:
-            # only detach from parents if moving this block alone
-            old_above = self.above_block
-            old_below = self.below_block
+        # bring to foreground always
+        self.setZValue(1000)
 
-            if old_above or old_below:
-                old_p, old_c = self.editor._pluck_vertical(self)
-                if old_p: self.editor.reflow_entire_cluster(old_p)
-                if old_c: self.editor.reflow_entire_cluster(old_c)
+        if is_subproduct and not is_ctrl:
+            from PySide6.QtWidgets import QToolTip
+            from PySide6.QtGui import QCursor
+            QToolTip.showText(QCursor.pos(), "Subproduct is anchored to its parent", self.editor)
+            event.accept()
+            return 
+
+        if self.editor and not is_ctrl:
+            # handle detachment logic only for movable actions
+            if self.action != "SubProductCreation":
+                old_above, old_below = self.above_block, self.below_block
+                if old_above or old_below:
+                    old_p, old_c = self.editor._pluck_vertical(self)
+                    if old_p: self.editor.reflow_entire_cluster(old_p)
+                    if old_c: self.editor.reflow_entire_cluster(old_c)
 
             if self.orientation == "vertical":
                 old_p, old_n = self.editor._pluck_horizontal(self)
                 if old_p: self.editor.reflow_entire_cluster(old_p)
                 if old_n: self.editor.reflow_entire_cluster(old_n)
 
-        if is_moving_cluster:
-            # enable chain drag mode and skip detachment
+        if is_ctrl:
             self.chain_drag_mode = True
-            self.setZValue(1000)
             super().mousePressEvent(event)
             return
 
-        # normal single block movement
-        self.setZValue(1000)
+        # call base implementation for normal blocks to allow selection/drag
         super().mousePressEvent(event)
     
+    def delete_block(self):
+        """removes the block and correctly stitches or nullifies all pointers."""
+        if not self.editor:
+            return
+
+        # remove from the editor's tracking list
+        if self in self.editor.blocks:
+            self.editor.blocks.remove(self)
+
+        # identify all possible neighbors
+        p_h, n_h = self.prev_block, self.next_block
+        p_v, n_v = self.above_block, self.below_block
+
+        # 1. repair horizontal chain
+        if p_h: p_h.next_block = n_h
+        if n_h: n_h.prev_block = p_h
+
+        # 2. repair vertical chain (Action flow or Chemical stacks)
+        if p_v:
+            if isinstance(self, ChemicalBlock):
+                # if parent is another chemical, use below_block
+                if isinstance(p_v, ChemicalBlock):
+                    p_v.below_block = n_v
+                else:
+                    # if parent is an action, use chem_below
+                    p_v.chem_below = n_v
+            else:
+                # for standard action flow
+                if not isinstance(p_v, ChemicalBlock):
+                    p_v.below_block = n_v
+        
+        if n_v:
+            n_v.above_block = p_v
+            n_v.update()
+
+        # 3. special case: if this is a subproduct, clear the parent's anchor
+        if self.action == "SubProductCreation" and p_v:
+            if hasattr(p_v, 'subproduct_below'):
+                p_v.subproduct_below = None
+
+        # 4. special case: if this block has an anchored subproduct, delete it too
+        if hasattr(self, 'subproduct_below') and self.subproduct_below:
+            # this creates a recursive deletion of the sub-branch
+            self.subproduct_below.delete_block()
+
+        # 5. clear all local pointers to prevent memory leaks or ghost links
+        self.prev_block = self.next_block = self.above_block = self.below_block = self.chem_below = None
+        if hasattr(self, 'subproduct_below'):
+            self.subproduct_below = None
+
+        # 6. final visual and sequence updates
+        scene = self.scene()
+        if scene:
+            scene.removeItem(self)
+        
+        # sync positions of the remaining blocks in the old clusters
+        if p_h: self.editor.reflow_entire_cluster(p_h)
+        elif n_h: self.editor.reflow_entire_cluster(n_h)
+        if p_v: self.editor.reflow_entire_cluster(p_v)
+        elif n_v: self.editor.reflow_entire_cluster(n_v)
+
+        self.editor.update_linked_sequence()
+        # force influence refresh so subproduct substance fields are updated
+        self.editor.update_support_logic()
+
     def mouseReleaseEvent(self, event):
         """Handle mouse release events"""
         if self.chain_drag_mode:
@@ -463,37 +556,44 @@ class Block(QGraphicsRectItem):
 
 
     def show_context_menu(self, event):
-        """Show context menu. Only allows manual orientation for Action blocks."""
+        """show context menu with orientation, first action, and subproduct branch options."""
         menu = QMenu()
+        is_connected = bool(self.prev_block or self.next_block or self.above_block or 
+                            self.below_block or self.chem_below)
 
-        is_connected = bool(self.prev_block or self.next_block or 
-                            self.above_block or self.below_block or self.chem_below)
-
-        # 1. Orientation toggle. Only for Actions, not for ChemicalBlocks
-        if not isinstance(self, ChemicalBlock):
+        # 1. orientation (not for chemicals or subproducts)
+        if not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
             label = "Set Vertical" if self.orientation == "horizontal" else "Set Horizontal"
-            toggle_orient = menu.addAction(label)
+            toggle = menu.addAction(label)
             if is_connected:
-                toggle_orient.setEnabled(False)
-                toggle_orient.setText(f"{label} (Disconnect first)")
+                toggle.setEnabled(False)
+                toggle.setText(f"{label} (Disconnect first)")
             else:
-                toggle_orient.triggered.connect(self.toggle_orientation)
+                toggle.triggered.connect(self.toggle_orientation)
             menu.addSeparator()
 
-        # 2. 'First' logic: Only for Actions
-        if not isinstance(self, ChemicalBlock):
+        # 2. specific option for separate block
+        if self.action == "Separate":
+            # check if the helper exists in editor
+            sub_opt = menu.addAction("➕ Add Subproduct Branch")
+            # disable if a subproduct is already attached
+            sub_opt.setEnabled(self.subproduct_below is None)
+            sub_opt.triggered.connect(lambda: self.editor.add_subproduct_branch(self))
+            menu.addSeparator()
+
+        # 3. first logic (not for chemicals or subproducts)
+        if not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
             if self.is_first:
                 menu.addAction("Unmark as First").triggered.connect(self.make_first)
             else:
-                action_first = menu.addAction("Make it First")
+                act = menu.addAction("Make it First")
                 if self.has_first_in_path():
-                    action_first.setEnabled(False)
-                    action_first.setText("Make it First (Chain already has a start)")
+                    act.setEnabled(False)
+                    act.setText("Make it First (Chain has start)")
                 else:
-                    action_first.triggered.connect(self.make_first)
+                    act.triggered.connect(self.make_first)
             menu.addSeparator()
         
-        # 3. Delete
         menu.addAction("Delete").triggered.connect(self.delete_block)
         menu.exec(event.screenPos())
     
@@ -516,48 +616,17 @@ class Block(QGraphicsRectItem):
         
         if self.editor:
             self.editor.reflow_entire_cluster(self)
+
+    def _get_spaced_text(self, text):
+        """inserts spaces before uppercase letters in a camelcase string."""
+        result = ""
+        for i, char in enumerate(text):
+            if i > 0 and char.isupper():
+                result += " " + char
+            else:
+                result += char
+        return result
     
-    def delete_block(self):
-        """Removes the block and stitches all 3 possible chains (Horizontal, Vertical, Chemicals)."""
-        if not self.editor: return
-
-        # Remove from main list
-        if self in self.editor.blocks:
-            self.editor.blocks.remove(self)
-
-        # Stitch Horizontal
-        if self.prev_block or self.next_block:
-            p, n = self.prev_block, self.next_block
-            if p: p.next_block = n
-            if n: n.prev_block = p
-            # Reflow the remaining horizontal chain
-            head = self.editor.find_chain_start(p if p else n)
-            self.editor.reflow_chain(head)
-
-        # Stitch Vertical Action Flow
-        if self.above_block or self.below_block:
-            # Only stitch if parent and child are Actions
-            if not isinstance(self.above_block, ChemicalBlock):
-                a, b = self.above_block, self.below_block
-                if a: a.below_block = b
-                if b: b.above_block = a
-                # Reflow vertical
-                top = self
-                while top.above_block: top = top.above_block
-                self.editor.reflow_chain(top)
-
-        # Handle Chemical Stack
-        if self.chem_below:
-            # If we delete the action, the chemicals lose their parent
-            self.chem_below.above_block = None
-
-        # Clear its own pointers
-        self.prev_block = self.next_block = self.above_block = self.below_block = self.chem_below = None
-        
-        if self.scene():
-            self.scene().removeItem(self)
-        self.editor.update_linked_sequence()
-
     def has_first_in_path(self):
         """Checks if any block in the current logical path (upstream or downstream) is already 'is_first'."""
         
@@ -617,18 +686,20 @@ class Block(QGraphicsRectItem):
         self.editor.update_linked_sequence()
     
     def move_chain(self, dx, dy):
-        """Moves the entire connected cluster as a single unit."""
+        """moves the entire graph including all branches (actions, chemicals, subproducts)."""
         visited = set()
         def _move_recursive(b):
             if not b or b in visited: return
             visited.add(b)
             b.setPos(b.pos().x() + dx, b.pos().y() + dy)
-            # Move all directions
+            # follow all directions
             _move_recursive(b.prev_block)
             _move_recursive(b.next_block)
             _move_recursive(b.above_block)
             _move_recursive(b.below_block)
             _move_recursive(b.chem_below)
+            if hasattr(b, 'subproduct_below'):
+                _move_recursive(b.subproduct_below)
             
         _move_recursive(self)
 
@@ -772,7 +843,7 @@ class ChemicalBlock(Block):
     """Chemical action block"""
     def __init__(self, action, params, editor=None):
         # Call parent's parent __init__ to avoid Block.__init__
-        QGraphicsRectItem.__init__(self, 0, 0, 114, 30)
+        QGraphicsRectItem.__init__(self, 0, 0, 120, 30)
         self.action = action
         self.params = params
         self.editor = editor
@@ -805,24 +876,19 @@ class ChemicalBlock(Block):
         self.update_text()
     
     def paint(self, painter, option, widget=None):
-        """Paint a simple rectangle instead of the chevron shape"""
+        """paints a simple rectangle for chemical entities without chevrons."""
         from PySide6.QtGui import QPainter
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
-
-        # Draw shadow effect
-        painter.setOpacity(0.15)
-        painter.setBrush(QColor(0, 0, 0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRect(rect.translated(2, 2))
+        m = 4 # margin to match action blocks line alignment
         
-        # Draw main rectangle
+        # draw main rectangle body
         painter.setOpacity(1.0)
         painter.setBrush(self.brush())
         painter.setPen(self.pen())
-        painter.drawRect(rect)
+        painter.drawRect(rect.adjusted(m, m, -m, -m))
     
     def update_visual_style(self):
         """Update the visual style based on first status and connected state"""
@@ -851,17 +917,21 @@ class ChemicalBlock(Block):
             self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
-            self.setRect(0, 0, 30, 114)
+            self.setRect(0, 0, 30, 120)
         else:
-            self.setRect(0, 0, 114, 30)
+            self.setRect(0, 0, 120, 30)
             
         self.update_text()
         self.update()
-    
+
     def update_text(self):
-        """Update text and rotation to display the chemical name centered."""
-        chemical_name = self.params.get(KEY_NAME, self.action) or self.action
-        self.text.setPlainText(chemical_name)
+        """update text with spaces between words and handle rotation."""
+        # get the raw name from params or action type
+        raw_name = self.params.get(KEY_NAME, self.action) or self.action
+        
+        # apply spacing logic (e.g., UnknownSubstance -> Unknown Substance)
+        display_text = self._get_spaced_text(raw_name)
+        self.text.setPlainText(display_text)
         
         font = QFont("Segoe UI", 8)
         font.setBold(True)

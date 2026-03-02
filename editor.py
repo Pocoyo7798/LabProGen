@@ -1,6 +1,6 @@
 import json
 from PySide6.QtWidgets import (
-    QGraphicsView, QGraphicsScene, QDialog, QPushButton,
+    QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QPushButton,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel
 )
 from PySide6.QtCore import Qt, QPointF
@@ -26,6 +26,7 @@ class ActionSelectionDialog(QDialog):
         title.setFont(QFont("Segoe UI", 14, QFont.Bold))
         main_layout.addWidget(title)
         
+        # main container for columns
         grid = QHBoxLayout()
         
         # elementary actions column
@@ -45,10 +46,12 @@ class ActionSelectionDialog(QDialog):
         
         for action_id, label in self.btn_elementary.items():
             btn = QPushButton(label)
-            # elementary actions use the brand purple
             btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
             elem_layout.addWidget(btn)
         
+        # push all elementary buttons to the top
+        elem_layout.addStretch()
+
         # support actions column
         supp_layout = QVBoxLayout()
         supp_label = QLabel("Support Actions")
@@ -60,16 +63,17 @@ class ActionSelectionDialog(QDialog):
             "ChangeTemperature": "🌡 Change Temperature",
             "ChangeRecipient": "🧪 Change Recipient",
             "NewMixture": "🥣 New Mixture",
-            "SubProductCreation": "📦 SubProduct Creation",
             "Repeat": "🔁 Repeat"
         }
         
         for action_id, label in self.btn_support.items():
             btn = QPushButton(label)
-            # use a blue color for support actions buttons
             btn.setStyleSheet("background-color: #3498db;") 
             btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
             supp_layout.addWidget(btn)
+        
+        # push all support buttons to the top
+        supp_layout.addStretch()
             
         grid.addLayout(elem_layout)
         grid.addLayout(supp_layout)
@@ -484,71 +488,57 @@ class Editor(QGraphicsView):
         while current.below_block:
             current = current.below_block
         return current
-
-    def _find_vertical_target(self, moved_block):
-        """Find the best vertical candidate using adjusted snap zones for chemicals and actions."""
-        moved_rect = moved_block.sceneBoundingRect()
-        moved_center = moved_rect.center()
-        moved_half_h = moved_rect.height() / 2
+    
+    def add_subproduct_branch(self, parent_block):
+        """creates an anchored subproduct block without opening a popup."""
+        params = {KEY_SUBSTANCE: []} # initialize substance as a list
+        block = SupportAction("SubProductCreation", params, editor=self)
         
-        best_target = None
-        best_score = float('inf')
-        detected_role = None 
+        block.toggle_orientation("vertical")
+        block.setFlag(QGraphicsRectItem.ItemIsMovable, False)
+        
+        self.scene.addItem(block)
+        self.blocks.append(block)
+        
+        parent_block.subproduct_below = block
+        block.above_block = parent_block
+        
+        self.reflow_entire_cluster(parent_block)
+    
+    def _find_vertical_target(self, moved_block):
+        """finds vertical target. chemicals use intersection, actions use proximity."""
+        from PySide6.QtWidgets import QToolTip
+        from PySide6.QtGui import QCursor
+        moved_rect = moved_block.sceneBoundingRect()
+        best_target, detected_role, best_score = None, None, float('inf')
 
         for other in self.blocks:
-            if other is moved_block:
-                continue
-
-            if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock):
-                continue
-
+            if other is moved_block: continue
+            if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock): continue
+            
             other_rect = other.sceneBoundingRect()
-            other_center = other_rect.center()
-            other_half_h = other_rect.height() / 2
-
-            # logic for chemical blocks snapping to vertical actions (side snap)
-            if isinstance(moved_block, ChemicalBlock) and other.orientation == "vertical":
-                dx = moved_center.x() - other_center.x()
-                dy = abs(moved_center.y() - other_center.y())
-                
-                if -80 < dx < 10 and dy < other_rect.height() * 0.7:
-                    role = "child" # chemicals always act as children
-                    score = abs(dx) + dy
-                    if score < best_score:
-                        best_score, best_target, detected_role = score, other, role
-                continue
-
-            # logic for action flow or chemicals on horizontal actions (vertical snap)
-            dx = abs(moved_center.x() - other_center.x())
-            if dx > other_rect.width() * 0.6:
-                continue
-
-            dy = moved_center.y() - other_center.y()
-            snap_buffer = 50 
-            inner_limit = 10 
-            max_dist = moved_half_h + other_half_h + snap_buffer
-
-            if -max_dist < dy < -inner_limit:
-                # moved block is above the target or entering from the top
-                role = "parent"
-            elif inner_limit < dy < max_dist:
-                # moved block is below the target or entering from the bottom
-                role = "child"
+            if isinstance(moved_block, ChemicalBlock):
+                if moved_rect.intersects(other_rect):
+                    dist = abs(moved_rect.center().x() - other_rect.center().x())
+                    if dist < best_score:
+                        best_target, detected_role, best_score = other, "child", dist
             else:
-                continue
-
-            # validate orientation rules for action flow
-            if not isinstance(moved_block, ChemicalBlock):
-                if role == "parent" and moved_block.orientation != "vertical":
-                    continue
-                if role == "child" and other.orientation != "vertical":
-                    continue
-
-            # pick the closest target
-            score = dx + abs(dy)
-            if score < best_score:
-                best_score, best_target, detected_role = score, other, role
-
+                # standard action flow logic
+                dx = abs(moved_rect.center().x() - other_rect.center().x())
+                if dx > other_rect.width() * 0.6: continue
+                dy = moved_rect.center().y() - other_rect.center().y()
+                max_d = (moved_rect.height() + other_rect.height()) / 2 + 50
+                if -max_d < dy < -10: role = "parent"
+                elif 10 < dy < max_d:
+                    if other.action == "SubProductCreation":
+                        QToolTip.showText(QCursor.pos(), "Only Chemicals can be linked here", self)
+                        continue
+                    role = "child"
+                else: continue
+                if role == "parent" and moved_block.orientation != "vertical": continue
+                if role == "child" and other.orientation != "vertical": continue
+                score = dx + abs(dy)
+                if score < best_score: best_target, detected_role, best_score = other, role, score
         return best_target, detected_role
     
     def _link_action_as_child_vertical(self, moved_block, target_above):
@@ -928,89 +918,77 @@ class Editor(QGraphicsView):
         self.update_support_logic()
 
     def reflow_chain(self, block, visited=None):
-        """Recursively align horizontal flows, vertical flows, and chemical stacks."""
-        if not block:
-            return
-        if visited is None:
-            visited = set()
-        if block in visited:
-            return
+        """recursive reflow with specific logic for subproducts, vertical and horizontal actions."""
+        if not block or (visited and block in visited): return
+        if visited is None: visited = set()
         visited.add(block)
 
         block.update()
         block.update_text()
-        
-        overlap = 20         
-        border_overlap = 3   
-        arrow_size = 18      
-        precision = 0.01     
+        overlap, border_overlap, precision = 20, 3, 0.01
 
-        # update connected highlight state
+        # update connection highlight
         has_conn = bool(block.prev_block or block.next_block or 
                         block.above_block or block.below_block or 
-                        (hasattr(block, 'chem_below') and block.chem_below))
+                        (hasattr(block, 'chem_below') and block.chem_below) or
+                        (hasattr(block, 'subproduct_below') and block.subproduct_below))
         block.set_connected(has_conn)
 
-        # align horizontal next (right)
+        # 1. horizontal flow (next/prev)
         if block.next_block:
             nb = block.next_block
-            new_x = block.pos().x() + block.rect().width() - overlap
-            new_y = block.pos().y()
-            if abs(nb.pos().x() - new_x) > precision or abs(nb.pos().y() - new_y) > precision:
-                nb.setPos(new_x, new_y)
+            nb.setPos(block.pos().x() + block.rect().width() - overlap, block.pos().y())
             self.reflow_chain(nb, visited)
-
-        # align horizontal prev (left)
         if not isinstance(block, ChemicalBlock) and block.prev_block:
             pb = block.prev_block
-            new_x = block.pos().x() - pb.rect().width() + overlap
-            new_y = block.pos().y()
-            if abs(pb.pos().x() - new_x) > precision or abs(pb.pos().y() - new_y) > precision:
-                pb.setPos(new_x, new_y)
+            pb.setPos(block.pos().x() - pb.rect().width() + overlap, block.pos().y())
             self.reflow_chain(pb, visited)
 
-        # align vertical action flow (down)
+        # 2. vertical action flow
         if block.below_block and not isinstance(block.below_block, ChemicalBlock):
             bb = block.below_block
             new_x = block.pos().x() + (block.rect().width() - bb.rect().width()) / 2
             new_y = block.pos().y() + block.rect().height() - overlap
-            if abs(bb.pos().x() - new_x) > precision or abs(bb.pos().y() - new_y) > precision:
-                bb.setPos(new_x, new_y)
+            bb.setPos(new_x, new_y)
             self.reflow_chain(bb, visited)
 
-        # align vertical action flow (up)
-        if not isinstance(block, ChemicalBlock) and block.above_block and not isinstance(block.above_block, ChemicalBlock):
-            ab = block.above_block
-            new_x = block.pos().x() + (block.rect().width() - ab.rect().width()) / 2
-            new_y = block.pos().y() - ab.rect().height() + overlap
-            if abs(ab.pos().x() - new_x) > precision or abs(ab.pos().y() - new_y) > precision:
-                ab.setPos(new_x, new_y)
-            self.reflow_chain(ab, visited)
+        # 3. subproduct branch (anchored below separate)
+        if hasattr(block, 'subproduct_below') and block.subproduct_below:
+            sb = block.subproduct_below
+            new_x = block.pos().x() + (block.rect().width() - sb.rect().width()) / 2
+            new_y = block.pos().y() + block.rect().height() - 8
+            sb.setPos(new_x, new_y)
+            self.reflow_chain(sb, visited)
 
-        # align chemical stack ingredients
+        # 4. align chemicals (ingredients)
         if hasattr(block, 'chem_below') and block.chem_below:
             cb = block.chem_below
             cb.toggle_orientation(block.orientation)
+            a_rect, c_rect = block.rect(), cb.rect()
             
-            action_rect = block.rect()
-            chem_rect = cb.rect()
-
-            if block.orientation == "vertical":
-                # side-aligned for vertical actions
-                new_x = block.pos().x() - chem_rect.width() + border_overlap
-                body_h = action_rect.height() - arrow_size
-                new_y = block.pos().y() + (body_h - chem_rect.height()) / 2
+            if block.action == "SubProductCreation":
+                # specific logic for subproduct: arrow is at the top
+                new_x = block.pos().x() - c_rect.width() + border_overlap
+                body_start_y = block.pos().y() + 18
+                body_h = a_rect.height() - 18
+                new_y = body_start_y + (body_h - c_rect.height()) / 2
+                
+            elif block.orientation == "vertical":
+                # standard vertical action: arrow is at the bottom
+                new_x = block.pos().x() - c_rect.width() + border_overlap
+                body_h = a_rect.height() - 18
+                new_y = block.pos().y() + (body_h - c_rect.height()) / 2
             else:
-                # bottom-centered for horizontal actions
-                body_w = action_rect.width() - arrow_size
-                new_x = block.pos().x() + (body_w - chem_rect.width()) / 2
-                new_y = block.pos().y() + action_rect.height() - border_overlap
+                # horizontal action alignment
+                body_w = a_rect.width() - 18
+                new_x = block.pos().x() + (body_w - c_rect.width()) / 2 
+                new_y = block.pos().y() + a_rect.height() - 4
 
             if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
                 cb.setPos(new_x, new_y)
             
             self.reflow_chemicals(cb, block.orientation)
-    
+          
     def reflow_chemicals(self, first_chem, orientation):
         """Stacks chemicals based on orientation: Downwards if Horizontal, Leftwards if Vertical."""
         curr = first_chem
@@ -1154,8 +1132,53 @@ class Editor(QGraphicsView):
         else:
             super().keyPressEvent(event)
 
+    def _reconstruct_block(self, step_data, flow_type, id_to_block):
+        """helper to create a block and its nested components during import."""
+        action_name = step_data.get("action")
+        params = step_data.get("params", {})
+        b_id = step_data.get("block_id")
+        
+        new_block = self._create_block_by_name(action_name, params)
+        new_block.setPos(step_data.get("x", 0), step_data.get("y", 0))
+        new_block.toggle_orientation(flow_type)
+        id_to_block[b_id] = new_block
+
+        # 1. handle subproduct branches
+        if "subproduct_branch" in step_data:
+            sub_data = step_data["subproduct_branch"]
+            sub_block = self._reconstruct_block(sub_data, "vertical", id_to_block)
+            # anchor subproduct specifically
+            new_block.subproduct_below = sub_block
+            sub_block.above_block = new_block
+            sub_block.setFlag(QGraphicsRectItem.ItemIsMovable, False)
+
+        # 2. handle chemicals (ingredients)
+        # for subproducts, chemicals are inside params['substance']
+        if action_name == "SubProductCreation":
+            chem_list = params.get(KEY_SUBSTANCE, [])
+        else:
+            chem_list = step_data.get("chemicals", [])
+            
+        prev_chem = None
+        for c_data in chem_list:
+            chem_name = c_data.get("chemical")
+            chem_params = c_data.get("params", {})
+            cb = ChemicalBlock(chem_name, chem_params, editor=self)
+            self.scene.addItem(cb)
+            self.blocks.append(cb)
+            
+            if prev_chem is None:
+                new_block.chem_below = cb
+                cb.above_block = new_block
+            else:
+                prev_chem.below_block = cb
+                cb.above_block = prev_chem
+            prev_chem = cb
+            
+        return new_block
+
     def import_protocol(self):
-        """Import protocol from json and reconstruct the grid layout."""
+        """import protocol and reconstruct intersections, chemicals and subproducts."""
         from PySide6.QtWidgets import QFileDialog
         filename, _ = QFileDialog.getOpenFileName(self, "import protocol", "", "json files (*.json)")
         if not filename: return
@@ -1164,7 +1187,6 @@ class Editor(QGraphicsView):
             with open(filename, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
-            # clear current scene state
             self.scene.clear()
             self.blocks = []
             self.protocol.actions = []
@@ -1181,45 +1203,16 @@ class Editor(QGraphicsView):
                 
                 for j, step in enumerate(steps):
                     b_id = step.get("block_id")
-                    action_name = step.get("action")
-                    params = step.get("params", {})
-                    
-                    # reuse existing block if id was already processed
                     if b_id in id_to_block:
                         new_block = id_to_block[b_id]
                     else:
-                        new_block = self._create_block_by_name(action_name, params)
+                        new_block = self._reconstruct_block(step, flow_type, id_to_block)
                         
-                        # retrieve saved x/y coordinates with grid fallback
-                        saved_x = step.get("x", 100 + i * 350)
-                        saved_y = step.get("y", 100 + j * 200)
-                        new_block.setPos(saved_x, saved_y)
-                        
-                        # set orientation according to flow type
-                        new_block.toggle_orientation(flow_type)
-                        id_to_block[b_id] = new_block
-                        
-                        # recreate chemical stack for new blocks
-                        chemicals_data = step.get("chemicals", [])
-                        prev_chem = None
-                        for chem_step in chemicals_data:
-                            chem_block = ChemicalBlock(chem_step.get("chemical"), chem_step.get("params", {}), editor=self)
-                            self.scene.addItem(chem_block)
-                            self.blocks.append(chem_block)
-                            if prev_chem is None:
-                                new_block.chem_below = chem_block
-                                chem_block.above_block = new_block
-                            else:
-                                prev_chem.below_block = chem_block
-                                chem_block.above_block = prev_chem
-                            prev_chem = chem_block
-
-                    # mark as first action if applicable
                     if j == 0 and is_explicit_first:
                         new_block.is_first = True
                         new_block.update_visual_style()
 
-                    # restore logical connections between steps
+                    # connect flow sequence
                     if prev_step_block:
                         if flow_type == "vertical":
                             prev_step_block.below_block = new_block
@@ -1227,17 +1220,15 @@ class Editor(QGraphicsView):
                         else:
                             prev_step_block.next_block = new_block
                             new_block.prev_block = prev_step_block
-                    
                     prev_step_block = new_block
 
-            # finalize cluster synchronization for perfect alignment
+            # final cluster sync
             for b in self.blocks:
                 if not isinstance(b, ChemicalBlock):
                     self.reflow_entire_cluster(b)
             
             self.adapt_scene_rect()
             self.update_linked_sequence()
-            print(f"imported {len(flows)} flows successfully.")
 
         except Exception as e:
             print(f"error importing protocol: {e}")
@@ -1257,23 +1248,35 @@ class Editor(QGraphicsView):
         return block
 
     def export_protocol(self):
-        """export the protocol grid with coordinates and ids to a user-selected file."""
+        """export the protocol and validate that all subproducts are populated."""
         if not self.blocks:
             print("no blocks to export.")
             return
 
-        # open a file dialog to choose the save path
+        # check for empty subproduct creation blocks
+        # a subproduct must have at least one chemical ingredient in its stack
+        empty_subproducts = [
+            b for b in self.blocks 
+            if b.action == "SubProductCreation" and b.chem_below is None
+        ]
+
+        if empty_subproducts:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, 
+                "Export Error", 
+                "Every Sub Product Creation must have at least one chemical attached. Export aborted."
+            )
+            # optionally highlight the problematic blocks
+            for b in empty_subproducts:
+                b.setSelected(True)
+            return
+
         from PySide6.QtWidgets import QFileDialog
         filename, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Export Protocol", 
-            "protocol.json", 
-            "JSON Files (*.json)"
+            self, "Export Protocol", "protocol.json", "JSON Files (*.json)"
         )
-        
-        # if the user cancels the dialog, stop the export
-        if not filename:
-            return
+        if not filename: return
 
         # map each block to a unique id for intersection tracking
         block_to_id = {block: i for i, block in enumerate(self.blocks)}
@@ -1281,8 +1284,11 @@ class Editor(QGraphicsView):
         visited_globally = set()
 
         def get_step_data(block):
+            """helper to extract block data including chemicals and subproduct branches."""
+            if block in visited_globally:
+                return None
+            
             visited_globally.add(block)
-            # include spatial coordinates for visual persistence
             data = {
                 "block_id": block_to_id[block],
                 "action": block.action,
@@ -1291,7 +1297,7 @@ class Editor(QGraphicsView):
                 "y": block.pos().y()
             }
             
-            # handle nested chemicals
+            # 1. collect attached chemicals (ingredients)
             chemicals = []
             curr_chem = block.chem_below
             while curr_chem:
@@ -1302,20 +1308,34 @@ class Editor(QGraphicsView):
                 })
                 curr_chem = curr_chem.below_block
             
-            if chemicals:
+            # handle specialized parameter mapping for subproducts
+            if block.action == "SubProductCreation":
+                # the attached chemicals go inside the 'substance' list
+                data["params"][KEY_SUBSTANCE] = chemicals
+            elif chemicals:
                 data["chemicals"] = chemicals
+
+            # 2. handle subproduct branches (specific to Separate action)
+            if hasattr(block, 'subproduct_below') and block.subproduct_below:
+                sub_data = get_step_data(block.subproduct_below)
+                if sub_data:
+                    data["subproduct_branch"] = sub_data
+            
             return data
 
-        # process horizontal flows
+        # --- 1. identify horizontal flows ---
         for b in self.blocks:
-            if isinstance(b, ChemicalBlock): continue
+            if isinstance(b, ChemicalBlock) or b.action == "SubProductCreation": 
+                continue
             if b.prev_block is None:
                 if b.next_block is not None or (b.is_first and b.orientation == "horizontal"):
                     content = []
                     curr = b
                     while curr:
-                        content.append(get_step_data(curr))
+                        step = get_step_data(curr)
+                        if step: content.append(step)
                         curr = curr.next_block
+                    
                     flows_list.append({
                         "flow_id": len(flows_list) + 1,
                         "type": "horizontal",
@@ -1323,18 +1343,21 @@ class Editor(QGraphicsView):
                         "steps": content
                     })
 
-        # process vertical flows
+        # --- 2. identify vertical flows ---
         for b in self.blocks:
-            if isinstance(b, ChemicalBlock): continue
+            if isinstance(b, ChemicalBlock) or b.action == "SubProductCreation": 
+                continue
             has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
             if not has_action_above:
                 if b.below_block is not None or (b.is_first and b.orientation == "vertical"):
                     content = []
                     curr = b
                     while curr:
-                        content.append(get_step_data(curr))
+                        step = get_step_data(curr)
+                        if step: content.append(step)
                         curr = curr.below_block
                         if isinstance(curr, ChemicalBlock) or curr is None: break
+                    
                     flows_list.append({
                         "flow_id": len(flows_list) + 1,
                         "type": "vertical",
@@ -1355,4 +1378,4 @@ class Editor(QGraphicsView):
             print(f"protocol exported to {filename}")
         except Exception as e:
             print(f"error saving protocol: {e}")
-    
+   
