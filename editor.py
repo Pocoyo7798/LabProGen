@@ -892,11 +892,10 @@ class Editor(QGraphicsView):
         return heads
 
     def reflow_entire_cluster(self, any_block):
-        """Starts the omnidirectional reflow from the given block."""
-        if not any_block:
-            return
-        # Use a fresh visited set for every full sync
+        """synchronizes the graph and updates support logic."""
+        if not any_block: return
         self.reflow_chain(any_block, visited=set())
+        self.update_support_logic()
 
     def reflow_chain(self, block, visited=None):
         """Recursively align horizontal flows, vertical flows, and chemical stacks."""
@@ -1024,6 +1023,78 @@ class Editor(QGraphicsView):
             b.setPos(pos.x(), target_y)
             b = b.next_block
 
+    def update_support_logic(self):
+        """calculates support influences with colors based on action type."""
+        # 1. reset existing logic state
+        for b in self.blocks:
+            b.support_id = None
+            b.influence_list = []
+        
+        # mapping of action type to prefix and fixed color
+        type_config = {
+            "ChangeTemperature": ("CT", QColor(255, 20, 147)),  # pink
+            "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),   # green
+            "ChangeRecipient": ("CR", QColor(155, 89, 182)),    # purple
+            "NewMixture": ("NM", QColor(241, 196, 15)),         # yellow
+            "SubProductCreation": ("SP", QColor(231, 76, 60)),  # red
+            "Repeat": ("RE", QColor(230, 126, 34))              # orange
+        }
+
+        # track instance counters for IDs (e.g., CT1, CT2)
+        type_counters = {k: 1 for k in type_config.keys()}
+        support_registry = {} # maps instance to id and shared type color
+
+        # 2. assign labels and type-specific colors
+        for b in self.blocks:
+            if isinstance(b, SupportAction) and b.action in type_config:
+                prefix, color = type_config[b.action]
+                idx = type_counters[b.action]
+                
+                b.support_id = f"{prefix}{idx}"
+                b.support_color = color # assign the color to the block itself
+                
+                support_registry[b] = {
+                    "id": b.support_id,
+                    "color": color
+                }
+                type_counters[b.action] += 1
+
+        # 3. propagate influences through the grid
+        visited_globally = set()
+
+        def propagate(block, active_influences):
+            if not block or block in visited_globally:
+                return
+            visited_globally.add(block)
+
+            # clone active state to pass to children
+            new_influences = active_influences.copy()
+            
+            if block in support_registry:
+                # current support action replaces previous one of the same type
+                new_influences[block.action] = support_registry[block]
+            else:
+                # normal blocks inherit all currently active influences
+                # we convert the dictionary values to a list for the block
+                block.influence_list = list(new_influences.values())
+
+            # follow horizontal flow
+            if block.next_block:
+                propagate(block.next_block, new_influences)
+
+            # follow vertical flow (isolated from horizontal per rules)
+            if block.below_block and not isinstance(block.below_block, ChemicalBlock):
+                propagate(block.below_block, new_influences)
+
+        # identify roots to start propagation
+        roots = [b for b in self.blocks if b.is_first or (not b.prev_block and not b.above_block)]
+        for root in roots:
+            propagate(root, {})
+        
+        # refresh all blocks visually
+        for b in self.blocks:
+            b.update()
+    
     def keyPressEvent(self, event):
         """Handle key press events for the editor"""
         if event.key() == Qt.Key_Delete:

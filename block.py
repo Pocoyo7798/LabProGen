@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QDialog, QFormLayout, 
     QLineEdit, QPushButton, QMenu, QHBoxLayout, QComboBox, QWidget
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator
 from config import *
 import debug_flag
@@ -27,6 +27,10 @@ class Block(QGraphicsRectItem):
         self.is_first = False
         self.connected = False
         self.chain_drag_mode = False
+
+        self.support_id = None  # e.g., CT1 for a change temperature support action
+        self.support_color = None
+        self.influence_list = [] # list of ids of support actions currently influencing this block (for badges)
         
         # Hover tooltip support
         self.hover_timer = QTimer()
@@ -44,14 +48,14 @@ class Block(QGraphicsRectItem):
         self.update_text()
 
     def paint(self, painter, option, widget=None):
-        """Paints the block with a centered notch on top that matches the incoming arrow size."""
+        """paints the block body, shadow, and then badges on top."""
         from PySide6.QtGui import QPainterPath, QPainter
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
         w, h = rect.width(), rect.height()
         arrow_size = 18 
-        m = 4 # margin
+        m = 4 
         path = QPainterPath()
 
         has_left_indent = self.prev_block is not None
@@ -59,60 +63,117 @@ class Block(QGraphicsRectItem):
         is_horz = self.orientation == "horizontal"
         is_vert = self.orientation == "vertical"
 
-        # --- 1. Start at top-left ---
+        # --- 1. path construction (clockwise) ---
         path.moveTo(m, m)
-
-        # --- 2. Top edge ---
         if has_top_indent:
-            # Notch width is 2x arrow size to accommodate the incoming vertical arrow
             notch_half_width = 26
-            
-            path.lineTo(w / 2 - notch_half_width, m) # Straight line to notch start
-            path.lineTo(w / 2, m + arrow_size)       # Depth of the notch
-            path.lineTo(w / 2 + notch_half_width, m) # Straight line to notch end
+            path.lineTo(w / 2 - notch_half_width, m)
+            path.lineTo(w / 2, m + arrow_size)
+            path.lineTo(w / 2 + notch_half_width, m)
         
-        # Stop before the Top-Right corner if we need to start a horizontal arrow
         if is_horz:
             path.lineTo(w - m - arrow_size, m)
-        else:
-            path.lineTo(w - m, m)
-
-        # --- 3. Right edge ---
-        if is_horz:
             path.lineTo(w - m, h / 2)
             path.lineTo(w - m - arrow_size, h - m)
         else:
+            path.lineTo(w - m, m)
             if is_vert:
-                path.lineTo(w - m, h - m - arrow_size) # Stop before bottom arrow starts
+                path.lineTo(w - m, h - m - arrow_size)
             else:
                 path.lineTo(w - m, h - m)
 
-        # --- 4. Bottom edge ---
         if is_vert:
             path.lineTo(w / 2, h - m)
             path.lineTo(m, h - m - arrow_size)
         else:
             path.lineTo(m, h - m)
 
-        # --- 5. Left edge ---
         if has_left_indent:
             path.lineTo(m + arrow_size, h / 2)
         
         path.closeSubpath()
 
-        # Rendering
+        # --- 2. render shadow and body ---
         painter.setOpacity(0.15)
         painter.setBrush(QColor(0, 0, 0))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawPath(path.translated(2, 2)) # Shadow
+        painter.drawPath(path.translated(2, 2))
         
         painter.setOpacity(1.0)
         painter.setBrush(self.brush())
-        
         pen = QPen(self.pen())
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.drawPath(path)
+
+        # --- 3. draw badges LAST so they appear on top ---
+        self._draw_influence_badges(painter)
+
+    def _draw_influence_badges(self, painter):
+        """draw badges using matching colors for support actions and influences."""
+        rect = self.rect()
+        arrow_size = 18
+        margin = 4 
+        v_nudge = 2
+        badge_w = 22 
+        badge_h = 12 
+        gap = 3 
+        
+        has_left_indent = self.prev_block is not None
+        is_horz = self.orientation == "horizontal"
+        
+        x_offset_left = (arrow_size - 7) if has_left_indent else 2
+        x_offset_right = arrow_size if is_horz else 2
+
+        # 1. draw own id at top-left (support actions)
+        if self.support_id:
+            painter.setPen(Qt.PenStyle.NoPen)
+            
+            # use the assigned support color
+            bg_color = self.support_color if self.support_color else QColor(44, 62, 80, 220)
+            painter.setBrush(bg_color)
+            
+            badge_rect = QRectF(rect.left() + margin + x_offset_left, 
+                                rect.top() + margin + v_nudge, 
+                                badge_w, badge_h)
+            painter.drawRoundedRect(badge_rect, 2, 2)
+            
+            painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Segoe UI", 6, QFont.Bold))
+            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, self.support_id)
+
+        # 2. draw influence badges (match action colors)
+        if self.influence_list:
+            painter.setFont(QFont("Segoe UI", 6, QFont.Bold))
+
+            v_nudge = 2
+            
+            for i, influence in enumerate(self.influence_list):
+                if i < 4:
+                    # bottom row: indices 0-3
+                    x = rect.right() - margin - x_offset_right - badge_w - (i * (badge_w + gap))
+                    y = rect.bottom() - margin - badge_h - v_nudge
+                elif i == 4:
+                    # top-right corner
+                    x = rect.right() - margin - x_offset_right - badge_w
+                    y = rect.top() + margin + v_nudge
+                elif i == 5:
+                    # top-left corner
+                    x = rect.left() + margin + x_offset_left
+                    y = rect.top() + margin + v_nudge
+                else:
+                    # overflow handling
+                    x = rect.right() - margin - x_offset_right - badge_w - ((i - 3) * (badge_w + gap))
+                    y = rect.top() + margin + v_nudge
+
+                badge_rect = QRectF(x, y, badge_w, badge_h)
+                
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(influence["color"])
+                painter.drawRoundedRect(badge_rect, 2, 2)
+                
+                painter.setPen(QColor(255, 255, 255))
+                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, influence["id"])
     
     def _draw_vertical_path(self, path, w, h, arrow_size):
         """Draws a block with a downward pointing arrow."""
