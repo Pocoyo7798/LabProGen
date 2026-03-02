@@ -317,50 +317,39 @@ class Editor(QGraphicsView):
         self.setSceneRect(new_rect)
     
     def add_block(self, action, params):
+        """create an action block and update logic immediately."""
         block = self._create_block_by_name(action, params)
-        
         block.setPos(50, 50 + len(self.blocks) * 80)
         self.update_linked_sequence()
-        
-        # update scene size and focus camera
         self.adapt_scene_rect()
-        self.centerOn(block)
+        
+        # update support ids and influences right after creation
+        self.update_support_logic()
         
         if params:
             block.open_editor()
-    
+
     def add_chemical_block(self):
-        """Show dialog to select chemical type and add appropriate block"""
+        """create a chemical block and update support logic."""
         dialog = ChemicalSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
-            chemical_classes = {
-                "Molecule": Molecule,
-                "Material": Material
-            }
+            chemical_classes = {"Molecule": Molecule, "Material": Material}
+            params = {"Molecule": {"name": "", "formula": "", "smile": ""},
+                     "Material": {"name": "", "formula": "", "structure": ""}}.get(dialog.selected_chemical, {})
             
-            # Define default parameters for each chemical type
-            default_params = {
-                "Molecule": {"name": "", "formula": "", "smile": ""},
-                "Material": {"name": "", "formula": "", "structure": ""}
-            }
-            
-            params = default_params.get(dialog.selected_chemical, {})
             chemical_class = chemical_classes.get(dialog.selected_chemical)
-            
-            # Create actual chemical object
             if chemical_class:
-                chemical = chemical_class(**params)
                 block = ChemicalBlock(dialog.selected_chemical, params, editor=self)
                 block.setPos(50, 50 + len(self.blocks) * 80)
                 self.scene.addItem(block)
                 self.blocks.append(block)
                 self.update_linked_sequence()
-                
-                # update scene size and focus camera
                 self.adapt_scene_rect()
-                self.centerOn(block)
+                
+                # trigger logic for chemicals to inherit active influences
+                self.update_support_logic()
                 block.open_editor()
-
+    
     def update_linked_sequence(self):
         """Update the linked_sequence list based on current block linkages.
         Collects all blocks that are part of chains and sorts them by x-axis position.
@@ -1024,74 +1013,92 @@ class Editor(QGraphicsView):
             b = b.next_block
 
     def update_support_logic(self):
-        """calculates support influences with colors based on action type."""
-        # 1. reset existing logic state
+        """calculate support influences where vertical effects propagate into horizontal chains."""
+        # 1. reset state for all blocks
         for b in self.blocks:
             b.support_id = None
+            b.support_color = None
             b.influence_list = []
-        
-        # mapping of action type to prefix and fixed color
+            b._inc_h = {} 
+            b._inc_v = {}
+
         type_config = {
-            "ChangeTemperature": ("CT", QColor(255, 20, 147)),  # pink
-            "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),   # green
-            "ChangeRecipient": ("CR", QColor(155, 89, 182)),    # purple
-            "NewMixture": ("NM", QColor(241, 196, 15)),         # yellow
-            "SubProductCreation": ("SP", QColor(231, 76, 60)),  # red
-            "Repeat": ("RE", QColor(230, 126, 34))              # orange
+            "ChangeTemperature": ("CT", QColor(255, 20, 147)), 
+            "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),  
+            "ChangeRecipient": ("CR", QColor(155, 89, 182)),   
+            "NewMixture": ("NM", QColor(241, 196, 15)),        
+            "SubProductCreation": ("SP", QColor(231, 76, 60)), 
+            "Repeat": ("RE", QColor(230, 126, 34))             
         }
 
-        # track instance counters for IDs (e.g., CT1, CT2)
         type_counters = {k: 1 for k in type_config.keys()}
-        support_registry = {} # maps instance to id and shared type color
+        support_registry = {} 
 
-        # 2. assign labels and type-specific colors
+        # 2. assign ids and colors to support action instances
         for b in self.blocks:
             if isinstance(b, SupportAction) and b.action in type_config:
                 prefix, color = type_config[b.action]
                 idx = type_counters[b.action]
-                
                 b.support_id = f"{prefix}{idx}"
-                b.support_color = color # assign the color to the block itself
-                
-                support_registry[b] = {
-                    "id": b.support_id,
-                    "color": color
-                }
+                b.support_color = color
+                support_registry[b] = {"id": b.support_id, "color": color}
                 type_counters[b.action] += 1
 
-        # 3. propagate influences through the grid
-        visited_globally = set()
+        # 3. propagate influences
+        visited = set()
 
-        def propagate(block, active_influences):
-            if not block or block in visited_globally:
+        def propagate(block, incoming_influences, source_type):
+            if not block:
                 return
-            visited_globally.add(block)
-
-            # clone active state to pass to children
-            new_influences = active_influences.copy()
             
-            if block in support_registry:
-                # current support action replaces previous one of the same type
-                new_influences[block.action] = support_registry[block]
+            # store incoming based on axis
+            if source_type == "h":
+                block._inc_h = incoming_influences
             else:
-                # normal blocks inherit all currently active influences
-                # we convert the dictionary values to a list for the block
-                block.influence_list = list(new_influences.values())
+                block._inc_v = incoming_influences
 
-            # follow horizontal flow
+            # merge logic: horizontal priority overwrites vertical if keys clash
+            merged = block._inc_v.copy()
+            merged.update(block._inc_h)
+
+            # state check to handle intersections without infinite loops
+            state_key = (block, tuple(sorted(merged.keys())), tuple(sorted([v['id'] for v in merged.values()])))
+            if state_key in visited:
+                return
+            visited.add(state_key)
+
+            # update display list for non-support blocks
+            if not block.support_id:
+                block.influence_list = list(merged.values())
+            
+            # prepare outgoing influences for the next steps
+            out_influences = merged.copy()
+
+            # if current block is a source, update the outgoing stream with its own info
+            if block in support_registry:
+                out_influences[block.action] = support_registry[block]
+
+            # 4. follow horizontal flow: now carries merged state (including vertical hits)
             if block.next_block:
-                propagate(block.next_block, new_influences)
+                propagate(block.next_block, out_influences, "h")
 
-            # follow vertical flow (isolated from horizontal per rules)
+            # 5. follow vertical action flow: carries merged state
             if block.below_block and not isinstance(block.below_block, ChemicalBlock):
-                propagate(block.below_block, new_influences)
+                propagate(block.below_block, out_influences, "v")
+            
+            # 6. update attached chemicals
+            curr_chem = block.chem_below
+            while curr_chem:
+                curr_chem.influence_list = list(out_influences.values())
+                curr_chem.update()
+                curr_chem = curr_chem.below_block
 
-        # identify roots to start propagation
+        # identify all root blocks (is_first or blocks with no incoming action links)
         roots = [b for b in self.blocks if b.is_first or (not b.prev_block and not b.above_block)]
         for root in roots:
-            propagate(root, {})
+            propagate(root, {}, "h")
         
-        # refresh all blocks visually
+        # force redraw to show badges
         for b in self.blocks:
             b.update()
     

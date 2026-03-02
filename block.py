@@ -106,12 +106,32 @@ class Block(QGraphicsRectItem):
         painter.setPen(pen)
         painter.drawPath(path)
 
-        # --- 3. draw badges LAST so they appear on top ---
+        # --- 3. draw badges last so they appear on top ---
         self._draw_influence_badges(painter)
 
     def _draw_influence_badges(self, painter):
-        """draw badges using matching colors for support actions and influences."""
+        """draw smaller badges with custom 4-1-1 distribution and rotation support."""
         rect = self.rect()
+        w, h = rect.width(), rect.height()
+        is_vert = self.orientation == "vertical"
+        
+        # save painter state before applying rotation
+        painter.save()
+
+        # rotate drawing context for vertical orientation
+        if is_vert:
+            painter.translate(w, 0)
+            painter.rotate(90)
+            # treat block dimensions as swapped for coordinate logic
+            v_w, v_h = h, w 
+        else:
+            v_w, v_h = w, h
+
+        # logic for start indents relative to flow direction
+        has_start_indent = (self.prev_block is not None) if not is_vert else \
+                           (self.above_block is not None and not isinstance(self.above_block, ChemicalBlock))
+        
+        is_action = not isinstance(self, ChemicalBlock)
         arrow_size = 18
         margin = 4 
         v_nudge = 2
@@ -119,22 +139,18 @@ class Block(QGraphicsRectItem):
         badge_h = 12 
         gap = 3 
         
-        has_left_indent = self.prev_block is not None
-        is_horz = self.orientation == "horizontal"
-        
-        x_offset_left = (arrow_size - 7) if has_left_indent else 2
-        x_offset_right = arrow_size if is_horz else 2
+        # x-offsets to avoid clipping with arrows/sockets
+        x_offset_left = (arrow_size - 7) if has_start_indent else 2
+        x_offset_right = arrow_size if is_action else 2
 
-        # 1. draw own id at top-left (support actions)
+        # 1. draw own id badge at top-left for support actions
         if self.support_id:
             painter.setPen(Qt.PenStyle.NoPen)
-            
-            # use the assigned support color
-            bg_color = self.support_color if self.support_color else QColor(44, 62, 80, 220)
+            bg_color = getattr(self, 'support_color', QColor(44, 62, 80, 220))
             painter.setBrush(bg_color)
             
-            badge_rect = QRectF(rect.left() + margin + x_offset_left, 
-                                rect.top() + margin + v_nudge, 
+            badge_rect = QRectF(margin + x_offset_left, 
+                                margin + v_nudge, 
                                 badge_w, badge_h)
             painter.drawRoundedRect(badge_rect, 2, 2)
             
@@ -142,38 +158,38 @@ class Block(QGraphicsRectItem):
             painter.setFont(QFont("Segoe UI", 6, QFont.Bold))
             painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, self.support_id)
 
-        # 2. draw influence badges (match action colors)
-        if self.influence_list:
+        # 2. draw influence list badges with specific placement rule
+        if hasattr(self, 'influence_list') and self.influence_list:
             painter.setFont(QFont("Segoe UI", 6, QFont.Bold))
-
-            v_nudge = 2
             
             for i, influence in enumerate(self.influence_list):
                 if i < 4:
-                    # bottom row: indices 0-3
-                    x = rect.right() - margin - x_offset_right - badge_w - (i * (badge_w + gap))
-                    y = rect.bottom() - margin - badge_h - v_nudge
+                    # bottom row: grow left from bottom-right
+                    x = v_w - margin - x_offset_right - badge_w - (i * (badge_w + gap))
+                    y = v_h - margin - badge_h - v_nudge
                 elif i == 4:
                     # top-right corner
-                    x = rect.right() - margin - x_offset_right - badge_w
-                    y = rect.top() + margin + v_nudge
+                    x = v_w - margin - x_offset_right - badge_w
+                    y = margin + v_nudge
                 elif i == 5:
                     # top-left corner
-                    x = rect.left() + margin + x_offset_left
-                    y = rect.top() + margin + v_nudge
+                    x = margin + x_offset_left
+                    y = margin + v_nudge
                 else:
-                    # overflow handling
-                    x = rect.right() - margin - x_offset_right - badge_w - ((i - 3) * (badge_w + gap))
-                    y = rect.top() + margin + v_nudge
+                    # overflow row
+                    x = v_w - margin - x_offset_right - badge_w - ((i - 3) * (badge_w + gap))
+                    y = margin + v_nudge
 
                 badge_rect = QRectF(x, y, badge_w, badge_h)
-                
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(influence["color"])
                 painter.drawRoundedRect(badge_rect, 2, 2)
                 
                 painter.setPen(QColor(255, 255, 255))
                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, influence["id"])
+
+        # restore painter original state
+        painter.restore()
     
     def _draw_vertical_path(self, path, w, h, arrow_size):
         """Draws a block with a downward pointing arrow."""
