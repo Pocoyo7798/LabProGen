@@ -1,4 +1,4 @@
-from config import *
+from .config import *
 
 class Chemical:
     """base class for chemical entities."""

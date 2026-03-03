@@ -1,8 +1,7 @@
 import sys
-import resources_rc
+from src import resources_rc # this imports the compiled resources from resources.qrc
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QFont
-from editor import Editor
+from src.editor import Editor
 
 # Initialize the application
 app = QApplication(sys.argv)

@@ -1,5 +1,5 @@
 import json
-from actions import Add, ChangeTemperature, Stir
+from .actions import *
 
 
 class Protocol:
