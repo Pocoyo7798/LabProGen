@@ -1,10 +1,10 @@
 import json
 from PySide6.QtWidgets import (
-    QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QPushButton,
+    QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QPushButton, QToolTip,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel
 )
 from PySide6.QtCore import Qt, QPointF
-from PySide6.QtGui import QFont, QPainter, QColor
+from PySide6.QtGui import QCursor, QFont, QPainter, QColor
 from block import ElementaryAction, SupportAction, ChemicalBlock
 from config import *
 from actions import *
@@ -506,40 +506,71 @@ class Editor(QGraphicsView):
         self.reflow_entire_cluster(parent_block)
     
     def _find_vertical_target(self, moved_block):
-        """finds vertical target. chemicals use intersection, actions use proximity."""
-        from PySide6.QtWidgets import QToolTip
-        from PySide6.QtGui import QCursor
+        """find the closest vertical target and validate rules after identification."""
         moved_rect = moved_block.sceneBoundingRect()
-        best_target, detected_role, best_score = None, None, float('inf')
+        moved_center = moved_rect.center()
+        
+        potential_target = None
+        potential_role = None
+        best_score = float('inf')
+
+        # actions permitted to have chemicals attached
+        allowed_for_chemicals = ["Add", "ChangeAtmosphere", "SubProductCreation"]
 
         for other in self.blocks:
             if other is moved_block: continue
             if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock): continue
             
             other_rect = other.sceneBoundingRect()
+            other_center = other_rect.center()
+
             if isinstance(moved_block, ChemicalBlock):
+                # chemical logic: find the closest intersecting block
                 if moved_rect.intersects(other_rect):
-                    dist = abs(moved_rect.center().x() - other_rect.center().x())
-                    if dist < best_score:
-                        best_target, detected_role, best_score = other, "child", dist
+                    score = abs(moved_center.x() - other_center.x())
+                    if score < best_score:
+                        best_score = score
+                        potential_target = other
+                        potential_role = "child"
             else:
-                # standard action flow logic
-                dx = abs(moved_rect.center().x() - other_rect.center().x())
+                # action flow logic: find the closest block in proximity
+                dx = abs(moved_center.x() - other_center.x())
                 if dx > other_rect.width() * 0.6: continue
-                dy = moved_rect.center().y() - other_rect.center().y()
+                
+                dy = moved_center.y() - other_center.y()
                 max_d = (moved_rect.height() + other_rect.height()) / 2 + 50
-                if -max_d < dy < -10: role = "parent"
-                elif 10 < dy < max_d:
-                    if other.action == "SubProductCreation":
-                        QToolTip.showText(QCursor.pos(), "Only Chemicals can be linked here", self)
-                        continue
+                
+                if -max_d < dy < -10: 
+                    role = "parent"
+                elif 10 < dy < max_d: 
                     role = "child"
-                else: continue
+                else: 
+                    continue
+                
+                # validate orientation rules for flow
                 if role == "parent" and moved_block.orientation != "vertical": continue
                 if role == "child" and other.orientation != "vertical": continue
+                
                 score = dx + abs(dy)
-                if score < best_score: best_target, detected_role, best_score = other, role, score
-        return best_target, detected_role
+                if score < best_score: 
+                    best_score, potential_target, potential_role = score, other, role
+
+        # validate rules for the identified potential target
+        if potential_target:
+            # check chemical attachment rules
+            if isinstance(moved_block, ChemicalBlock) and not isinstance(potential_target, ChemicalBlock):
+                # chemicals can only attach to specific action types
+                if potential_target.action not in allowed_for_chemicals:
+                    QToolTip.showText(QCursor.pos(), f"Chemicals cannot be linked to {potential_target.action}", self)
+                    return None, None # reject link
+
+            # check action flow rules (no actions below subproduct)
+            if not isinstance(moved_block, ChemicalBlock) and potential_target.action == "SubProductCreation":
+                if potential_role == "child":
+                    QToolTip.showText(QCursor.pos(), "Only Chemicals can be linked here", self)
+                    return None, None # reject link
+
+        return potential_target, potential_role
     
     def _link_action_as_child_vertical(self, moved_block, target_above):
         """links moved_block below target_above, moving only the incoming block."""
