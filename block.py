@@ -842,8 +842,7 @@ class SupportAction(Block):
 class ChemicalBlock(Block):
     """Chemical action block"""
     def __init__(self, action, params, editor=None):
-        # Call parent's parent __init__ to avoid Block.__init__
-        QGraphicsRectItem.__init__(self, 0, 0, 120, 30)
+        QGraphicsRectItem.__init__(self, 0, 0, 120, 50)
         self.action = action
         self.params = params
         self.editor = editor
@@ -872,7 +871,6 @@ class ChemicalBlock(Block):
         self.update_visual_style()
 
         self.text = QGraphicsTextItem(self)
-        self.text.setPos(5, 10)
         self.update_text()
     
     def paint(self, painter, option, widget=None):
@@ -908,7 +906,7 @@ class ChemicalBlock(Block):
             self.setPen(self.default_pen)
     
     def toggle_orientation(self, target_orient=None):
-        """switches or sets chemical orientation (114x30 <-> 30x114)."""
+        """switches chemical orientation (120x50 <-> 50x120)."""
         self.prepareGeometryChange()
         
         if target_orient:
@@ -917,37 +915,41 @@ class ChemicalBlock(Block):
             self.orientation = "vertical" if self.orientation == "horizontal" else "horizontal"
         
         if self.orientation == "vertical":
-            self.setRect(0, 0, 30, 120)
+            self.setRect(0, 0, 50, 120)
         else:
-            self.setRect(0, 0, 120, 30)
+            self.setRect(0, 0, 120, 50)
             
         self.update_text()
         self.update()
 
     def update_text(self):
-        """update text with spaces between words and handle rotation."""
-        # get the raw name from params or action type
+        """splits chemical name into 2 lines and centers it."""
         raw_name = self.params.get(KEY_NAME, self.action) or self.action
-        
-        # apply spacing logic (e.g., UnknownSubstance -> Unknown Substance)
-        display_text = self._get_spaced_text(raw_name)
+        # reuse the balancing logic from the base Block class
+        display_text = self._get_balanced_text(raw_name)
         self.text.setPlainText(display_text)
         
-        font = QFont("Segoe UI", 8)
-        font.setBold(True)
+        font = QFont("Segoe UI", 8, QFont.Bold)
         self.text.setFont(font)
         self.text.setDefaultTextColor(QColor(255, 255, 255))
         
-        text_rect = self.text.boundingRect()
+        # align lines to center
+        option = self.text.document().defaultTextOption()
+        option.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text.document().setDefaultTextOption(option)
+        
         block_rect = self.rect()
         
         if self.orientation == "horizontal":
             self.text.setRotation(0)
-            x = (block_rect.width() - text_rect.width()) / 2
-            y = (block_rect.height() - text_rect.height()) / 2
+            self.text.setTextWidth(block_rect.width())
+            x = 0
+            y = (block_rect.height() - self.text.boundingRect().height()) / 2
         else:
             self.text.setRotation(90)
-            x = (block_rect.width() + text_rect.height()) / 2
-            y = (block_rect.height() - text_rect.width()) / 2
+            self.text.setTextWidth(block_rect.height())
+            # center rotated text
+            x = (block_rect.width() + self.text.boundingRect().height()) / 2
+            y = (block_rect.height() - self.text.boundingRect().width()) / 2
             
         self.text.setPos(x, y)

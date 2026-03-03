@@ -43,8 +43,6 @@ class ActionSelectionDialog(QDialog):
             "Stir": "🔄 Stir",
             "Wait": "⏳ Wait"
         }
-
-        self.elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
         
         for action_id, label in self.btn_elementary.items():
             btn = QPushButton(label)
@@ -954,7 +952,7 @@ class Editor(QGraphicsView):
 
         block.update()
         block.update_text()
-        overlap, border_overlap, precision = 20, 3, 0.01
+        overlap, border_overlap, precision = 20, 6, 0.01
 
         # update connection highlight
         has_conn = bool(block.prev_block or block.next_block or 
@@ -1021,7 +1019,7 @@ class Editor(QGraphicsView):
     def reflow_chemicals(self, first_chem, orientation):
         """Stacks chemicals based on orientation: Downwards if Horizontal, Leftwards if Vertical."""
         curr = first_chem
-        border_overlap = 3 
+        border_overlap = 6
         
         while curr:
             curr.set_connected(True)
@@ -1208,8 +1206,9 @@ class Editor(QGraphicsView):
 
     def _create_block_by_name(self, name, params):
         """helper to instantiate the correct block class with proper colors."""
+        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
         
-        if name in self.elementary_list:
+        if name in elementary_list:
             block = ElementaryAction(name, params, editor=self)
         else:
             block = SupportAction(name, params, editor=self)
