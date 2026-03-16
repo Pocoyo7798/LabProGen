@@ -322,9 +322,11 @@ class Editor(QGraphicsView):
         self.setSceneRect(new_rect)
     
     def add_block(self, action, params):
-        """create an action block and update logic immediately."""
+        """create an action block at a fixed starting position."""
         block = self._create_block_by_name(action, params)
-        block.setPos(50, 50 + len(self.blocks) * 80)
+        
+        block.setPos(50, 50)
+        
         self.update_linked_sequence()
         self.adapt_scene_rect()
         
@@ -366,14 +368,14 @@ class Editor(QGraphicsView):
             chem_class = chemical_map.get(chem_type)
             
             if chem_class:
-                # create data object (for protocol logic)
+                # create data object
                 chemical_data = chem_class(**params)
                 
                 # create visual block
                 block = ChemicalBlock(chem_type, params, editor=self)
                 
-                # position the block
-                block.setPos(150, 50 + len(self.blocks) * 40)
+                block.setPos(50, 50)
+                
                 self.scene.addItem(block)
                 self.blocks.append(block)
                 
