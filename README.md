@@ -2,6 +2,32 @@
 
 Welcome to the **Laboratory Protocol Builder**, a professional tool designed to help you create, organize, and export chemical laboratory procedures using an intuitive "smart block" system.
 
+## 0. Setup (Virtual Environment)
+
+Follow these steps to set up a Python virtual environment and run the project.
+
+### Linux / macOS
+
+```bash
+cd /path/to/LabProGen
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+### Windows (PowerShell)
+
+```powershell
+cd C:\path\to\LabProGen
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
+```
+
+If you already have the environment created, activate it with `source .venv/bin/activate` (Linux/macOS) and run `python main.py`.
+
 ## 1. Overview
 This application allows you to build logical flowcharts for experiments. Each block represents either a physical action (e.g., stirring, heating) or a chemical entity (e.g., substances, solutions). The system automatically handles snapping, alignment, and logic rules to ensure your protocol is consistent.
 

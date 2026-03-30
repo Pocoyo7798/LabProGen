@@ -63,7 +63,8 @@ class ActionSelectionDialog(QDialog):
             "ChangeTemperature": "🌡 Change Temperature",
             "ChangeRecipient": "🧪 Change Recipient",
             "NewMixture": "🥣 New Mixture",
-            "Repeat": "🔁 Repeat"
+            "Repeat": "🔁 Repeat",
+            "ContinuousAddition": "➕ Continuous Addition"
         }
         
         for action_id, label in self.btn_support.items():
@@ -242,12 +243,13 @@ class Editor(QGraphicsView):
                 "Sieve": Sieve, "Stir": Stir, "Wait": Wait,
                 "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
                 "ChangeRecipient": ChangeRecipient, "NewMixture": NewMixture,
-                "SubProductCreation": SubProductCreation, "Repeat": Repeat
+                "SubProductCreation": SubProductCreation, "Repeat": Repeat,
+                "ContinuousAddition": ContinuousAddition
             }
             
             # Numeric values should be strings with units for the reflow parser
             default_params = {
-                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "Normal"},
+                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "Normal", KEY_OPEN_FLAME: "False"},
                 "Grind": {},
                 "Separate": {KEY_PHASE: "Liquid", KEY_METHOD: "Filtration"},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
@@ -258,7 +260,8 @@ class Editor(QGraphicsView):
                 "ChangeRecipient": {KEY_RECIPIENT: "Beaker", KEY_MATERIAL: "Glass", KEY_VOLUME: "250 mL"},
                 "NewMixture": {KEY_MIXTURE_NAME: ""},
                 "SubProductCreation": {KEY_SUBSTANCE: ""},
-                "Repeat": {KEY_AMOUNT: "1"}
+                "Repeat": {KEY_AMOUNT: "1"},
+                "ContinuousAddition": {KEY_SUBSTANCE_LIST: "", KEY_CONTINUOUS_ADD_TYPE: "Continuous", KEY_AMOUNT: "1"}
             }
             
             params = default_params.get(dialog.selected_action, {})
@@ -1076,7 +1079,8 @@ class Editor(QGraphicsView):
             "ChangeRecipient": ("CR", QColor(155, 89, 182)),   
             "NewMixture": ("NM", QColor(241, 196, 15)),        
             "SubProductCreation": ("SP", QColor(231, 76, 60)), 
-            "Repeat": ("RE", QColor(230, 126, 34))             
+            "Repeat": ("RE", QColor(230, 126, 34)),
+            "ContinuousAddition": ("CD", QColor(26, 188, 156))
         }
 
         type_counters = {k: 1 for k in type_config.keys()}

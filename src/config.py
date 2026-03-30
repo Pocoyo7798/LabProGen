@@ -9,6 +9,7 @@ KEY_SMILES = "smile"
 KEY_STRUCTURE = "structure"
 KEY_CHEMICAL = "chemical"
 KEY_ADD_TYPE = "add_type"
+KEY_OPEN_FLAME = "open_flame"
 KEY_PHASE = "phase_to_keep"
 KEY_METHOD = "method"
 KEY_MIN_SIZE = "min_size"
@@ -26,7 +27,9 @@ KEY_MATERIAL = "material"
 KEY_VOLUME = "volume"
 KEY_MIXTURE_NAME = "mixture_name"
 KEY_SUBSTANCE = "substance"
+KEY_SUBSTANCE_LIST = "substance_list"
 KEY_AMOUNT = "amount"
+KEY_CONTINUOUS_ADD_TYPE = "continuous_add_type"
 KEY_INCHI = "inchi"
 KEY_QUANTITY = "quantity"
 KEY_SOLVENT = "solvent"
@@ -56,6 +59,8 @@ FIELD_CONFIG = {
 
     # dropdown fields
     KEY_ADD_TYPE: {"label": "Add Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"]},
+    KEY_OPEN_FLAME: {"label": "Open Flame", "type": "dropdown", "options": ["True", "False"]},
+    KEY_CONTINUOUS_ADD_TYPE: {"label": "Type", "type": "dropdown", "options": ["Continuous", "Intermittent"]},
     KEY_STIR_TYPE: {"label": "Stirring Type", "type": "dropdown", "options": ["Manual", "Automatic"]},
     KEY_PHASE: {"label": "Phase to Keep", "type": "dropdown", "options": ["Liquid", "Solid", "Aqueous", "Organic"]},
     KEY_METHOD: {"label": "Method", "type": "dropdown", "options": ["Filtration", "Centrifugation", "Decantation"]},
@@ -78,8 +83,9 @@ FIELD_CONFIG = {
     KEY_BASE_MAT: {"label": "Base Material", "type": "text", "placeholder": "Base entity name..."},
     KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity..."},
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name..."},
+    KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities..."},
     KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases..."},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity..."},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture..."},
-    KEY_AMOUNT: {"label": "Repetitions", "type": "text", "placeholder": "Number of times..."},
+    KEY_AMOUNT: {"label": "Amount", "type": "text", "placeholder": "Number of times..."},
 }

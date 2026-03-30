@@ -26,11 +26,12 @@ class Action:
 
 class Add(Action):
     """Addition of a chemical entity."""
-    def __init__(self, chemical="", duration="0 s", type="Normal", **kwargs):
+    def __init__(self, chemical="", duration="0 s", type="Normal", open_flame="False", **kwargs):
         super().__init__(**{
             KEY_CHEMICAL: chemical,
             KEY_DURATION: duration,
-            KEY_ADD_TYPE: type
+            KEY_ADD_TYPE: type,
+            KEY_OPEN_FLAME: open_flame
         })
 
 class Grind(Action):
@@ -118,5 +119,14 @@ class Repeat(Action):
     """Indication of the number of repetitions of the elementary actions."""
     def __init__(self, amount="1", **kwargs):
         super().__init__(**{
+            KEY_AMOUNT: amount
+        })
+
+class ContinuousAddition(Action):
+    """Support action for controlled repeated or continuous additions."""
+    def __init__(self, substance_list="", type="Continuous", amount="1", **kwargs):
+        super().__init__(**{
+            KEY_SUBSTANCE_LIST: substance_list,
+            KEY_CONTINUOUS_ADD_TYPE: type,
             KEY_AMOUNT: amount
         })
