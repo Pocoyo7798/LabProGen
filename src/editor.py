@@ -103,12 +103,13 @@ class ChemicalSelectionDialog(QDialog):
         # list of all entities from the data model
         entities = {
             "Substance": "Substance (Simple)",
-            "UnknownSubstance": "Unknown Substance",
-            "Solution": "Solution (Mixture)",
+            "Mixture": "Mixture",
             "Material": "Material (Crystal)",
             "ComplexMaterial": "Complex Material",
-            "HeterogeneousMaterial": "Heterogeneous Material",
-            "ComplexHeterogeneousMaterial": "Complex Heterogeneous Mat."
+            "ComplexHeterogeneousMaterial": "Complex Heterogeneous Mat.",
+            "Polymers": "Polymers",
+            "Media": "Media",
+            "BioProducts": "BioProducts"
         }
         
         for key, label in entities.items():
@@ -347,23 +348,38 @@ class Editor(QGraphicsView):
             
             chemical_map = {
                 "Substance": Substance,
-                "UnknownSubstance": UnknownSubstance,
-                "Solution": Solution,
+                "Mixture": Mixture,
                 "Material": Material,
                 "ComplexMaterial": ComplexMaterial,
-                "HeterogeneousMaterial": HeterogeneousMaterial,
-                "ComplexHeterogeneousMaterial": ComplexHeterogeneousMaterial
+                "ComplexHeterogeneousMaterial": ComplexHeterogeneousMaterial,
+                "Polymers": Polymers,
+                "Media": Media,
+                "BioProducts": BioProducts
             }
             
             # define initial parameters for each type using config keys
             default_params_map = {
                 "Substance": {KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: "", KEY_QUANTITY: "0 g"},
-                "UnknownSubstance": {KEY_NAME: "", KEY_QUANTITY: "0 g"},
-                "Solution": {KEY_SOLVENT: "", KEY_SOLUTES: "", KEY_QUANTITY: "0 mL"},
-                "Material": {KEY_ATOMIC_COMP: "", KEY_STRUCT_DESC: "", KEY_QUANTITY: "0 g"},
-                "ComplexMaterial": {KEY_BASE_MAT: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: "", KEY_QUANTITY: "0 g"},
-                "HeterogeneousMaterial": {KEY_MAT_LIST: "", KEY_QUANTITY: "0 g"},
-                "ComplexHeterogeneousMaterial": {KEY_BASE_COMPLEX: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: "", KEY_QUANTITY: "0 g"}
+                "Mixture": {KEY_QUANTITY: "0 mL"},
+                "Material": {KEY_ATOMIC_COMP: "", KEY_QUANTITY: "0 g"},
+                "ComplexMaterial": {KEY_BASE_MAT: "", KEY_QUANTITY: "0 g"},
+                "ComplexHeterogeneousMaterial": {KEY_BASE_COMPLEX: "", KEY_QUANTITY: "0 g"},
+                "Polymers": {},
+                "Media": {
+                    KEY_QUANTITY: "0 g",
+                    KEY_FUNCTION: "Carbon Source",
+                    KEY_CONCENTRATION: "0 g/L",
+                    KEY_PURITY: "technical",
+                    KEY_STERILITY: "sterile",
+                    KEY_SOLUBILITY: ""
+                },
+                "BioProducts": {
+                    KEY_NAME: "",
+                    KEY_ORIGIN: "primary metabolite",
+                    KEY_PRODUCTION_PHASE: "associated to growth",
+                    KEY_LOCATION: "intracellular",
+                    KEY_TOXICITY_TO_PRODUCER: "neutral"
+                }
             }
             
             chem_type = dialog.selected_chemical
@@ -1172,7 +1188,8 @@ class Editor(QGraphicsView):
         b_id = step_data.get("block_id")
         
         new_block = self._create_block_by_name(action_name, params)
-        new_block.setPos(step_data.get("x", 0), step_data.get("y", 0))
+        # Imported workflows are reconstructed from the default creation position.
+        new_block.setPos(50, 50)
         new_block.toggle_orientation(flow_type)
         id_to_block[b_id] = new_block
 
@@ -1246,7 +1263,7 @@ class Editor(QGraphicsView):
             curr = cb # update last chemical
 
     def import_protocol(self):
-        """import protocol and merge Add actions sharing the same position."""
+        """import protocol and reconstruct layout from the default start position."""
         filename, _ = QFileDialog.getOpenFileName(self, "import protocol", "", "json files (*.json)")
         if not filename: return
 
@@ -1258,7 +1275,7 @@ class Editor(QGraphicsView):
             self.blocks = []
             self.protocol.actions = []
             id_to_block = {}
-            pos_to_add_block = {} 
+            source_to_add_block = {}
             
             flows = data.get("flows", [])
             for i, flow in enumerate(flows):
@@ -1270,11 +1287,11 @@ class Editor(QGraphicsView):
                 for j, step in enumerate(steps):
                     b_id = step.get("block_id")
                     action_name = step.get("action")
-                    pos_key = (step.get("x"), step.get("y"))
+                    source_id = step.get("source_block_id", b_id)
 
-                    # for Add actions, check if we already created a block at this position to merge chemicals into
-                    if action_name == "Add" and pos_key in pos_to_add_block:
-                        new_block = pos_to_add_block[pos_key]
+                    # Merge split Add entries based on original source block id.
+                    if action_name == "Add" and source_id in source_to_add_block:
+                        new_block = source_to_add_block[source_id]
                         chem_list = step.get("chemicals", [])
                         self._reconstruct_chemicals(new_block, chem_list)
                     elif b_id in id_to_block:
@@ -1282,7 +1299,7 @@ class Editor(QGraphicsView):
                     else:
                         new_block = self._reconstruct_block(step, flow_type, id_to_block)
                         if action_name == "Add":
-                            pos_to_add_block[pos_key] = new_block
+                            source_to_add_block[source_id] = new_block
                         
                     if j == 0 and is_explicit_first:
                         new_block.is_first = True
@@ -1341,9 +1358,7 @@ class Editor(QGraphicsView):
             base_data = {
                 "block_id": block_to_id[block],
                 "action": block.action,
-                "params": block.params.copy(),
-                "x": block.pos().x(),
-                "y": block.pos().y()
+                "params": block.params.copy()
             }
             
             # collect chemicals
@@ -1370,6 +1385,7 @@ class Editor(QGraphicsView):
                 for i, chem in enumerate(chemicals):
                     step = base_data.copy()
                     step["block_id"] = block_to_id[block] if i == 0 else self._next_id
+                    step["source_block_id"] = block_to_id[block]
                     if i > 0: self._next_id += 1
                     step["chemicals"] = [chem]
                     split_steps.append(step)

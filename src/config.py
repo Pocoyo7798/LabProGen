@@ -32,8 +32,6 @@ KEY_AMOUNT = "amount"
 KEY_CONTINUOUS_ADD_TYPE = "continuous_add_type"
 KEY_INCHI = "inchi"
 KEY_QUANTITY = "quantity"
-KEY_SOLVENT = "solvent"
-KEY_SOLUTES = "solutes"
 KEY_ATOMIC_COMP = "atomic_composition"
 KEY_STRUCT_DESC = "structure_descriptor"
 KEY_BASE_MAT = "base_material"
@@ -41,6 +39,15 @@ KEY_TEXTURAL_DESC = "textural_descriptors"
 KEY_CHEM_DESC = "chemical_descriptors"
 KEY_MAT_LIST = "materials_list"
 KEY_BASE_COMPLEX = "base_complex_material"
+KEY_FUNCTION = "function"
+KEY_CONCENTRATION = "concentration"
+KEY_PURITY = "purity"
+KEY_STERILITY = "sterility"
+KEY_SOLUBILITY = "solubility"
+KEY_ORIGIN = "origin"
+KEY_PRODUCTION_PHASE = "production_phase"
+KEY_LOCATION = "location"
+KEY_TOXICITY_TO_PRODUCER = "toxicity_to_producer"
 
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
@@ -56,6 +63,7 @@ FIELD_CONFIG = {
     KEY_POWER: {"label": "Power", "type": "unit", "units": ["W", "kW"], "defaults": ["0"], "placeholder": "Power"},
     KEY_VOLUME: {"label": "Volume", "type": "unit", "units": ["μL", "mL", "L"], "defaults": ["0"], "placeholder": "Volume"},
     KEY_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["mg", "g", "kg", "mL", "L", "mol", "mmol"], "defaults": ["0"], "placeholder": "Amount"},
+    KEY_CONCENTRATION: {"label": "Concentration", "type": "unit", "units": ["g/L", "mM", "% (w/v)", "% (v/v)"], "defaults": ["0"], "placeholder": "Value"},
 
     # dropdown fields
     KEY_ADD_TYPE: {"label": "Add Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"]},
@@ -67,14 +75,19 @@ FIELD_CONFIG = {
     KEY_PROCESS: {"label": "Process", "type": "dropdown", "options": ["Electrical", "Microwave", "Ice-bath", "Atmospheric"]},
     KEY_RECIPIENT: {"label": "Recipient", "type": "dropdown", "options": ["Beaker", "Flask", "Autoclave"]},
     KEY_MATERIAL: {"label": "Material", "type": "dropdown", "options": ["Glass", "Plastic", "Ceramic"]},
+    KEY_FUNCTION: {"label": "Function", "type": "dropdown", "options": ["Carbon Source", "Nitrogen Source", "Mineral", "Vitamin", "Growth Factor", "Inducer", "Precursor"]},
+    KEY_PURITY: {"label": "Purity", "type": "dropdown", "options": ["technical", "reagent", "analytical", "molecular biology", "cell culture grade"]},
+    KEY_STERILITY: {"label": "Sterility", "type": "dropdown", "options": ["sterile", "non-sterile", "filter-sterilized", "autoclavable"]},
+    KEY_ORIGIN: {"label": "Origin", "type": "dropdown", "options": ["primary metabolite", "secondary metabolite", "recombinant protein"]},
+    KEY_PRODUCTION_PHASE: {"label": "Production Phase", "type": "dropdown", "options": ["associated to growth", "not associated to growth", "mixed"]},
+    KEY_LOCATION: {"label": "Location", "type": "dropdown", "options": ["intracellular", "extracellular", "membrane bound"]},
+    KEY_TOXICITY_TO_PRODUCER: {"label": "Toxicity to Producer", "type": "dropdown", "options": ["inhibitory", "toxic", "neutral"]},
 
     # text fields
     KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity name..."},
     KEY_FORMULA: {"label": "Formula", "type": "text", "placeholder": "Chemical formula..."},
-    KEY_SMILES: {"label": "SMILES", "type": "text", "placeholder": "SMILES string..."},
+    KEY_SMILES: {"label": "SMILE", "type": "text", "placeholder": "SMILE string..."},
     KEY_INCHI: {"label": "InChi", "type": "text", "placeholder": "InChi string..."},
-    KEY_SOLVENT: {"label": "Solvent", "type": "text", "placeholder": "Main solvent..."},
-    KEY_SOLUTES: {"label": "Solutes", "type": "text", "placeholder": "List of solutes..."},
     KEY_ATOMIC_COMP: {"label": "Atomic Comp.", "type": "text", "placeholder": "Atoms and % m/m..."},
     KEY_STRUCT_DESC: {"label": "Structure Desc.", "type": "text", "placeholder": "Structure description..."},
     KEY_TEXTURAL_DESC: {"label": "Textural Desc.", "type": "text", "placeholder": "Textural properties..."},
@@ -85,6 +98,7 @@ FIELD_CONFIG = {
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name..."},
     KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities..."},
     KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases..."},
+    KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details..."},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity..."},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture..."},
     KEY_AMOUNT: {"label": "Amount", "type": "text", "placeholder": "Number of times..."},
