@@ -48,6 +48,10 @@ KEY_ORIGIN = "origin"
 KEY_PRODUCTION_PHASE = "production_phase"
 KEY_LOCATION = "location"
 KEY_TOXICITY_TO_PRODUCER = "toxicity_to_producer"
+KEY_ENTITY_PRIVACY = "entity_privacy"
+KEY_ENTITY_ID = "entity_id"
+KEY_PRODUCER = "entity_producer"
+KEY_PRIVATE_PURITY = "entity_purity"
 
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
@@ -82,6 +86,7 @@ FIELD_CONFIG = {
     KEY_PRODUCTION_PHASE: {"label": "Production Phase", "type": "dropdown", "options": ["associated to growth", "not associated to growth", "mixed"]},
     KEY_LOCATION: {"label": "Location", "type": "dropdown", "options": ["intracellular", "extracellular", "membrane bound"]},
     KEY_TOXICITY_TO_PRODUCER: {"label": "Toxicity to Producer", "type": "dropdown", "options": ["inhibitory", "toxic", "neutral"]},
+    KEY_ENTITY_PRIVACY: {"label": "Entity Type", "type": "dropdown", "options": ["Open Entity", "Private Entity"]},
 
     # text fields
     KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity name..."},
@@ -99,6 +104,9 @@ FIELD_CONFIG = {
     KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities..."},
     KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases..."},
     KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details..."},
+    KEY_ENTITY_ID: {"label": "ID", "type": "text", "placeholder": "Commercial or internal ID..."},
+    KEY_PRODUCER: {"label": "Producer", "type": "text", "placeholder": "Institution that created the entity..."},
+    KEY_PRIVATE_PURITY: {"label": "Purity", "type": "text", "placeholder": "Degree of purity..."},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity..."},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture..."},
     KEY_AMOUNT: {"label": "Amount", "type": "text", "placeholder": "Number of times..."},

@@ -383,7 +383,11 @@ class Editor(QGraphicsView):
             }
             
             chem_type = dialog.selected_chemical
-            params = default_params_map.get(chem_type, {})
+            # Always ask entity visibility first for chemical blocks.
+            params = {
+                KEY_ENTITY_PRIVACY: "Open Entity",
+                **default_params_map.get(chem_type, {})
+            }
             chem_class = chemical_map.get(chem_type)
             
             if chem_class:
@@ -1366,9 +1370,14 @@ class Editor(QGraphicsView):
             curr_chem = block.chem_below
             while curr_chem:
                 visited_globally.add(curr_chem)
+                chem_params = curr_chem.params.copy()
+                if chem_params.get(KEY_ENTITY_PRIVACY) != "Private Entity":
+                    chem_params.pop(KEY_ENTITY_ID, None)
+                    chem_params.pop(KEY_PRODUCER, None)
+                    chem_params.pop(KEY_PRIVATE_PURITY, None)
                 chemicals.append({
                     "chemical": curr_chem.action,
-                    "params": curr_chem.params.copy()
+                    "params": chem_params
                 })
                 curr_chem = curr_chem.below_block
 

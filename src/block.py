@@ -760,6 +760,16 @@ class Block(QGraphicsRectItem):
         if not self.params:
             return
 
+        is_chemical = isinstance(self, ChemicalBlock)
+        private_keys = [KEY_ENTITY_ID, KEY_PRODUCER, KEY_PRIVATE_PURITY]
+        params_for_dialog = self.params.copy()
+
+        if is_chemical:
+            # Ensure visibility selector exists in the dialog without mutating block params upfront.
+            params_for_dialog.setdefault(KEY_ENTITY_PRIVACY, "Open Entity")
+            for p_key in private_keys:
+                params_for_dialog.setdefault(p_key, "")
+
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
         dialog.setFixedWidth(400)
@@ -768,7 +778,19 @@ class Block(QGraphicsRectItem):
         form_layout.setContentsMargins(20, 20, 20, 20)
 
         input_map = {}
-        for key, value in self.params.items():
+        row_widgets = {}
+
+        if is_chemical:
+            ordered_keys = [KEY_ENTITY_PRIVACY]
+            for key in params_for_dialog.keys():
+                if key not in [KEY_ENTITY_PRIVACY] + private_keys:
+                    ordered_keys.append(key)
+            ordered_keys.extend(private_keys)
+        else:
+            ordered_keys = list(params_for_dialog.keys())
+
+        for key in ordered_keys:
+            value = params_for_dialog.get(key, "")
             # Retrieve label from config. Fallback to capitalized key string
             config = FIELD_CONFIG.get(key.lower(), {})
             label = config.get("label", key.capitalize())
@@ -776,6 +798,32 @@ class Block(QGraphicsRectItem):
             widget, tracker = self._get_field_widget(key, value)
             form_layout.addRow(label + ":", widget)
             input_map[key] = tracker
+            row_widgets[key] = widget
+
+        def set_private_fields_visibility():
+            if not is_chemical:
+                return
+            privacy_tracker = input_map.get(KEY_ENTITY_PRIVACY)
+            if not isinstance(privacy_tracker, QComboBox):
+                return
+            is_private = privacy_tracker.currentText() == "Private Entity"
+            for p_key in private_keys:
+                widget = row_widgets.get(p_key)
+                label_widget = form_layout.labelForField(widget) if widget else None
+                if widget:
+                    widget.setVisible(is_private)
+                if label_widget:
+                    label_widget.setVisible(is_private)
+
+            # Recompute dialog height after rows are shown/hidden.
+            form_layout.invalidate()
+            form_layout.activate()
+            dialog.setMinimumHeight(0)
+            dialog.resize(dialog.sizeHint())
+
+        if is_chemical and isinstance(input_map.get(KEY_ENTITY_PRIVACY), QComboBox):
+            input_map[KEY_ENTITY_PRIVACY].currentTextChanged.connect(lambda _: set_private_fields_visibility())
+            set_private_fields_visibility()
 
         save_btn = QPushButton("Save Changes")
         form_layout.addWidget(save_btn)
@@ -792,6 +840,12 @@ class Block(QGraphicsRectItem):
                 else:
                     # For standard Text fields (LineEdit)
                     self.params[k] = tracker.text()
+
+            if is_chemical and self.params.get(KEY_ENTITY_PRIVACY) != "Private Entity":
+                # Do not keep private metadata for open entities at this stage.
+                for p_key in private_keys:
+                    self.params.pop(p_key, None)
+
             self.update_text()
             dialog.accept()
 
