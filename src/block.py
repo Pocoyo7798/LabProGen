@@ -1,11 +1,79 @@
+import json
+
 from PySide6.QtWidgets import (
-    QGraphicsRectItem, QGraphicsTextItem, QDialog, QFormLayout, 
-    QLineEdit, QPushButton, QMenu, QHBoxLayout, QComboBox, QWidget
+    QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
+    QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
+    QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel
 )
-from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator
+from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
+from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
 from .config import *
 from .debug_flag import DEBUG_MODE
+
+
+class PreviewGraphicsView(QGraphicsView):
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setInteractive(False)
+        self.setBackgroundBrush(QColor(247, 250, 252))
+
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        grid_size = 40
+        left = int(rect.left()) - (int(rect.left()) % grid_size)
+        top = int(rect.top()) - (int(rect.top()) % grid_size)
+
+        painter.setPen(QPen(QColor(226, 232, 240), 1))
+        x = left
+        while x < rect.right():
+            painter.drawLine(x, rect.top(), x, rect.bottom())
+            x += grid_size
+        y = top
+        while y < rect.bottom():
+            painter.drawLine(rect.left(), y, rect.right(), y)
+            y += grid_size
+
+
+class PreviewBlockItem(QGraphicsRectItem):
+    def __init__(self, label, color, rect, parent=None):
+        super().__init__(rect, parent)
+        self.setBrush(color)
+        self.setPen(QPen(QColor(71, 85, 105), 2))
+        self.label = QGraphicsSimpleTextItem(label, self)
+        self.label.setBrush(QColor(255, 255, 255))
+        font = QFont("Segoe UI", 8, QFont.Bold)
+        self.label.setFont(font)
+        br = self.label.boundingRect()
+        self.label.setPos((rect.width() - br.width()) / 2, (rect.height() - br.height()) / 2)
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
+
+
+class ProcedurePreviewDialog(QDialog):
+    def __init__(self, procedure_data, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Procedure Preview")
+        self.resize(1100, 780)
+
+        from .editor import Editor
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.preview_editor = Editor()
+        preview_data = procedure_data or {}
+        if isinstance(preview_data, dict) and preview_data.get("preview_flows"):
+            preview_data = {
+                "protocol_name": preview_data.get("protocol_name", "laboratory procedure"),
+                "total_flows": len(preview_data.get("preview_flows", [])),
+                "flows": preview_data.get("preview_flows", []),
+            }
+        self.preview_editor.load_protocol_data(preview_data, include_hidden=True)
+        self.preview_editor.set_preview_mode(True)
+
+        layout.addWidget(self.preview_editor.container)
 
 class Block(QGraphicsRectItem):
     def __init__(self, action, params, editor=None):
@@ -13,6 +81,7 @@ class Block(QGraphicsRectItem):
         self.action = action
         self.params = params
         self.editor = editor
+        self.block_id = None
         
         # Pointers for Action Flow
         self.next_block = None   # Horizontal Right
@@ -457,6 +526,11 @@ class Block(QGraphicsRectItem):
         if not self.editor:
             return
 
+        if hasattr(self.editor, "open_entity_procedures"):
+            self.editor.open_entity_procedures.pop(self, None)
+        if hasattr(self, "imported_procedure"):
+            self.imported_procedure = None
+
         # remove from the editor's tracking list
         if self in self.editor.blocks:
             self.editor.blocks.remove(self)
@@ -761,14 +835,9 @@ class Block(QGraphicsRectItem):
             return
 
         is_chemical = isinstance(self, ChemicalBlock)
-        private_keys = [KEY_ENTITY_ID, KEY_PRODUCER, KEY_PRIVATE_PURITY]
         params_for_dialog = self.params.copy()
 
-        if is_chemical:
-            # Ensure visibility selector exists in the dialog without mutating block params upfront.
-            params_for_dialog.setdefault(KEY_ENTITY_PRIVACY, "Open Entity")
-            for p_key in private_keys:
-                params_for_dialog.setdefault(p_key, "")
+        hidden_chemical_keys = [KEY_ENTITY_PRIVACY, KEY_ENTITY_ID, KEY_PRODUCER, KEY_PRIVATE_PURITY]
 
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
@@ -781,11 +850,7 @@ class Block(QGraphicsRectItem):
         row_widgets = {}
 
         if is_chemical:
-            ordered_keys = [KEY_ENTITY_PRIVACY]
-            for key in params_for_dialog.keys():
-                if key not in [KEY_ENTITY_PRIVACY] + private_keys:
-                    ordered_keys.append(key)
-            ordered_keys.extend(private_keys)
+            ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_chemical_keys]
         else:
             ordered_keys = list(params_for_dialog.keys())
 
@@ -800,33 +865,30 @@ class Block(QGraphicsRectItem):
             input_map[key] = tracker
             row_widgets[key] = widget
 
-        def set_private_fields_visibility():
-            if not is_chemical:
-                return
-            privacy_tracker = input_map.get(KEY_ENTITY_PRIVACY)
-            if not isinstance(privacy_tracker, QComboBox):
-                return
-            is_private = privacy_tracker.currentText() == "Private Entity"
-            for p_key in private_keys:
-                widget = row_widgets.get(p_key)
-                label_widget = form_layout.labelForField(widget) if widget else None
-                if widget:
-                    widget.setVisible(is_private)
-                if label_widget:
-                    label_widget.setVisible(is_private)
+        preview_btn = None
+        if is_chemical and self.params.get(KEY_ENTITY_PRIVACY) == "Open Entity":
+            preview_btn = QPushButton("Preview")
 
-            # Recompute dialog height after rows are shown/hidden.
-            form_layout.invalidate()
-            form_layout.activate()
-            dialog.setMinimumHeight(0)
-            dialog.resize(dialog.sizeHint())
+            def show_preview():
+                procedure = None
+                if self.editor and getattr(self, "block_id", None) is not None:
+                    procedure = self.editor.get_open_entity_procedure(self.block_id)
+                if not procedure:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.information(dialog, "Preview", "No procedure imported for this open entity.")
+                    return
 
-        if is_chemical and isinstance(input_map.get(KEY_ENTITY_PRIVACY), QComboBox):
-            input_map[KEY_ENTITY_PRIVACY].currentTextChanged.connect(lambda _: set_private_fields_visibility())
-            set_private_fields_visibility()
+                self._preview_window = ProcedurePreviewDialog(procedure, parent=dialog)
+                self._preview_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+                self._preview_window.show()
+
+            preview_btn.clicked.connect(show_preview)
 
         save_btn = QPushButton("Save Changes")
-        form_layout.addWidget(save_btn)
+        if preview_btn:
+            form_layout.addRow(preview_btn, save_btn)
+        else:
+            form_layout.addWidget(save_btn)
 
         def apply_changes():
             for k, tracker in input_map.items():
@@ -840,11 +902,6 @@ class Block(QGraphicsRectItem):
                 else:
                     # For standard Text fields (LineEdit)
                     self.params[k] = tracker.text()
-
-            if is_chemical and self.params.get(KEY_ENTITY_PRIVACY) != "Private Entity":
-                # Do not keep private metadata for open entities at this stage.
-                for p_key in private_keys:
-                    self.params.pop(p_key, None)
 
             self.update_text()
             dialog.accept()
@@ -900,6 +957,8 @@ class ChemicalBlock(Block):
         self.action = action
         self.params = params
         self.editor = editor
+        self.imported_procedure = None
+        self.block_id = None
         
         self.orientation = "horizontal" 
         

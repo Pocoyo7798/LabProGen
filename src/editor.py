@@ -1,7 +1,8 @@
+import copy
 import json
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit
 )
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
@@ -125,6 +126,137 @@ class ChemicalSelectionDialog(QDialog):
         self.selected_chemical = chemical
         self.accept()
 
+
+class EntityPrivacyDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Entity Visibility")
+        self.setFixedWidth(320)
+        self.selected_privacy = "Open Entity"
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        label = QLabel("Select entity visibility")
+        layout.addWidget(label)
+
+        self.combo = QComboBox()
+        self.combo.addItems(["Open Entity", "Private Entity"])
+        layout.addWidget(self.combo)
+
+        layout.addStretch()
+        next_row = QHBoxLayout()
+        next_row.addStretch()
+        next_btn = QPushButton("Next")
+        next_btn.setFixedSize(76, 30)
+        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.clicked.connect(self._accept)
+        next_row.addWidget(next_btn)
+        layout.addLayout(next_row)
+
+    def _accept(self):
+        self.selected_privacy = self.combo.currentText()
+        self.accept()
+
+
+class PrivateEntityDetailsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Private Entity Details")
+        self.setFixedWidth(420)
+        self.details = {}
+
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setSpacing(12)
+        outer_layout.setContentsMargins(20, 20, 20, 20)
+
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
+
+        self.id_edit = QLineEdit()
+        self.id_edit.setPlaceholderText("Commercial or internal ID...")
+        self.producer_edit = QLineEdit()
+        self.producer_edit.setPlaceholderText("Institution that created the entity...")
+        self.purity_edit = QLineEdit()
+        self.purity_edit.setPlaceholderText("Degree of purity...")
+
+        form_layout.addRow("ID:", self.id_edit)
+        form_layout.addRow("Producer:", self.producer_edit)
+        form_layout.addRow("Purity:", self.purity_edit)
+
+        outer_layout.addLayout(form_layout)
+
+        next_row = QHBoxLayout()
+        next_row.addStretch()
+        next_btn = QPushButton("Next")
+        next_btn.setFixedSize(76, 30)
+        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.clicked.connect(self._accept)
+        next_row.addWidget(next_btn)
+        outer_layout.addLayout(next_row)
+
+    def _accept(self):
+        self.details = {
+            KEY_ENTITY_ID: self.id_edit.text(),
+            KEY_PRODUCER: self.producer_edit.text(),
+            KEY_PRIVATE_PURITY: self.purity_edit.text(),
+        }
+        self.accept()
+
+
+class OpenEntityDetailsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Open Entity")
+        self.setFixedWidth(420)
+        self.imported_procedure = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        label = QLabel("Choose how to handle the open entity")
+        layout.addWidget(label)
+
+        import_btn = QPushButton("Import Procedure")
+        import_btn.clicked.connect(self.import_procedure)
+        layout.addWidget(import_btn)
+
+        new_btn = QPushButton("New")
+        new_btn.clicked.connect(self.new_entity)
+        layout.addWidget(new_btn)
+
+        self.status = QLabel("No procedure imported.")
+        self.status.setStyleSheet("color: #6b7280;")
+        layout.addWidget(self.status)
+
+        layout.addStretch()
+        next_row = QHBoxLayout()
+        next_row.addStretch()
+        next_btn = QPushButton("Next")
+        next_btn.setFixedSize(76, 30)
+        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.clicked.connect(self.accept)
+        next_row.addWidget(next_btn)
+        layout.addLayout(next_row)
+
+    def import_procedure(self):
+        filename, _ = QFileDialog.getOpenFileName(self, "Import Procedure", "", "JSON Files (*.json)")
+        if not filename:
+            return
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or "flows" not in data:
+                QMessageBox.warning(self, "Invalid File", "The selected file does not contain a valid protocol.")
+                return
+            self.imported_procedure = data
+            self.status.setText(f"Imported: {filename.split('/')[-1]}")
+        except Exception as e:
+            QMessageBox.warning(self, "Import Error", f"Could not import procedure: {e}")
+
+    def new_entity(self):
+        pass
+
+
 class Editor(QGraphicsView):
     def __init__(self):
         scene = QGraphicsScene()
@@ -139,6 +271,10 @@ class Editor(QGraphicsView):
         self.blocks = []  # Keep track of all blocks
         self.linked_sequence = []  # Ordered list of linked actions by x-axis position
         self.link_distance = 100  # Distance threshold for linking
+        self.protocol_data = {}
+        self.open_entity_procedures = {}
+        self.chemical_procedure_index = {}
+        self.preview_mode = False
         
         # Create a container widget and layout for the editor + button
         container = QWidget()
@@ -161,15 +297,16 @@ class Editor(QGraphicsView):
         self.setup_zoom_buttons()
         
         # Title bar
-        title = QLabel("Laboratory Protocol Builder")
-        title_font = title.font()
+        self.title_label = QLabel("Laboratory Protocol Builder")
+        title_font = self.title_label.font()
         title_font.setPointSize(16)
         title_font.setBold(True)
-        title.setFont(title_font)
-        main_layout.addWidget(title)
+        self.title_label.setFont(title_font)
+        main_layout.addWidget(self.title_label)
         
         # Button bar
-        button_layout = QHBoxLayout()
+        self.button_bar_widget = QWidget()
+        button_layout = QHBoxLayout(self.button_bar_widget)
         button_layout.setSpacing(8)
         
         self.add_action_btn = QPushButton("+ Add Action")
@@ -186,7 +323,7 @@ class Editor(QGraphicsView):
         button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
         button_layout.addWidget(self.import_btn)
-        main_layout.addLayout(button_layout)
+        main_layout.addWidget(self.button_bar_widget)
         
         # Canvas
         self.setStyleSheet("""
@@ -203,6 +340,189 @@ class Editor(QGraphicsView):
         
         # Store reference to container for use in main window
         self.container = container
+
+    def set_preview_mode(self, enabled=True):
+        self.preview_mode = enabled
+        widgets = [
+            getattr(self, "title_label", None),
+            getattr(self, "button_bar_widget", None),
+            getattr(self, "zoom_widget", None),
+        ]
+        for widget in widgets:
+            if widget:
+                widget.setVisible(not enabled)
+
+        self.setInteractive(not enabled)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def _register_block_id(self, block, block_id=None):
+        if block_id is None:
+            block_id = len(self.blocks)
+        block.block_id = block_id
+        return block_id
+
+    def get_open_entity_procedure(self, chemical_block_id):
+        if chemical_block_id in self.chemical_procedure_index:
+            return self.chemical_procedure_index[chemical_block_id]
+
+        if isinstance(self.protocol_data, dict):
+            for flow in self.protocol_data.get("flows", []):
+                if flow.get("chemical_block_id") == chemical_block_id:
+                    return {
+                        "protocol_name": self.protocol_data.get("protocol_name", "laboratory procedure"),
+                        "total_flows": 1,
+                        "preview_flows": [copy.deepcopy(flow)],
+                        "flows": [copy.deepcopy(flow)],
+                    }
+
+        for block, procedure in self.open_entity_procedures.items():
+            if getattr(block, "block_id", None) == chemical_block_id:
+                return procedure
+            for flow in procedure.get("flows", []):
+                if flow.get("chemical_block_id") == chemical_block_id:
+                    return procedure
+                for step in flow.get("steps", []):
+                    for chem in step.get("chemicals", []):
+                        if chem.get("block_id") == chemical_block_id:
+                            return procedure
+        return None
+
+    def load_protocol_data(self, data, include_hidden=False):
+        """Load protocol JSON data into the scene."""
+        self.scene.clear()
+        self.blocks = []
+        self.protocol.actions = []
+        self.protocol_data = copy.deepcopy(data) if isinstance(data, dict) else {}
+        self.open_entity_procedures = {}
+        self.chemical_procedure_index = {}
+
+        if not isinstance(data, dict):
+            return
+
+        id_to_block = {}
+        source_to_add_block = {}
+
+        flows = data.get("flows", [])
+        if include_hidden:
+            visible_flows = flows
+            hidden_flows = []
+        else:
+            visible_flows = [flow for flow in flows if "chemical_block_id" not in flow]
+            hidden_flows = [flow for flow in flows if "chemical_block_id" in flow]
+
+        def iter_chem_block_ids_from_steps(steps):
+            for step in steps or []:
+                for chem in step.get("chemicals", []):
+                    chem_id = chem.get("block_id")
+                    if isinstance(chem_id, int):
+                        yield chem_id
+                sub_branch = step.get("subproduct_branch")
+                if isinstance(sub_branch, dict):
+                    yield from iter_chem_block_ids_from_steps([sub_branch])
+
+        for flow in visible_flows:
+            flow_type = flow.get("type", "horizontal")
+            is_explicit_first = flow.get("is_explicit_first", False)
+            steps = flow.get("steps", [])
+            prev_step_block = None
+
+            for j, step in enumerate(steps):
+                b_id = step.get("block_id")
+                action_name = step.get("action")
+                source_id = step.get("source_block_id", b_id)
+
+                if action_name == "Add" and source_id in source_to_add_block:
+                    new_block = source_to_add_block[source_id]
+                    chem_list = step.get("chemicals", [])
+                    self._reconstruct_chemicals(new_block, chem_list)
+                elif b_id in id_to_block:
+                    new_block = id_to_block[b_id]
+                else:
+                    new_block = self._reconstruct_block(step, flow_type, id_to_block)
+                    if action_name == "Add":
+                        source_to_add_block[source_id] = new_block
+
+                self._register_block_id(new_block, b_id)
+
+                if j == 0 and is_explicit_first:
+                    new_block.is_first = True
+                    new_block.update_visual_style()
+
+                if prev_step_block and prev_step_block != new_block:
+                    if flow_type == "vertical":
+                        prev_step_block.below_block = new_block
+                        new_block.above_block = prev_step_block
+                    else:
+                        prev_step_block.next_block = new_block
+                        new_block.prev_block = prev_step_block
+
+                prev_step_block = new_block
+
+        if not include_hidden:
+            owner_for_chem_id = {}
+            grouped_hidden = {}
+            pending = [copy.deepcopy(flow) for flow in hidden_flows]
+
+            progressed = True
+            while pending and progressed:
+                progressed = False
+                next_pending = []
+
+                for flow in pending:
+                    chemical_block_id = flow.get("chemical_block_id")
+                    target_block = id_to_block.get(chemical_block_id)
+                    owner_block = None
+
+                    if isinstance(target_block, ChemicalBlock):
+                        owner_block = target_block
+                    elif chemical_block_id in owner_for_chem_id:
+                        owner_block = owner_for_chem_id[chemical_block_id]
+
+                    if not owner_block:
+                        next_pending.append(flow)
+                        continue
+
+                    grouped_hidden.setdefault(owner_block, []).append(flow)
+                    for chem_id in iter_chem_block_ids_from_steps(flow.get("steps", [])):
+                        owner_for_chem_id[chem_id] = owner_block
+                    progressed = True
+
+                pending = next_pending
+
+            for owner_block, owner_flows in grouped_hidden.items():
+                procedure = self.open_entity_procedures.setdefault(owner_block, {
+                    "protocol_name": data.get("protocol_name", "laboratory procedure"),
+                    "total_flows": 0,
+                    "preview_flows": [],
+                    "flows": []
+                })
+
+                owner_block_id = next((bid for bid, block in id_to_block.items() if block is owner_block), None)
+
+                for flow in owner_flows:
+                    stored_flow = copy.deepcopy(flow)
+                    if stored_flow.get("chemical_block_id") == owner_block_id:
+                        procedure["preview_flows"].append(copy.deepcopy(stored_flow))
+                    procedure["flows"].append(stored_flow)
+
+                procedure["total_flows"] = len(procedure["flows"])
+                owner_block.imported_procedure = procedure
+                if getattr(owner_block, "block_id", None) is not None:
+                    self.chemical_procedure_index[owner_block.block_id] = procedure
+
+        for b in self.blocks:
+            if not isinstance(b, ChemicalBlock):
+                self.reflow_entire_cluster(b)
+
+        self.adapt_scene_rect()
+        self.update_linked_sequence()
+
+        if include_hidden:
+            for b in self.blocks:
+                b.setFlag(QGraphicsRectItem.ItemIsMovable, False)
+                b.setFlag(QGraphicsRectItem.ItemIsSelectable, False)
+                b.setAcceptHoverEvents(False)
+            self.setInteractive(False)
 
     def wheelEvent(self, event):
         """zoom using ctrl + wheel and handle mousepad horizontal signals."""
@@ -344,6 +664,25 @@ class Editor(QGraphicsView):
         """show dialog and add the specific chemical entity to the scene."""
         dialog = ChemicalSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
+            privacy_dialog = EntityPrivacyDialog(self)
+            if privacy_dialog.exec() != QDialog.Accepted:
+                return
+
+            privacy = privacy_dialog.selected_privacy
+            imported_procedure = None
+            entity_params = {KEY_ENTITY_PRIVACY: privacy}
+
+            if privacy == "Private Entity":
+                details_dialog = PrivateEntityDetailsDialog(self)
+                if details_dialog.exec() != QDialog.Accepted:
+                    return
+                entity_params.update(details_dialog.details)
+            else:
+                details_dialog = OpenEntityDetailsDialog(self)
+                if details_dialog.exec() != QDialog.Accepted:
+                    return
+                imported_procedure = details_dialog.imported_procedure
+
             # mapping keys to classes from chemicals.py
             
             chemical_map = {
@@ -383,11 +722,7 @@ class Editor(QGraphicsView):
             }
             
             chem_type = dialog.selected_chemical
-            # Always ask entity visibility first for chemical blocks.
-            params = {
-                KEY_ENTITY_PRIVACY: "Open Entity",
-                **default_params_map.get(chem_type, {})
-            }
+            params = {**entity_params, **default_params_map.get(chem_type, {})}
             chem_class = chemical_map.get(chem_type)
             
             if chem_class:
@@ -396,6 +731,9 @@ class Editor(QGraphicsView):
                 
                 # create visual block
                 block = ChemicalBlock(chem_type, params, editor=self)
+                block.imported_procedure = imported_procedure
+                if imported_procedure:
+                    self.open_entity_procedures[block] = imported_procedure
                 
                 block.setPos(50, 50)
                 
@@ -1196,6 +1534,7 @@ class Editor(QGraphicsView):
         new_block.setPos(50, 50)
         new_block.toggle_orientation(flow_type)
         id_to_block[b_id] = new_block
+        self._register_block_id(new_block, b_id)
 
         # 1. handle subproduct branches
         if "subproduct_branch" in step_data:
@@ -1220,6 +1559,7 @@ class Editor(QGraphicsView):
             cb = ChemicalBlock(chem_name, chem_params, editor=self)
             self.scene.addItem(cb)
             self.blocks.append(cb)
+            self._register_block_id(cb, c_data.get("block_id"))
             
             if prev_chem is None:
                 new_block.chem_below = cb
@@ -1242,6 +1582,7 @@ class Editor(QGraphicsView):
         
         self.scene.addItem(block)
         self.blocks.append(block)
+        self._register_block_id(block)
         return block
     
     def _reconstruct_chemicals(self, action_block, chem_list):
@@ -1256,6 +1597,7 @@ class Editor(QGraphicsView):
             cb = ChemicalBlock(c_data.get("chemical"), c_data.get("params", {}), editor=self)
             self.scene.addItem(cb)
             self.blocks.append(cb)
+            self._register_block_id(cb, c_data.get("block_id"))
             
             if action_block.chem_below is None:
                 action_block.chem_below = cb
@@ -1274,59 +1616,7 @@ class Editor(QGraphicsView):
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            
-            self.scene.clear()
-            self.blocks = []
-            self.protocol.actions = []
-            id_to_block = {}
-            source_to_add_block = {}
-            
-            flows = data.get("flows", [])
-            for i, flow in enumerate(flows):
-                flow_type = flow.get("type", "horizontal")
-                is_explicit_first = flow.get("is_explicit_first", False)
-                steps = flow.get("steps", [])
-                prev_step_block = None
-                
-                for j, step in enumerate(steps):
-                    b_id = step.get("block_id")
-                    action_name = step.get("action")
-                    source_id = step.get("source_block_id", b_id)
-
-                    # Merge split Add entries based on original source block id.
-                    if action_name == "Add" and source_id in source_to_add_block:
-                        new_block = source_to_add_block[source_id]
-                        chem_list = step.get("chemicals", [])
-                        self._reconstruct_chemicals(new_block, chem_list)
-                    elif b_id in id_to_block:
-                        new_block = id_to_block[b_id]
-                    else:
-                        new_block = self._reconstruct_block(step, flow_type, id_to_block)
-                        if action_name == "Add":
-                            source_to_add_block[source_id] = new_block
-                        
-                    if j == 0 and is_explicit_first:
-                        new_block.is_first = True
-                        new_block.update_visual_style()
-
-                    # establish link with the previous step in this flow
-                    if prev_step_block and prev_step_block != new_block:
-                        if flow_type == "vertical":
-                            prev_step_block.below_block = new_block
-                            new_block.above_block = prev_step_block
-                        else:
-                            prev_step_block.next_block = new_block
-                            new_block.prev_block = prev_step_block
-                    
-                    prev_step_block = new_block
-
-            # final sync
-            for b in self.blocks:
-                if not isinstance(b, ChemicalBlock):
-                    self.reflow_entire_cluster(b)
-            
-            self.adapt_scene_rect()
-            self.update_linked_sequence()
+            self.load_protocol_data(data, include_hidden=False)
 
         except Exception as e:
             print(f"error importing protocol: {e}")
@@ -1349,7 +1639,21 @@ class Editor(QGraphicsView):
         self._next_id = len(self.blocks)
         block_to_id = {block: i for i, block in enumerate(self.blocks)}
         flows_list = []
+        next_flow_id = 1
+        next_hidden_block_id = max(block_to_id.values(), default=-1) + 1
         visited_globally = set()
+
+        def append_flow(flow_data):
+            nonlocal next_flow_id
+            flow_copy = copy.deepcopy(flow_data)
+            ordered_flow = {"flow_id": next_flow_id}
+            for key, value in flow_copy.items():
+                if key == "flow_id":
+                    continue
+                ordered_flow[key] = value
+            next_flow_id += 1
+            flows_list.append(ordered_flow)
+            return ordered_flow
 
         def get_step_data(block, local_visited):
             """extracts block data. allows intersection by ignoring visited_globally here."""
@@ -1376,6 +1680,7 @@ class Editor(QGraphicsView):
                     chem_params.pop(KEY_PRODUCER, None)
                     chem_params.pop(KEY_PRIVATE_PURITY, None)
                 chemicals.append({
+                    "block_id": block_to_id[curr_chem],
                     "chemical": curr_chem.action,
                     "params": chem_params
                 })
@@ -1412,6 +1717,46 @@ class Editor(QGraphicsView):
                 
             return [data]
 
+        def collect_ids_from_step(step, id_set):
+            if not isinstance(step, dict):
+                return
+            block_id = step.get("block_id")
+            if isinstance(block_id, int):
+                id_set.add(block_id)
+            source_id = step.get("source_block_id")
+            if isinstance(source_id, int):
+                id_set.add(source_id)
+
+            for chem in step.get("chemicals", []):
+                if isinstance(chem, dict):
+                    chem_id = chem.get("block_id")
+                    if isinstance(chem_id, int):
+                        id_set.add(chem_id)
+
+            sub_branch = step.get("subproduct_branch")
+            if isinstance(sub_branch, dict):
+                collect_ids_from_step(sub_branch, id_set)
+
+        def remap_step_ids(step, id_map):
+            if not isinstance(step, dict):
+                return
+            block_id = step.get("block_id")
+            if block_id in id_map:
+                step["block_id"] = id_map[block_id]
+            source_id = step.get("source_block_id")
+            if source_id in id_map:
+                step["source_block_id"] = id_map[source_id]
+
+            for chem in step.get("chemicals", []):
+                if isinstance(chem, dict):
+                    chem_id = chem.get("block_id")
+                    if chem_id in id_map:
+                        chem["block_id"] = id_map[chem_id]
+
+            sub_branch = step.get("subproduct_branch")
+            if isinstance(sub_branch, dict):
+                remap_step_ids(sub_branch, id_map)
+
         # --- 1. export horizontal flows ---
         for b in self.blocks:
             if isinstance(b, ChemicalBlock) or b.action == "SubProductCreation": continue
@@ -1423,7 +1768,7 @@ class Editor(QGraphicsView):
                     while curr:
                         content.extend(get_step_data(curr, local_path))
                         curr = curr.next_block
-                    flows_list.append({"flow_id": len(flows_list)+1, "type": "horizontal", "is_explicit_first": b.is_first, "steps": content})
+                    append_flow({"type": "horizontal", "is_explicit_first": b.is_first, "steps": content})
 
         # --- 2. export vertical flows ---
         for b in self.blocks:
@@ -1438,7 +1783,50 @@ class Editor(QGraphicsView):
                         content.extend(get_step_data(curr, local_path))
                         curr = curr.below_block
                         if isinstance(curr, ChemicalBlock) or curr is None: break
-                    flows_list.append({"flow_id": len(flows_list)+1, "type": "vertical", "is_explicit_first": b.is_first, "steps": content})
+                    append_flow({"type": "vertical", "is_explicit_first": b.is_first, "steps": content})
+
+        # --- 3. append hidden open-entity procedures ---
+        for block, procedure in self.open_entity_procedures.items():
+            block_id = block_to_id.get(block)
+            if block_id is None or not procedure:
+                continue
+
+            imported_flows = procedure.get("flows", [])
+            imported_ids = set()
+            for flow in imported_flows:
+                for step in flow.get("steps", []):
+                    collect_ids_from_step(step, imported_ids)
+
+            imported_nested_chem_ids = {
+                flow.get("chemical_block_id")
+                for flow in imported_flows
+                if isinstance(flow.get("chemical_block_id"), int)
+            }
+            imported_ids.update(imported_nested_chem_ids)
+
+            id_map = {}
+            for old_id in sorted(imported_ids):
+                id_map[old_id] = next_hidden_block_id
+                next_hidden_block_id += 1
+
+            for flow in imported_flows:
+                flow_copy = copy.deepcopy(flow)
+                for step in flow_copy.get("steps", []):
+                    remap_step_ids(step, id_map)
+
+                source_chemical_block_id = flow_copy.get("chemical_block_id")
+                if isinstance(source_chemical_block_id, int):
+                    resolved_chemical_block_id = id_map.get(source_chemical_block_id, block_id)
+                else:
+                    resolved_chemical_block_id = block_id
+
+                ordered_flow = {
+                    "type": flow_copy.get("type", "horizontal"),
+                    "is_explicit_first": flow_copy.get("is_explicit_first", False),
+                    "chemical_block_id": resolved_chemical_block_id,
+                    "steps": flow_copy.get("steps", []),
+                }
+                append_flow(ordered_flow)
 
         final_output = {"protocol_name": "laboratory procedure", "total_flows": len(flows_list), "flows": flows_list}
         try:

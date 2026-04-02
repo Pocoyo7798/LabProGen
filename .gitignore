@@ -40,4 +40,4 @@ venv.bak/
 Thumbs.db
 
 # protocol export
-protocol.json
+protocol*.json
