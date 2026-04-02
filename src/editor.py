@@ -12,6 +12,21 @@ from .actions import *
 from .chemicals import *
 from .protocol import Protocol
 
+PRIMARY_BUTTON_STYLE = (
+    "QPushButton {"
+    "background-color: #6b4cff; color: white; border-radius: 8px;"
+    "padding: 6px 14px; font-weight: 600; border: none;"
+    "}"
+    "QPushButton:hover { background-color: #5a3fe6; }"
+    "QPushButton:pressed { background-color: #4b33bf; }"
+)
+
+STATUS_BADGE_STYLE = {
+    "neutral": "background-color: #f3f4f6; color: #4b5563; border: 1px solid #d1d5db;",
+    "success": "background-color: #ecfdf3; color: #166534; border: 1px solid #86efac;",
+    "info": "background-color: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;",
+}
+
 class ActionSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -136,6 +151,7 @@ class EntityPrivacyDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
         label = QLabel("Select entity visibility")
         layout.addWidget(label)
 
@@ -147,8 +163,8 @@ class EntityPrivacyDialog(QDialog):
         next_row = QHBoxLayout()
         next_row.addStretch()
         next_btn = QPushButton("Next")
-        next_btn.setFixedSize(76, 30)
-        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.setMinimumSize(92, 34)
+        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         next_btn.clicked.connect(self._accept)
         next_row.addWidget(next_btn)
         layout.addLayout(next_row)
@@ -188,8 +204,8 @@ class PrivateEntityDetailsDialog(QDialog):
         next_row = QHBoxLayout()
         next_row.addStretch()
         next_btn = QPushButton("Next")
-        next_btn.setFixedSize(76, 30)
-        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.setMinimumSize(92, 34)
+        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         next_btn.clicked.connect(self._accept)
         next_row.addWidget(next_btn)
         outer_layout.addLayout(next_row)
@@ -212,31 +228,44 @@ class OpenEntityDetailsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         label = QLabel("Choose how to handle the open entity")
+        label.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
         layout.addWidget(label)
 
         import_btn = QPushButton("Import Procedure")
+        import_btn.setMinimumHeight(36)
+        import_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         import_btn.clicked.connect(self.import_procedure)
         layout.addWidget(import_btn)
 
         new_btn = QPushButton("New")
+        new_btn.setMinimumHeight(36)
+        new_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         new_btn.clicked.connect(self.new_entity)
         layout.addWidget(new_btn)
 
-        self.status = QLabel("No procedure imported.")
-        self.status.setStyleSheet("color: #6b7280;")
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setStyleSheet("padding: 10px 12px; border-radius: 8px;")
+        self._set_status("No procedure selected yet.", "neutral")
         layout.addWidget(self.status)
 
         layout.addStretch()
         next_row = QHBoxLayout()
         next_row.addStretch()
         next_btn = QPushButton("Next")
-        next_btn.setFixedSize(76, 30)
-        next_btn.setStyleSheet("background-color: #2ecc71; color: white; border-radius: 6px; font-weight: 600;")
+        next_btn.setMinimumSize(92, 34)
+        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         next_btn.clicked.connect(self.accept)
         next_row.addWidget(next_btn)
         layout.addLayout(next_row)
+
+    def _set_status(self, message, tone="neutral"):
+        style = STATUS_BADGE_STYLE.get(tone, STATUS_BADGE_STYLE["neutral"])
+        self.status.setText(message)
+        self.status.setStyleSheet(f"padding: 10px 12px; border-radius: 8px; {style}")
 
     def import_procedure(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Import Procedure", "", "JSON Files (*.json)")
@@ -249,12 +278,49 @@ class OpenEntityDetailsDialog(QDialog):
                 QMessageBox.warning(self, "Invalid File", "The selected file does not contain a valid protocol.")
                 return
             self.imported_procedure = data
-            self.status.setText(f"Imported: {filename.split('/')[-1]}")
+            self._set_status(f"Procedure imported: {filename.split('/')[-1]}", "info")
         except Exception as e:
             QMessageBox.warning(self, "Import Error", f"Could not import procedure: {e}")
 
     def new_entity(self):
-        pass
+        dialog = NewEntityProcedureDialog(self)
+        if dialog.exec() == QDialog.Accepted and dialog.procedure_data:
+            self.imported_procedure = dialog.procedure_data
+            flow_count = len(dialog.procedure_data.get("flows", []))
+            self._set_status(f"New procedure created ({flow_count} flow(s)).", "success")
+
+
+class NewEntityProcedureDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("New Entity Procedure")
+        self.resize(1200, 820)
+        self.procedure_data = None
+
+        self.editor = Editor()
+
+        # Keep the normal editor experience, but replace Import/Export with Save.
+        self.editor.export_btn.hide()
+        self.editor.import_btn.hide()
+
+        save_btn = QPushButton("💾 Save Procedure")
+        save_btn.clicked.connect(self.save_procedure)
+
+        button_layout = self.editor.button_bar_widget.layout()
+        if button_layout is not None:
+            button_layout.addWidget(save_btn)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.editor.container)
+
+    def save_procedure(self):
+        data = self.editor.generate_protocol_output(show_feedback=False)
+        if not data:
+            QMessageBox.warning(self, "Save Procedure", "Create at least one valid flow before saving.")
+            return
+        self.procedure_data = data
+        self.accept()
 
 
 class Editor(QGraphicsView):
@@ -739,6 +805,10 @@ class Editor(QGraphicsView):
                 
                 self.scene.addItem(block)
                 self.blocks.append(block)
+                self._register_block_id(block)
+
+                if imported_procedure:
+                    self.chemical_procedure_index[block.block_id] = imported_procedure
                 
                 self.update_linked_sequence()
                 self.adapt_scene_rect()
@@ -1620,21 +1690,20 @@ class Editor(QGraphicsView):
 
         except Exception as e:
             print(f"error importing protocol: {e}")
-    
-    def export_protocol(self):
-        """export the protocol and split Add actions, supporting intersections."""
+
+    def generate_protocol_output(self, show_feedback=True):
+        """Build the protocol JSON structure from current editor blocks."""
         if not self.blocks:
-            print("no blocks to export.")
-            return
+            if show_feedback:
+                print("no blocks to export.")
+            return None
 
         # check for empty subproduct creation blocks
         empty_subproducts = [b for b in self.blocks if b.action == "SubProductCreation" and b.chem_below is None]
         if empty_subproducts:
-            QMessageBox.warning(self, "Export Error", "Every Sub Product Creation must have at least one chemical attached.")
-            return
-
-        filename, _ = QFileDialog.getSaveFileName(self, "Export Protocol", "protocol.json", "JSON Files (*.json)")
-        if not filename: return
+            if show_feedback:
+                QMessageBox.warning(self, "Export Error", "Every Sub Product Creation must have at least one chemical attached.")
+            return None
 
         self._next_id = len(self.blocks)
         block_to_id = {block: i for i, block in enumerate(self.blocks)}
@@ -1659,16 +1728,16 @@ class Editor(QGraphicsView):
             """extracts block data. allows intersection by ignoring visited_globally here."""
             if block in local_visited:
                 return []
-            
+
             local_visited.add(block)
             visited_globally.add(block) # used only for orphan validation at the end
-            
+
             base_data = {
                 "block_id": block_to_id[block],
                 "action": block.action,
                 "params": block.params.copy()
             }
-            
+
             # collect chemicals
             chemicals = []
             curr_chem = block.chem_below
@@ -1711,10 +1780,10 @@ class Editor(QGraphicsView):
                 data["params"][KEY_SUBSTANCE] = chemicals
             elif chemicals:
                 data["chemicals"] = chemicals
-            
+
             if sub_branch:
                 data["subproduct_branch"] = sub_branch
-                
+
             return [data]
 
         def collect_ids_from_step(step, id_set):
@@ -1828,7 +1897,16 @@ class Editor(QGraphicsView):
                 }
                 append_flow(ordered_flow)
 
-        final_output = {"protocol_name": "laboratory procedure", "total_flows": len(flows_list), "flows": flows_list}
+        return {"protocol_name": "laboratory procedure", "total_flows": len(flows_list), "flows": flows_list}
+    
+    def export_protocol(self):
+        """export the protocol and split Add actions, supporting intersections."""
+        filename, _ = QFileDialog.getSaveFileName(self, "Export Protocol", "protocol.json", "JSON Files (*.json)")
+        if not filename: return
+
+        final_output = self.generate_protocol_output(show_feedback=True)
+        if not final_output:
+            return
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(final_output, f, indent=2, ensure_ascii=False)
