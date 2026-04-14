@@ -3,7 +3,7 @@ import json
 from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
     QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
-    QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel
+    QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
@@ -891,17 +891,33 @@ class Block(QGraphicsRectItem):
             form_layout.addWidget(save_btn)
 
         def apply_changes():
+            new_params = self.params.copy()
+
             for k, tracker in input_map.items():
                 if isinstance(tracker, tuple):
                     # For Unit fields (LineEdit, ComboBox)
                     edit_field, combo_field = tracker
-                    self.params[k] = f"{edit_field.text()} {combo_field.currentText()}"
+                    raw_value = edit_field.text().strip()
+                    value = f"{raw_value} {combo_field.currentText()}" if raw_value else ""
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields
-                    self.params[k] = tracker.currentText()
+                    value = tracker.currentText().strip()
                 else:
                     # For standard Text fields (LineEdit)
-                    self.params[k] = tracker.text()
+                    value = tracker.text().strip()
+
+                if is_field_required(k, params=new_params, action_name=self.action) and not value:
+                    label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
+                    QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.")
+                    if isinstance(tracker, tuple):
+                        tracker[0].setFocus()
+                    else:
+                        tracker.setFocus()
+                    return
+
+                new_params[k] = value
+
+            self.params.update(new_params)
 
             self.update_text()
             dialog.accept()

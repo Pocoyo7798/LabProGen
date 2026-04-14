@@ -118,11 +118,10 @@ class ChemicalSelectionDialog(QDialog):
         
         # list of all entities from the data model
         entities = {
-            "Substance": "Substance (Simple)",
+            "Substance": "Molecules",
+            "Material": "Material",
             "Mixture": "Mixture",
-            "Material": "Material (Crystal)",
-            "ComplexMaterial": "Complex Material",
-            "ComplexHeterogeneousMaterial": "Complex Heterogeneous Mat.",
+            "PerfectSingleCrystalMaterial": "Perfect Single Crystal Material",
             "Polymers": "Polymers",
             "Media": "Media",
             "BioProducts": "BioProducts"
@@ -211,10 +210,22 @@ class PrivateEntityDetailsDialog(QDialog):
         outer_layout.addLayout(next_row)
 
     def _accept(self):
+        raw_details = {
+            KEY_ENTITY_ID: self.id_edit.text().strip(),
+            KEY_PRODUCER: self.producer_edit.text().strip(),
+            KEY_PRIVATE_PURITY: self.purity_edit.text().strip(),
+        }
+
+        for key, value in raw_details.items():
+            if is_field_required(key, params=raw_details) and not value:
+                label = FIELD_CONFIG.get(key.lower(), {}).get("label", key.capitalize())
+                QMessageBox.warning(self, "Missing Required Field", f"'{label}' is required.")
+                return
+
         self.details = {
-            KEY_ENTITY_ID: self.id_edit.text(),
-            KEY_PRODUCER: self.producer_edit.text(),
-            KEY_PRIVATE_PURITY: self.purity_edit.text(),
+            KEY_ENTITY_ID: raw_details[KEY_ENTITY_ID],
+            KEY_PRODUCER: raw_details[KEY_PRODUCER],
+            KEY_PRIVATE_PURITY: raw_details[KEY_PRIVATE_PURITY],
         }
         self.accept()
 
@@ -258,9 +269,15 @@ class OpenEntityDetailsDialog(QDialog):
         next_btn = QPushButton("Next")
         next_btn.setMinimumSize(92, 34)
         next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        next_btn.clicked.connect(self.accept)
+        next_btn.clicked.connect(self._accept)
         next_row.addWidget(next_btn)
         layout.addLayout(next_row)
+
+    def _accept(self):
+        if not self.imported_procedure:
+            QMessageBox.warning(self, "Missing Procedure", "Open Entity requires a preparation procedure.")
+            return
+        self.accept()
 
     def _set_status(self, message, tone="neutral"):
         style = STATUS_BADGE_STYLE.get(tone, STATUS_BADGE_STYLE["neutral"])
@@ -753,10 +770,9 @@ class Editor(QGraphicsView):
             
             chemical_map = {
                 "Substance": Substance,
-                "Mixture": Mixture,
                 "Material": Material,
-                "ComplexMaterial": ComplexMaterial,
-                "ComplexHeterogeneousMaterial": ComplexHeterogeneousMaterial,
+                "Mixture": Mixture,
+                "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
                 "Polymers": Polymers,
                 "Media": Media,
                 "BioProducts": BioProducts
@@ -764,26 +780,32 @@ class Editor(QGraphicsView):
             
             # define initial parameters for each type using config keys
             default_params_map = {
-                "Substance": {KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: "", KEY_QUANTITY: "0 g"},
-                "Mixture": {KEY_QUANTITY: "0 mL"},
-                "Material": {KEY_ATOMIC_COMP: "", KEY_QUANTITY: "0 g"},
-                "ComplexMaterial": {KEY_BASE_MAT: "", KEY_QUANTITY: "0 g"},
-                "ComplexHeterogeneousMaterial": {KEY_BASE_COMPLEX: "", KEY_QUANTITY: "0 g"},
-                "Polymers": {},
+                "Substance": {KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: ""},
+                "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
+                "Mixture": {KEY_NAME: ""},
+                "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
+                "Polymers": {KEY_BIGSMILES: ""},
                 "Media": {
                     KEY_QUANTITY: "0 g",
-                    KEY_FUNCTION: "Carbon Source",
-                    KEY_CONCENTRATION: "0 g/L",
-                    KEY_PURITY: "technical",
-                    KEY_STERILITY: "sterile",
-                    KEY_SOLUBILITY: ""
+                    KEY_FUNCTION: "",
+                    KEY_STATE: "",
+                    KEY_CONCENTRATION: "",
+                    KEY_PURITY: "",
+                    KEY_STERILITY: "",
+                    KEY_SOLUBILITY: "",
+                    KEY_TEMPERATURE_STABILITY: "",
+                    KEY_LIGHT_SENSITIVITY: "",
+                    KEY_OXIDATION_SENSITIVITY: "",
                 },
                 "BioProducts": {
                     KEY_NAME: "",
-                    KEY_ORIGIN: "primary metabolite",
-                    KEY_PRODUCTION_PHASE: "associated to growth",
-                    KEY_LOCATION: "intracellular",
-                    KEY_TOXICITY_TO_PRODUCER: "neutral"
+                    KEY_ORIGIN: "",
+                    KEY_PRODUCTION_PHASE: "",
+                    KEY_LOCATION: "",
+                    KEY_TEMPERATURE_STABILITY: "",
+                    KEY_LIGHT_SENSITIVITY: "",
+                    KEY_OXIDATION_SENSITIVITY: "",
+                    KEY_TOXICITY_TO_PRODUCER: "neutral",
                 }
             }
             
