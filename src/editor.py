@@ -1923,17 +1923,87 @@ class Editor(QGraphicsView):
     
     def export_protocol(self):
         """export the protocol and split Add actions, supporting intersections."""
-        filename, _ = QFileDialog.getSaveFileName(self, "Export Protocol", "protocol.json", "JSON Files (*.json)")
+        filename, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export Protocol",
+            "protocol.json",
+            "Protocol Files (*.json *.yaml *.yml);;JSON Files (*.json);;YAML Files (*.yaml *.yml)",
+        )
         if not filename: return
+
+        lower_name = filename.lower()
+        if not lower_name.endswith((".json", ".yaml", ".yml")):
+            if "YAML" in selected_filter:
+                filename += ".yaml"
+            else:
+                filename += ".json"
 
         final_output = self.generate_protocol_output(show_feedback=True)
         if not final_output:
             return
         try:
             with open(filename, "w", encoding="utf-8") as f:
-                json.dump(final_output, f, indent=2, ensure_ascii=False)
+                if filename.lower().endswith((".yaml", ".yml")):
+                    f.write(self._to_yaml(final_output))
+                else:
+                    json.dump(final_output, f, indent=2, ensure_ascii=False)
             print(f"protocol exported to {filename}")
 
         except Exception as e:
             print(f"error: {e}")
+
+    def _to_yaml(self, data):
+        """Serialize protocol data to YAML without external dependencies."""
+        lines = self._yaml_lines(data, 0)
+        return "\n".join(lines) + "\n"
+
+    def _yaml_lines(self, value, indent):
+        space = " " * indent
+
+        if isinstance(value, dict):
+            if not value:
+                return [space + "{}"]
+
+            lines = []
+            for key, item in value.items():
+                if isinstance(item, (dict, list)):
+                    if isinstance(item, dict) and not item:
+                        lines.append(f"{space}{key}: {{}}")
+                    elif isinstance(item, list) and not item:
+                        lines.append(f"{space}{key}: []")
+                    else:
+                        lines.append(f"{space}{key}:")
+                        lines.extend(self._yaml_lines(item, indent + 2))
+                else:
+                    lines.append(f"{space}{key}: {self._yaml_scalar(item)}")
+            return lines
+
+        if isinstance(value, list):
+            if not value:
+                return [space + "[]"]
+
+            lines = []
+            for item in value:
+                if isinstance(item, (dict, list)):
+                    if isinstance(item, dict) and not item:
+                        lines.append(space + "- {}")
+                    elif isinstance(item, list) and not item:
+                        lines.append(space + "- []")
+                    else:
+                        lines.append(space + "-")
+                        lines.extend(self._yaml_lines(item, indent + 2))
+                else:
+                    lines.append(f"{space}- {self._yaml_scalar(item)}")
+            return lines
+
+        return [space + self._yaml_scalar(value)]
+
+    def _yaml_scalar(self, value):
+        if isinstance(value, str):
+            return json.dumps(value, ensure_ascii=False)
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if value is None:
+            return "null"
+        return str(value)
     

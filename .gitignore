@@ -41,3 +41,4 @@ Thumbs.db
 
 # protocol export
 protocol*.json
+protocol*.yaml
