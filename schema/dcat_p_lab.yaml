@@ -1,0 +1,607 @@
+---
+id: https://w3id.org/nfdi-de/dcat-ap-plus/labdata/
+version: "0.0.1"
+name: dcat-p-lab
+title: DCAT-AP-PLUS Lab Data Profile
+description: |-
+  An extension of ChemDCAT-AP describing laboratory synthesis and sample
+  preparation workflow metadata for ELN-style datasets.
+license: CC-BY 4.0
+see_also:
+  - https://nfdi-de.github.io/dcat-ap-plus/
+  - https://github.com/nfdi-de/chem-dcat-ap
+
+prefixes:
+  dcatplab: https://w3id.org/nfdi-de/dcat-ap-plus/labdata/
+  dcat_ap_plus: https://nfdi-de.github.io/dcat-ap-plus/latest/schema/
+  linkml: https://w3id.org/linkml/
+  schema: http://schema.org/
+  dcterms: http://purl.org/dc/terms/
+  dcat: http://www.w3.org/ns/dcat#
+  prov: http://www.w3.org/ns/prov#
+  rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+  rdfs: http://www.w3.org/2000/01/rdf-schema#
+  owl: http://www.w3.org/2002/07/owl#
+  skos: http://www.w3.org/2004/02/skos/core#
+  foaf: http://xmlns.com/foaf/0.1/
+  qudt: http://qudt.org/schema/qudt/
+  RO: http://purl.obolibrary.org/obo/RO_
+  PATO: http://purl.obolibrary.org/obo/PATO_
+  OBI: http://purl.obolibrary.org/obo/OBI_
+  CHEBI: http://purl.obolibrary.org/obo/CHEBI_
+  CHMO: http://purl.obolibrary.org/obo/CHMO_
+  BFO: http://purl.obolibrary.org/obo/BFO_
+  SIO: http://semanticscience.org/resource/SIO_
+  ENVO: http://purl.obolibrary.org/obo/ENVO_
+
+default_prefix: dcatplab
+default_range: string
+
+imports:
+  - linkml:types
+  - dcat_ap_plus:dcat_ap_plus
+  - chemical_entities_ap
+  - chemical_reaction_ap
+
+
+classes:
+
+  Laboratory:
+    is_a: Surrounding
+    class_uri: ENVO:01001405
+    description: >-
+      A facility that provides controlled conditions in which scientific or
+      technological research, experiments, and measurement may be performed.
+
+  LabSynthesisActivity:
+    is_a: DataGeneratingActivity
+    class_uri: OBI:0000070
+    description: >-
+      A DataGeneratingActivity that describes a laboratory synthesis or sample
+      preparation workflow, consisting of an ordered sequence of LabSynthesisSteps.
+    slots:
+      - has_synthesis_step
+    slot_usage:
+      evaluated_entity:
+        range: MaterialSample
+        multivalued: true
+      had_output_entity:
+        range: MaterialSample
+        multivalued: true
+      occurred_in:
+        range: Laboratory
+
+  LabSynthesisStep:
+    is_a: EvaluatedActivity
+    abstract: true
+    description: >-
+      An abstract base class for individual steps in a laboratory synthesis workflow.
+
+      Step ordering model:
+        - Backward pointer: had_input_activity (prov:wasInformedBy) — step B declares step A
+          as its predecessor. Range is narrowed to LabSynthesisStep via slot_usage.
+        - Forward pointer: has_successor_step (dcatplab:hasSuccessorStep) — step A points
+          forward to step B.
+        - RepetitionBlock: the step preceding the block has has_successor_step pointing to
+          BOTH the RepetitionBlock AND the first inner repeated step, enabling type-based
+          queries without traversing the wrapper. The last inner step's has_successor_step
+          points out of the block to the next non-repeated step.
+    slots:
+      - has_successor_step
+    slot_usage:
+      had_input_activity:
+        range: LabSynthesisStep
+        multivalued: false
+      has_part:
+        range: LabSynthesisStep
+        multivalued: true
+        inlined_as_list: true
+
+  SolutionPreparationStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step that initialises a new solution or reaction vessel (NewSolution action).
+      The prepared intermediate product is represented as an IntermediateSolution.
+    slots:
+      - has_initial_material
+
+  MaterialAdditionStep:
+    is_a: LabSynthesisStep
+    class_uri: OBI:0000652
+    description: >-
+      A step in which a material is added to the reaction mixture (Add action).
+    slots:
+      - has_added_material
+      - addition_type
+      - has_open_flame
+      - has_step_duration
+      - has_ph_value
+
+  StirringStep:
+    is_a: LabSynthesisStep
+    class_uri: CHMO:0002774
+    description: >-
+      A step in which the reaction mixture is stirred (Stir action).
+    slots:
+      - has_step_duration
+      - has_stirring_speed
+      - stirring_type
+      - has_temperature
+      - has_pressure
+
+  TemperatureChangeStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step that changes the temperature of the reaction mixture (ChangeTemperature action).
+      Use has_target_temperature for numeric targets (e.g. "65 °C", "338 K") and
+      temperature_target_type for qualitative targets (Cool, Heat, room temperature, Reflux).
+      These are mutually exclusive; populate only one per instance.
+    slots:
+      - has_target_temperature
+      - temperature_target_type
+      - heating_process
+      - has_heat_ramp
+      - has_microwave_power
+
+  AtmosphereChangeStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step that modifies the atmosphere of the reaction vessel (ChangeAtmosphere action).
+      This is a support action — its effect persists until the next AtmosphereChangeStep.
+    slots:
+      - has_atmosphere_type
+      - has_pressure
+      - has_flow_rate
+
+  WaitingStep:
+    is_a: LabSynthesisStep
+    class_uri: OBI:0000045
+    description: >-
+      A step in which the reaction mixture is allowed to rest for a defined duration
+      (Wait action).
+    slots:
+      - has_step_duration
+
+  SeparationStep:
+    is_a: LabSynthesisStep
+    class_uri: OBI:0600014
+    description: >-
+      A step in which phases of the reaction mixture are separated (Separate action).
+    slots:
+      - phase_to_keep
+      - uses_separation_method
+
+  WashingStep:
+    is_a: LabSynthesisStep
+    class_uri: OBI:0000653
+    description: >-
+      A step in which the separated material is washed with a solvent (Wash action).
+    slots:
+      - uses_washing_material
+      - uses_washing_method
+
+  GrindingStep:
+    is_a: LabSynthesisStep
+    class_uri: CHMO:0001652
+    description: >-
+      A step in which the material is ground or milled (Grind action).
+    slots:
+      - has_step_duration
+
+  RepetitionBlock:
+    is_a: LabSynthesisStep
+    class_uri: OBI:0000303
+    description: >-
+      A wrapper block grouping one or more steps that are executed a number of times
+      (Repeat action). The has_part slot contains the repeated steps in order.
+
+      Ordering convention:
+        - The step immediately preceding the block sets has_successor_step to point to BOTH
+          the RepetitionBlock and the first inner step.
+        - The last inner step's has_successor_step points out of the block.
+        - repetition_count is the TOTAL number of executions (e.g. 4 if source data says
+          "Repeat 3 additional times"). Document the convention per dataset.
+    slots:
+      - repetition_count
+    slot_usage:
+      has_part:
+        range: LabSynthesisStep
+        multivalued: true
+        inlined_as_list: true
+
+  SievingStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step in which solid material is screened by particle size (Sieve action).
+    slots:
+      - has_minimum_particle_size
+      - has_maximum_particle_size
+
+  RecipientChangeStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step that modifies the reaction vessel (ChangeRecipient action).
+      This is a support action — its effect persists until the next RecipientChangeStep.
+    slots:
+      - has_recipient_type
+      - has_vessel_material
+      - has_vessel_volume
+
+  SubProductCreationStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step marking the point where a by-product diverges from the main synthesis path
+      (SubProductCreation action).
+    slots:
+      - has_subproduct
+
+  ContinuousAdditionStep:
+    is_a: LabSynthesisStep
+    description: >-
+      A step in which compounds enter the reaction repeatedly or continuously
+      (ContinuousAddition action).
+    slots:
+      - has_added_material
+      - continuous_addition_type
+      - has_intermittent_amount
+
+  IntermediateSolution:
+    is_a: MaterialSample
+    description: >-
+      A MaterialSample representing an intermediate product of a synthesis workflow,
+      created by a SolutionPreparationStep. Optionally references the starting
+      MaterialEntity from which it was prepared.
+    slots:
+      - has_initial_material
+
+  # ── Lab-specific QuantitativeAttribute subclasses ────────────────────────────
+  # Temperature, Pressure, Mass, Volume, Density are inherited from material_entities_ap.
+  # Concentration, PHValue, AmountOfSubstance are inherited from chemical_entities_ap.
+
+  QuantityValueMixin:
+    mixin: true
+    description: >-
+      Common structured representation for values that carry an explicit unit.
+    slots:
+      - value
+      - unit
+      - raw
+
+  Duration:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing a time duration for a synthesis step
+      (e.g. "8 h", "30 min"). Recommended QUDT quantitykind: Time.
+
+  StirringSpeed:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing the rate of stirring (e.g. "500 rpm").
+      Recommended QUDT quantitykind: AngularVelocity.
+
+  FlowRate:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing a volumetric flow rate of gas
+      (e.g. "10 mL/min"). Recommended QUDT quantitykind: VolumeFlowRate.
+
+  HeatRamp:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing the rate of temperature increase
+      (e.g. "5 °C/min"). Recommended QUDT quantitykind: TemperatureRate.
+
+  ParticleSize:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing a particle size used in a SievingStep
+      (e.g. "250 µm"). Recommended QUDT quantitykind: Length.
+
+  MicrowavePower:
+    is_a: QuantitativeAttribute
+    class_uri: qudt:Quantity
+    mixins:
+      - QuantityValueMixin
+    description: >-
+      A QuantitativeAttribute expressing the microwave power used in a
+      TemperatureChangeStep (e.g. "300 W"). Recommended QUDT quantitykind: Power.
+
+
+slots:
+
+  has_synthesis_step:
+    is_a: has_part
+    slot_uri: BFO:0000051
+    range: LabSynthesisStep
+    multivalued: true
+    inlined_as_list: true
+    description: Links a LabSynthesisActivity to its constituent LabSynthesisSteps.
+
+  has_successor_step:
+    slot_uri: dcatplab:hasSuccessorStep
+    range: LabSynthesisStep
+    multivalued: true
+    description: >-
+      Forward pointer from a LabSynthesisStep to the step(s) that follow it.
+      Inverse of had_input_activity (prov:wasInformedBy). For RepetitionBlocks,
+      the preceding step's has_successor_step points to both the RepetitionBlock
+      and the first inner repeated step.
+
+  has_initial_material:
+    slot_uri: prov:used
+    range: MaterialEntity
+    description: >-
+      The starting MaterialEntity for a SolutionPreparationStep or the reference
+      material for an IntermediateSolution.
+
+  has_added_material:
+    is_a: had_input_entity
+    slot_uri: RO:0004009
+    range: MaterialEntity
+    description: The material added in a MaterialAdditionStep.
+
+  addition_type:
+    slot_uri: CHMO:0001544
+    range: AdditionTypeEnum
+    description: The mode of material addition in a MaterialAdditionStep (Normal, Dropwise, or Diffusion).
+
+  has_step_duration:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: Duration
+    description: >-
+      The duration of a synthesis step. Named has_step_duration (not has_duration)
+      to avoid conflict with chemical_reaction_ap's has_duration (range: xsd:duration).
+
+  has_stirring_speed:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: StirringSpeed
+    description: The stirring speed in a StirringStep.
+
+  value:
+    range: float
+    description: Numeric quantity value for structured measurements.
+
+  unit:
+    range: string
+    description: Unit symbol or expression associated with a structured measurement.
+
+  raw:
+    range: string
+    description: Original raw quantity string preserved for traceability.
+
+  has_target_temperature:
+    is_a: has_temperature
+    description: >-
+      The numeric target temperature of a TemperatureChangeStep
+      (e.g. "65 °C", "338 K"). Use temperature_target_type for qualitative targets.
+
+  temperature_target_type:
+    range: TemperatureTargetTypeEnum
+    description: >-
+      Qualitative temperature target for a TemperatureChangeStep, used when a
+      numeric temperature value is unavailable. Mutually exclusive with
+      has_target_temperature.
+
+  has_heat_ramp:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: HeatRamp
+    description: The rate of temperature increase in a TemperatureChangeStep.
+
+  has_atmosphere_type:
+    range: AtmosphereTypeEnum
+    multivalued: true
+    description: The atmosphere type(s) set in an AtmosphereChangeStep. Multiple gases can be listed.
+
+  has_flow_rate:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: FlowRate
+    description: The gas flow rate in an AtmosphereSettingStep.
+
+  phase_to_keep:
+    range: string
+    description: >-
+      The phase retained after a SeparationStep
+      (e.g. "precipitate", "supernatant", "filtrate").
+
+  uses_separation_method:
+    is_a: has_qualitative_attribute
+    slot_uri: SIO:000008
+    range: DefinedTerm
+    bindings:
+      - range: SeparationMethodEnum
+        obligation_level: RECOMMENDED
+        binds_value_of: id
+        description: Restricts the separation method to the SeparationMethodEnum vocabulary.
+    description: The separation method used in a SeparationStep.
+
+  uses_washing_material:
+    is_a: had_input_entity
+    slot_uri: RO:0004009
+    range: MaterialEntity
+    description: The washing solvent or material used in a WashingStep.
+
+  uses_washing_method:
+    is_a: has_qualitative_attribute
+    slot_uri: SIO:000008
+    range: DefinedTerm
+    description: The washing method used in a WashingStep.
+
+  repetition_count:
+    range: integer
+    description: >-
+      Total number of times the steps in a RepetitionBlock were executed.
+      Note: source data may use a different convention (e.g. "Repeat 3" meaning
+      3 additional repetitions = 4 total). Document the convention per dataset.
+
+  # A1 — SievingStep slots
+  has_minimum_particle_size:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: ParticleSize
+    description: The minimum particle size passed through the sieve in a SievingStep.
+
+  has_maximum_particle_size:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: ParticleSize
+    description: The maximum particle size passed through the sieve in a SievingStep.
+
+  # A2 — RecipientChangeStep slots
+  has_recipient_type:
+    range: RecipientTypeEnum
+    description: The type of reaction vessel used in a RecipientChangeStep.
+
+  has_vessel_material:
+    range: VesselMaterialEnum
+    description: The material of the reaction vessel in a RecipientChangeStep.
+
+  has_vessel_volume:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: Volume
+    description: The volume capacity of the reaction vessel in a RecipientChangeStep.
+
+  # A3 — SubProductCreationStep slots
+  has_subproduct:
+    slot_uri: RO:0002234
+    range: MaterialEntity
+    description: The by-product material created or separated in a SubProductCreationStep.
+
+  # A4 — ContinuousAdditionStep slots
+  continuous_addition_type:
+    range: ContinuousAdditionTypeEnum
+    description: Whether the addition is continuous or delivered in discrete intervals.
+
+  has_intermittent_amount:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: AmountOfSubstance
+    description: Amount added per interval in an intermittent ContinuousAdditionStep.
+
+  # B1 — MaterialAdditionStep
+  has_open_flame:
+    range: boolean
+    description: Whether an open flame was present during a MaterialAdditionStep.
+
+  # B2 — StirringStep
+  stirring_type:
+    range: StirringTypeEnum
+    description: Whether stirring is performed manually or by an automatic device in a StirringStep.
+
+  # B3 — TemperatureChangeStep
+  heating_process:
+    range: HeatingProcessEnum
+    description: The heating or cooling process used in a TemperatureChangeStep.
+
+  # B4 — TemperatureChangeStep
+  has_microwave_power:
+    is_a: has_quantitative_attribute
+    slot_uri: SIO:000008
+    range: MicrowavePower
+    description: The microwave power applied in a TemperatureChangeStep (only when heating_process is Microwave).
+
+
+enums:
+
+  AdditionTypeEnum:
+    description: Controlled vocabulary for the mode of addition in a MaterialAdditionStep.
+    permissible_values:
+      Normal: {}
+      Dropwise:
+        meaning: CHMO:0001544
+      Diffusion: {}
+
+  SeparationMethodEnum:
+    description: Controlled vocabulary for separation methods used in SeparationStep.
+    permissible_values:
+      filtration:
+        meaning: CHMO:0001640
+      centrifugation:
+        meaning: OBI:0302886
+      decantation:
+        meaning: CHMO:0001798
+      evaporation:
+        meaning: CHMO:0001574
+      fractionation:
+        meaning: CHMO:0001625
+
+  AtmosphereTypeEnum:
+    description: Controlled vocabulary for atmosphere types in AtmosphereChangeStep.
+    permissible_values:
+      air: {}
+      inert: {}
+      nitrogen:
+        meaning: CHEBI:17997
+      argon:
+        meaning: CHEBI:39289
+      hydrogen:
+        meaning: CHEBI:18276
+      vacuum: {}
+      autogeneous: {}
+      oxygen:
+        meaning: CHEBI:15379
+
+  TemperatureTargetTypeEnum:
+    description: >-
+      Qualitative temperature targets for TemperatureChangeStep, for cases where
+      a numeric temperature value is not recorded.
+    permissible_values:
+      COOL: {}
+      HEAT: {}
+      ROOM_TEMPERATURE:
+        meaning: PATO:0015173
+      REFLUX: {}
+      AMBIENT: {}
+
+  RecipientTypeEnum:
+    description: Controlled vocabulary for reaction vessel types in RecipientChangeStep.
+    permissible_values:
+      Beaker: {}
+      Flask: {}
+      Autoclave: {}
+
+  VesselMaterialEnum:
+    description: Controlled vocabulary for vessel materials in RecipientChangeStep.
+    permissible_values:
+      Glass: {}
+      Plastic: {}
+      Ceramic: {}
+
+  ContinuousAdditionTypeEnum:
+    description: Controlled vocabulary for addition modes in ContinuousAdditionStep.
+    permissible_values:
+      Continuous: {}
+      Intermittent: {}
+
+  StirringTypeEnum:
+    description: Controlled vocabulary for stirring modes in StirringStep.
+    permissible_values:
+      Manual: {}
+      Automatic: {}
+
+  HeatingProcessEnum:
+    description: Controlled vocabulary for heating/cooling processes in TemperatureChangeStep.
+    permissible_values:
+      Electrical: {}
+      Microwave: {}
+      IceBath: {}
+      Atmospheric: {}

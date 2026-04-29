@@ -11,6 +11,7 @@ from .config import *
 from .actions import *
 from .chemicals import *
 from .protocol import Protocol
+from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
 
 PRIMARY_BUTTON_STYLE = (
     "QPushButton {"
@@ -395,16 +396,19 @@ class Editor(QGraphicsView):
         self.add_action_btn = QPushButton("+ Add Action")
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
+        self.export_linkml_btn = QPushButton("🧬 Export LinkML")
         self.import_btn = QPushButton("📂 Import Protocol")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
         self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
+        self.export_linkml_btn.clicked.connect(self.export_linkml_protocol)
         self.import_btn.clicked.connect(self.import_protocol)
         
         button_layout.addWidget(self.add_action_btn)
         button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
+        button_layout.addWidget(self.export_linkml_btn)
         button_layout.addWidget(self.import_btn)
         main_layout.addWidget(self.button_bar_widget)
         
@@ -1941,6 +1945,24 @@ class Editor(QGraphicsView):
         final_output = self.generate_protocol_output(show_feedback=True)
         if not final_output:
             return
+
+        # Phase 2 shadow mode: emit LinkML alignment warnings without blocking export.
+        try:
+            from .schema_validator import validate_protocol_shadow, summarize_validation_messages
+
+            shadow_messages = validate_protocol_shadow(final_output)
+            summary = summarize_validation_messages(shadow_messages)
+            print(
+                f"[schema-shadow] total={summary['total']} "
+                f"by_level={summary['by_level']} by_code={summary['by_code']}"
+            )
+
+            # Print at most a few examples to keep export logs readable.
+            for msg in shadow_messages[:5]:
+                print(f"[schema-shadow:{msg.level}] {msg.code}: {msg.message} | context={msg.context}")
+        except Exception as e:
+            print(f"[schema-shadow] skipped due to runtime issue: {e}")
+
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 if filename.lower().endswith((".yaml", ".yml")):
@@ -1951,6 +1973,47 @@ class Editor(QGraphicsView):
 
         except Exception as e:
             print(f"error: {e}")
+
+    def export_linkml_protocol(self):
+        """export the current protocol as a LinkML-aligned semantic payload."""
+        filename, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export LinkML Payload",
+            "protocol.linkml.json",
+            "LinkML Files (*.json *.yaml *.yml);;JSON Files (*.json);;YAML Files (*.yaml *.yml)",
+        )
+        if not filename:
+            return
+
+        lower_name = filename.lower()
+        if not lower_name.endswith((".json", ".yaml", ".yml")):
+            if "YAML" in selected_filter:
+                filename += ".yaml"
+            else:
+                filename += ".json"
+
+        final_output = self.generate_protocol_output(show_feedback=True)
+        if not final_output:
+            return
+
+        try:
+            payload = convert_protocol_to_linkml(final_output)
+            summary = summarize_linkml_export(payload)
+            print(
+                f"[linkml-export] activities={summary.activity_count} "
+                f"steps={summary.step_count} chemicals={summary.chemical_count} "
+                f"unmapped_fields={summary.unmapped_fields}"
+            )
+
+            with open(filename, "w", encoding="utf-8") as f:
+                if filename.lower().endswith((".yaml", ".yml")):
+                    f.write(self._to_yaml(payload))
+                else:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
+
+            print(f"linkml payload exported to {filename}")
+        except Exception as e:
+            print(f"error exporting linkml payload: {e}")
 
     def _to_yaml(self, data):
         """Serialize protocol data to YAML without external dependencies."""
