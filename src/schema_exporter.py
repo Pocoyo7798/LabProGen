@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from pathlib import Path
+import os
+from typing import Any, Literal
 
-from .linkml_adapter import normalize_action_to_linkml
+from .config import DEFAULT_PROTOCOL_NAME
+from .linkml_adapter import normalize_action_to_linkml, convert_slots_to_linkml_objects
 from .schema_loader import load_linkml_schema, schema_summary
 from .schema_mapping import (
     get_linkml_chemical_class,
@@ -19,6 +23,9 @@ class ExportSummary:
     step_count: int
     chemical_count: int
     unmapped_fields: int
+
+
+ExportMode = Literal["strict", "optimized"]
 
 
 def _is_blank(value) -> bool:
@@ -69,8 +76,11 @@ def _convert_chemical(chemical: dict) -> dict:
         else:
             source_metadata[key] = value
 
+    mapped_slots = convert_slots_to_linkml_objects(mapped_slots)
+
     return _clean_dict(
         {
+            "id": chemical.get("block_id") or chemical_name,
             "block_id": chemical.get("block_id"),
             "source_chemical": chemical_name,
             "linkml_class": get_linkml_chemical_class(chemical_name),
@@ -86,6 +96,7 @@ def _convert_step(step: dict) -> dict:
     mapped_slots: dict[str, object] = normalize_action_to_linkml(action_name, params)
     source_metadata: dict[str, object] = {}
 
+    # Add any unmapped fields from params as additional slots
     for key, value in params.items():
         if _is_blank(value):
             continue
@@ -98,7 +109,17 @@ def _convert_step(step: dict) -> dict:
         elif not slot:
             source_metadata[key] = value
 
+    # Special handling for Repeat and ContinuousAddition
+    if action_name == "Repeat" and "amount" in params:
+        mapped_slots["repetition_count"] = params.get("amount")
+    elif action_name == "ContinuousAddition" and "amount" in params:
+        mapped_slots["has_intermittent_amount"] = normalize_action_to_linkml(action_name, params).get("has_intermittent_amount") or params.get("amount")
+
+    # Convert simple values to proper LinkML objects for complex-typed slots (only once)
+    mapped_slots = convert_slots_to_linkml_objects(mapped_slots)
+
     step_payload = {
+        "id": step.get("block_id") or action_name,
         "block_id": step.get("block_id"),
         "source_action": action_name,
         "linkml_class": get_linkml_step_class(action_name),
@@ -108,15 +129,120 @@ def _convert_step(step: dict) -> dict:
         "source_metadata": source_metadata or None,
     }
 
-    if action_name == "Repeat" and "amount" in params:
-        step_payload["slots"]["repetition_count"] = params.get("amount")
-    elif action_name == "ContinuousAddition" and "amount" in params:
-        step_payload["slots"]["has_intermittent_amount"] = normalize_action_to_linkml(action_name, params).get("has_intermittent_amount") or params.get("amount")
-
     return _clean_dict(step_payload)
 
 
-def convert_protocol_to_linkml(protocol_data: dict) -> dict:
+def _collect_material_entities(activities: list) -> dict[str, dict]:
+    """Collect all unique MaterialEntity objects from activities.
+    
+    Returns a mapping of entity_id -> entity object.
+    Deduplicates entities that appear in multiple steps.
+    """
+    entities = {}
+    
+    def extract_value(slot_value):
+        if isinstance(slot_value, dict):
+            if "alternative_label" in slot_value and "entity_id" in slot_value:
+                eid = slot_value.get("entity_id")
+                if eid not in entities:
+                    entities[eid] = slot_value
+            for nested in slot_value.values():
+                extract_value(nested)
+        elif isinstance(slot_value, list):
+            for item in slot_value:
+                extract_value(item)
+
+    def extract_from_slots(slots: dict):
+        if not isinstance(slots, dict):
+            return
+        for slot_value in slots.values():
+            extract_value(slot_value)
+    
+    for activity in activities:
+        for step in activity.get("has_synthesis_step", []) or []:
+            extract_from_slots(step.get("slots", {}))
+            for chem in step.get("attached_chemicals", []) or []:
+                extract_from_slots(chem.get("slots", {}))
+    
+    return entities
+
+
+def _materialize_references(activities: list) -> list:
+    """Replace MaterialEntity objects with entity_id references.
+    
+    Converts embedded objects to lightweight references pointing to
+    the normalized entity registry.
+    """
+    def replace_value(value):
+        if isinstance(value, dict):
+            if "alternative_label" in value and "entity_id" in value:
+                return {"entity_id": value.get("entity_id")}
+            return {k: replace_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [replace_value(item) for item in value]
+        return value
+
+    def replace_in_slots(slots: dict):
+        if not isinstance(slots, dict):
+            return slots
+        return {key: replace_value(value) for key, value in slots.items()}
+    
+    materialized = []
+    for activity in activities:
+        new_activity = copy.deepcopy(activity)
+        for step in new_activity.get("has_synthesis_step", []) or []:
+            step["slots"] = replace_in_slots(step.get("slots", {}))
+            for chem in step.get("attached_chemicals", []) or []:
+                chem["slots"] = replace_in_slots(chem.get("slots", {}))
+        materialized.append(new_activity)
+    
+    return materialized
+
+
+def _normalize_linkml_instance(node: Any) -> Any:
+    """Strip exporter-only metadata and return a strict LinkML instance.
+
+    This keeps the semantic conversion logic in one place and allows the same
+    canonical export data to be validated in strict mode and optionally
+    transformed into an optimized internal representation.
+    """
+    if isinstance(node, list):
+        return [_normalize_linkml_instance(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    normalized: dict[str, Any] = {}
+    slot_values = node.get("slots") if isinstance(node.get("slots"), dict) else {}
+
+    for key, value in node.items():
+        if key in {
+            "block_id",
+            "source_action",
+            "linkml_class",
+            "source_metadata",
+            "attached_chemicals",
+            "class",
+            "slots",
+            "flow_id",
+            "flow_type",
+            "is_explicit_first",
+            "chemical_block_id",
+        }:
+            continue
+        normalized[key] = _normalize_linkml_instance(value)
+
+    for slot_name, slot_value in slot_values.items():
+        normalized[slot_name] = _normalize_linkml_instance(slot_value)
+
+    return normalized
+
+
+def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, int, int]:
+    """Convert the domain protocol into canonical LinkML-oriented activities.
+
+    The canonical activities preserve inline MaterialEntity objects and act as
+    the single source of truth for both strict and optimized export modes.
+    """
     schema = load_linkml_schema()
     flows = protocol_data.get("flows", []) if isinstance(protocol_data, dict) else []
 
@@ -139,6 +265,7 @@ def convert_protocol_to_linkml(protocol_data: dict) -> dict:
         activities.append(
             _clean_dict(
                 {
+                    "id": flow.get("flow_id") or flow.get("type") or "activity",
                     "class": "LabSynthesisActivity",
                     "flow_id": flow.get("flow_id"),
                     "flow_type": flow.get("type"),
@@ -149,9 +276,9 @@ def convert_protocol_to_linkml(protocol_data: dict) -> dict:
             )
         )
 
-    payload = {
+    base_payload = {
         "linkml_schema": schema_summary(schema),
-        "source_protocol_name": protocol_data.get("protocol_name", "laboratory procedure"),
+        "source_protocol_name": protocol_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
         "schema_profile": schema.get("name", ""),
         "class": "LabSynthesisActivity",
         "activities": activities,
@@ -164,7 +291,101 @@ def convert_protocol_to_linkml(protocol_data: dict) -> dict:
         "source_protocol": copy.deepcopy(protocol_data),
     }
 
-    return payload
+    return base_payload, activities, total_steps, total_chemicals, unmapped_fields
+
+
+def _validate_strict_mode(activities: list[dict]) -> None:
+    """Enforce strict schema constraints against the canonical export data."""
+    try:
+        from linkml.validator import validate as linkml_validate
+    except Exception as exc:  # pragma: no cover - dependency error surface
+        raise RuntimeError(f"LinkML validator is unavailable: {exc}") from exc
+
+    schema_path = Path(__file__).resolve().parent.parent / "schema" / "dcat_p_lab.yaml"
+    cwd = os.getcwd()
+    try:
+        os.chdir(schema_path.parent)
+        load_linkml_schema()
+        for idx, activity in enumerate(activities):
+            instance = _normalize_linkml_instance(activity)
+            report = linkml_validate(instance, schema=schema_path.name, target_class="LabSynthesisActivity", strict=True)
+            results = getattr(report, "results", []) or []
+            if results:
+                first = results[0]
+                raise ValueError(f"Strict LinkML validation failed for activity {idx}: {getattr(first, 'message', first)}")
+    finally:
+        os.chdir(cwd)
+
+
+def _build_optimized_export(strict_payload: dict) -> dict:
+    """Derive an optimized graph-like view from the strict validated export."""
+    activities = strict_payload.get("activities", []) if isinstance(strict_payload, dict) else []
+    material_registry = _collect_material_entities(activities)
+    materialized_activities = _materialize_references(activities)
+
+    def _count_refs(value: Any) -> int:
+        if isinstance(value, dict):
+            if set(value.keys()) == {"entity_id"}:
+                return 1
+            return sum(_count_refs(v) for v in value.values())
+        if isinstance(value, list):
+            return sum(_count_refs(item) for item in value)
+        return 0
+
+    optimized_payload = copy.deepcopy(strict_payload)
+    optimized_payload["activities"] = materialized_activities
+    optimized_payload["materials"] = material_registry
+    optimized_payload["summary"]["unique_materials"] = len(material_registry)
+    optimized_payload["summary"]["reference_count"] = sum(_count_refs(activity) for activity in materialized_activities)
+
+    return optimized_payload
+
+
+def _expand_optimized_export(optimized_payload: dict) -> dict:
+    """Reconstruct a strict-like payload from an optimized export."""
+    if not isinstance(optimized_payload, dict):
+        return optimized_payload
+
+    materials = optimized_payload.get("materials", {}) if isinstance(optimized_payload.get("materials"), dict) else {}
+
+    def expand_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            if set(value.keys()) == {"entity_id"}:
+                entity_id = value.get("entity_id")
+                return copy.deepcopy(materials.get(entity_id, value))
+            return {k: expand_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [expand_value(item) for item in value]
+        return value
+
+    reconstructed = copy.deepcopy(optimized_payload)
+    reconstructed.pop("materials", None)
+    reconstructed["activities"] = expand_value(reconstructed.get("activities", []))
+    summary = reconstructed.get("summary") if isinstance(reconstructed.get("summary"), dict) else None
+    if summary is not None:
+        summary.pop("unique_materials", None)
+        summary.pop("reference_count", None)
+
+    return reconstructed
+
+
+def convert_protocol_to_linkml(protocol_data: dict, mode: ExportMode = "strict") -> dict:
+    """Convert the protocol into strict or optimized LinkML-oriented output.
+
+    Strict mode is the default and emits the schema-compliant canonical export.
+    Optimized mode derives a normalized registry + references view from the
+    same canonical data, without introducing a second conversion pipeline.
+    """
+    strict_payload, activities, _, _, _ = _build_protocol_export(protocol_data)
+
+    if mode == "strict":
+        _validate_strict_mode(activities)
+        return strict_payload
+
+    if mode == "optimized":
+        return _build_optimized_export(strict_payload)
+
+    raise ValueError("mode must be either 'strict' or 'optimized'")
 
 
 def summarize_linkml_export(payload: dict) -> ExportSummary:

@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
 from .config import *
 from .debug_flag import DEBUG_MODE
+from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
 
 
 class PreviewGraphicsView(QGraphicsView):
@@ -66,7 +67,7 @@ class ProcedurePreviewDialog(QDialog):
         preview_data = procedure_data or {}
         if isinstance(preview_data, dict) and preview_data.get("preview_flows"):
             preview_data = {
-                "protocol_name": preview_data.get("protocol_name", "laboratory procedure"),
+                "protocol_name": preview_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
                 "total_flows": len(preview_data.get("preview_flows", [])),
                 "flows": preview_data.get("preview_flows", []),
             }
@@ -410,6 +411,19 @@ class Block(QGraphicsRectItem):
         for key, value in self.params.items():
             details_text += f"{key}: {value}\n"
         self.setToolTip(details_text.strip())
+
+    def to_linkml_dict(self):
+        """Return a LinkML-aligned representation of this block."""
+        attached_chemicals = []
+        curr = getattr(self, "chem_below", None)
+        while curr:
+            if hasattr(curr, "to_linkml_dict"):
+                attached_chemicals.append(curr.to_linkml_dict())
+            curr = curr.below_block
+
+        payload = action_to_linkml_dict(self.action, self.params, attached_chemicals)
+        payload["block_id"] = self.block_id
+        return payload
     
     def hide_details_tooltip(self):
         """Hide the tooltip"""
@@ -893,6 +907,15 @@ class Block(QGraphicsRectItem):
         def apply_changes():
             new_params = self.params.copy()
 
+            def is_empty_value(val):
+                if val is None:
+                    return True
+                if isinstance(val, str):
+                    return val.strip() == ""
+                if isinstance(val, (list, dict, tuple, set)):
+                    return len(val) == 0
+                return False
+
             for k, tracker in input_map.items():
                 if isinstance(tracker, tuple):
                     # For Unit fields (LineEdit, ComboBox)
@@ -906,7 +929,16 @@ class Block(QGraphicsRectItem):
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
 
-                if is_field_required(k, params=new_params, action_name=self.action) and not value:
+                if key == KEY_OPEN_FLAME:
+                    value = normalize_boolean(value)
+                elif key in {
+                    KEY_DURATION, KEY_TEMPERATURE, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_SPEED,
+                    KEY_FLOW_RATE, KEY_PRESSURE, KEY_RAMP, KEY_POWER, KEY_VOLUME,
+                    KEY_QUANTITY, KEY_CONCENTRATION
+                }:
+                    value = quantity_to_text(value)
+
+                if is_field_required(k, params=new_params, action_name=self.action) and is_empty_value(value):
                     label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
                     QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.")
                     if isinstance(tracker, tuple):
@@ -1082,3 +1114,9 @@ class ChemicalBlock(Block):
             y = (block_rect.height() - self.text.boundingRect().width()) / 2
             
         self.text.setPos(x, y)
+
+    def to_linkml_dict(self):
+        """Return a LinkML-aligned representation of this chemical block."""
+        payload = chemical_to_linkml_dict(self.action, self.params)
+        payload["block_id"] = self.block_id
+        return payload

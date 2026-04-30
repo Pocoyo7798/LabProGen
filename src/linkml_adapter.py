@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 from .config import (
+    DEFAULT_PROTOCOL_NAME,
     KEY_ADD_TYPE,
     KEY_AMOUNT,
     KEY_CHEMICAL,
     KEY_CONTINUOUS_ADD_TYPE,
+    KEY_CIF,
+    KEY_CONCENTRATION,
     KEY_DURATION,
     KEY_FLOW_RATE,
     KEY_GASES,
@@ -17,6 +21,7 @@ from .config import (
     KEY_MAX_SIZE,
     KEY_MIN_SIZE,
     KEY_OPEN_FLAME,
+    KEY_NAME,
     KEY_PHASE,
     KEY_POWER,
     KEY_PRESSURE,
@@ -29,8 +34,13 @@ from .config import (
     KEY_SUBSTANCE,
     KEY_SUBSTANCE_LIST,
     KEY_TEMPERATURE,
+    KEY_STATE,
+    KEY_FORMULA,
+    KEY_INCHI,
+    KEY_SMILES,
     KEY_VOLUME,
 )
+from .schema_mapping import get_linkml_chemical_class, get_linkml_chemical_slot, get_linkml_slot, get_linkml_step_class
 
 
 @dataclass(frozen=True)
@@ -219,6 +229,31 @@ ACTION_TO_ADAPTER = {
 }
 
 
+LINKML_STEP_TO_ACTION = {
+    "MaterialAdditionStep": "Add",
+    "GrindingStep": "Grind",
+    "SeparationStep": "Separate",
+    "SievingStep": "Sieve",
+    "StirringStep": "Stir",
+    "WaitingStep": "Wait",
+    "AtmosphereChangeStep": "ChangeAtmosphere",
+    "TemperatureChangeStep": "ChangeTemperature",
+    "RecipientChangeStep": "ChangeRecipient",
+    "SolutionPreparationStep": "NewMixture",
+    "SubProductCreationStep": "SubProductCreation",
+    "RepetitionBlock": "Repeat",
+    "ContinuousAdditionStep": "ContinuousAddition",
+}
+
+
+LINKML_CHEMICAL_TO_SOURCE = {
+    "ChemicalEntity": "Substance",
+    "MaterialEntity": "Material",
+    "ChemicalSubstance": "Mixture",
+    "Polymer": "Polymers",
+}
+
+
 STEP_SLOT_TO_PARAM = {
     "has_added_material": KEY_CHEMICAL,
     "has_step_duration": KEY_DURATION,
@@ -293,6 +328,16 @@ def _convert_linkml_chemical_slots(slots: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _linkml_step_name_to_action(step: dict[str, Any]) -> str:
+    source_action = step.get("source_action")
+    if isinstance(source_action, str) and source_action:
+        return source_action
+    linkml_class = step.get("linkml_class")
+    if isinstance(linkml_class, str) and linkml_class:
+        return LINKML_STEP_TO_ACTION.get(linkml_class, linkml_class)
+    return "Add"
+
+
 def _convert_linkml_step_slots(slots: dict[str, Any]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for slot, value in (slots or {}).items():
@@ -305,9 +350,45 @@ def _convert_linkml_step_slots(slots: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _convert_linkml_step(step: dict[str, Any]) -> dict[str, Any]:
+    step_payload: dict[str, Any] = {
+        "block_id": step.get("block_id", 0),
+        "action": _linkml_step_name_to_action(step),
+        "params": _convert_linkml_step_slots(step.get("slots", {})),
+    }
+
+    attached_chemicals = []
+    for chem in step.get("attached_chemicals", []) or []:
+        chem_params = _convert_linkml_chemical_slots(chem.get("slots", {}))
+        attached_chemicals.append(
+            {
+                "block_id": chem.get("block_id", 0),
+                "chemical": chem.get("source_chemical")
+                or LINKML_CHEMICAL_TO_SOURCE.get(chem.get("linkml_class"), chem.get("linkml_class") or "Chemical"),
+                "params": chem_params,
+            }
+        )
+
+    if attached_chemicals:
+        step_payload["chemicals"] = attached_chemicals
+
+    sub_branch = step.get("subproduct_branch")
+    if isinstance(sub_branch, dict):
+        step_payload["subproduct_branch"] = _convert_linkml_step(sub_branch)
+
+    # Keep compatibility if future payloads include multiple branches.
+    sub_branches = step.get("subproduct_branches")
+    if isinstance(sub_branches, list) and sub_branches:
+        converted = [_convert_linkml_step(branch) for branch in sub_branches if isinstance(branch, dict)]
+        if converted:
+            step_payload["subproducts"] = converted
+
+    return step_payload
+
+
 def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(linkml_payload, dict):
-        return {"protocol_name": "laboratory procedure", "total_flows": 0, "flows": []}
+        return {"protocol_name": DEFAULT_PROTOCOL_NAME, "total_flows": 0, "flows": []}
 
     source_protocol = linkml_payload.get("source_protocol")
     if isinstance(source_protocol, dict) and source_protocol:
@@ -319,36 +400,7 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
     for idx, activity in enumerate(activities, start=1):
         steps: list[dict[str, Any]] = []
         for step in activity.get("has_synthesis_step", []) or []:
-            step_payload: dict[str, Any] = {
-                "block_id": step.get("block_id", 0),
-                "action": step.get("source_action") or step.get("linkml_class") or "Add",
-                "params": _convert_linkml_step_slots(step.get("slots", {})),
-            }
-
-            attached_chemicals = []
-            for chem in step.get("attached_chemicals", []) or []:
-                chem_params = _convert_linkml_chemical_slots(chem.get("slots", {}))
-                attached_chemicals.append(
-                    {
-                        "block_id": chem.get("block_id", 0),
-                        "chemical": chem.get("source_chemical") or chem.get("linkml_class") or "Chemical",
-                        "params": chem_params,
-                    }
-                )
-
-            if attached_chemicals:
-                step_payload["chemicals"] = attached_chemicals
-
-            sub_branch = step.get("subproduct_branch")
-            if isinstance(sub_branch, dict):
-                # preserve nested flows recursively if present
-                step_payload["subproduct_branch"] = {
-                    "block_id": sub_branch.get("block_id", 0),
-                    "action": sub_branch.get("source_action") or sub_branch.get("linkml_class") or "SubProductCreation",
-                    "params": _convert_linkml_step_slots(sub_branch.get("slots", {})),
-                }
-
-            steps.append(step_payload)
+            steps.append(_convert_linkml_step(step))
 
         flows.append(
             {
@@ -360,7 +412,7 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
         )
 
     return {
-        "protocol_name": linkml_payload.get("source_protocol_name", "laboratory procedure"),
+        "protocol_name": linkml_payload.get("source_protocol_name", DEFAULT_PROTOCOL_NAME),
         "total_flows": len(flows),
         "flows": flows,
     }
@@ -371,3 +423,256 @@ def normalize_action_to_linkml(action_name: str, params: dict[str, Any]) -> dict
     if not adapter:
         return {}
     return adapter(params or {})
+
+
+def build_material_entity(value: Any) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """Build a minimal valid MaterialEntity preserving the material identifier.
+
+    Uses alternative_label for the human-readable name and derives a stable,
+    collision-proof id from a hash to satisfy LinkML identifier semantics.
+    
+    This avoids identifier collisions from case variations (water, Water, WATER).
+    """
+    if _is_blank(value):
+        return None
+
+    # Guard against double-wrapping if already built
+    if isinstance(value, dict) and "alternative_label" in value:
+        return value
+
+    if isinstance(value, list):
+        built_items = []
+        for item in value:
+            if _is_blank(item):
+                continue
+            # Guard against double-wrapping
+            if isinstance(item, dict) and "alternative_label" in item:
+                built_items.append(item)
+                continue
+            name = str(item).strip()
+            # Use MD5 hash to create collision-proof identifier
+            hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+            built_items.append({
+                "id": hash_suffix,
+                "alternative_label": name,
+                "entity_id": hash_suffix,
+            })
+        return built_items if built_items else None
+
+    name = str(value).strip()
+    # Use MD5 hash to create collision-proof identifier (handles case variations)
+    hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+    return {
+        "id": hash_suffix,
+        "alternative_label": name,
+        "entity_id": hash_suffix,
+    }
+
+
+
+def build_chemical_entity(value: Any) -> dict[str, Any] | None:
+    """Build a minimal valid ChemicalEntity from a simple value."""
+    if _is_blank(value):
+        return None
+    
+    name = str(value).strip()
+    if not name:
+        return None
+    
+    return {
+        "id": name.lower().replace(" ", "_"),
+        "name": name,
+    }
+
+
+def build_duration(value: Any) -> dict[str, Any] | None:
+    """Build a Duration object from value or StructuredQuantity."""
+    if _is_blank(value):
+        return None
+
+    if isinstance(value, dict):
+        numeric = value.get("value")
+        unit = value.get("unit")
+        raw = value.get("raw")
+        if not _is_blank(numeric) and not _is_blank(unit):
+            return {
+                "value": numeric,
+                "unit": unit,
+                "raw": raw if not _is_blank(raw) else f"{numeric} {unit}",
+            }
+        return None
+
+    qty = parse_quantity(value)
+    if qty:
+        return {
+            "value": qty.value,
+            "unit": qty.unit,
+            "raw": qty.raw,
+        }
+
+    return None
+
+
+def build_temperature(value: Any) -> dict[str, Any] | None:
+    """Build a Temperature object from value or StructuredQuantity."""
+    if _is_blank(value):
+        return None
+
+    if isinstance(value, dict):
+        numeric = value.get("value")
+        unit = value.get("unit")
+        raw = value.get("raw")
+        if not _is_blank(numeric) and not _is_blank(unit):
+            return {
+                "value": numeric,
+                "unit": unit,
+                "raw": raw if not _is_blank(raw) else f"{numeric} {unit}",
+            }
+        return None
+
+    qty = parse_quantity(value)
+    if qty:
+        return {
+            "value": qty.value,
+            "unit": qty.unit,
+            "raw": qty.raw,
+        }
+
+    return None
+
+
+def build_generic_quantitative_attribute(value: Any) -> dict[str, Any] | None:
+    """Build a generic QuantitativeAttribute from value or StructuredQuantity."""
+    return build_duration(value)
+
+
+# Mapping of slot names to their expected type and builder functions
+SLOT_BUILDERS: dict[str, tuple[str, callable]] = {
+    # Material slots
+    "has_added_material": ("MaterialEntity", build_material_entity),
+    "has_initial_material": ("MaterialEntity", build_material_entity),
+    "has_subproduct": ("MaterialEntity", build_material_entity),
+    "uses_washing_material": ("MaterialEntity", build_material_entity),
+    "uses_starting_material": ("MaterialEntity", build_material_entity),
+    "uses_reactant": ("MaterialEntity", build_material_entity),
+    "generated_product": ("MaterialEntity", build_material_entity),
+
+    # Duration/Temperature slots
+    "has_step_duration": ("Duration", build_duration),
+    "has_duration": ("Duration", build_duration),
+    "has_target_temperature": ("Temperature", build_temperature),
+    "has_temperature": ("Temperature", build_temperature),
+
+    # Other quantitative attributes
+    "has_pressure": ("Pressure", build_generic_quantitative_attribute),
+    "has_volume": ("Volume", build_generic_quantitative_attribute),
+    "has_concentration": ("Concentration", build_generic_quantitative_attribute),
+    "has_mass": ("Mass", build_generic_quantitative_attribute),
+    "has_flow_rate": ("FlowRate", build_generic_quantitative_attribute),
+    "has_heat_ramp": ("HeatRamp", build_generic_quantitative_attribute),
+    "has_microwave_power": ("MicrowavePower", build_generic_quantitative_attribute),
+    "has_stirring_speed": ("StirringSpeed", build_generic_quantitative_attribute),
+    "has_vessel_volume": ("Volume", build_generic_quantitative_attribute),
+    "has_minimum_particle_size": ("ParticleSize", build_generic_quantitative_attribute),
+    "has_maximum_particle_size": ("ParticleSize", build_generic_quantitative_attribute),
+    "has_intermittent_amount": ("Amount", build_generic_quantitative_attribute),
+    "has_ph_value": ("PhValue", build_generic_quantitative_attribute),
+    "has_density": ("Density", build_generic_quantitative_attribute),
+    "has_molar_mass": ("MolarMass", build_generic_quantitative_attribute),
+    "has_yield": ("Yield", build_generic_quantitative_attribute),
+    "has_amount": ("Amount", build_generic_quantitative_attribute),
+    "has_percentage_of_total": ("PercentageOfTotal", build_generic_quantitative_attribute),
+    "has_molar_equivalent": ("MolarEquivalent", build_generic_quantitative_attribute),
+}
+
+
+MULTIVALUED_SLOTS = {
+    "has_added_material",
+    "uses_washing_material",
+    "has_step_duration",
+    "has_duration",
+    "has_stirring_speed",
+    "has_target_temperature",
+    "has_heat_ramp",
+    "has_microwave_power",
+    "has_flow_rate",
+    "has_pressure",
+    "has_vessel_volume",
+    "has_minimum_particle_size",
+    "has_maximum_particle_size",
+    "has_intermittent_amount",
+    "has_temperature",
+    "has_mass",
+    "has_volume",
+    "has_density",
+    "has_molar_mass",
+    "has_yield",
+    "has_amount",
+    "has_percentage_of_total",
+    "has_molar_equivalent",
+}
+
+
+def convert_slots_to_linkml_objects(slots: dict[str, Any]) -> dict[str, Any]:
+    """Convert simple slot values to proper LinkML objects based on slot definitions.
+
+    This ensures that complex-typed slots receive structured objects instead of
+    primitive values, making them valid according to the LinkML schema.
+    """
+    if not slots:
+        return slots
+
+    converted = {}
+    for slot_name, value in slots.items():
+        if _is_blank(value):
+            converted[slot_name] = value
+            continue
+
+        if slot_name in SLOT_BUILDERS:
+            _, builder = SLOT_BUILDERS[slot_name]
+            built_value = builder(value)
+            # Use the built object if builder succeeded, otherwise keep original
+            final_value = built_value if built_value is not None else value
+            if slot_name in MULTIVALUED_SLOTS and final_value is not None and not isinstance(final_value, list):
+                final_value = [final_value]
+            converted[slot_name] = final_value
+        else:
+            # No special builder, keep as-is
+            converted[slot_name] = value
+
+    return converted
+
+
+
+def action_to_linkml_dict(action_name: str, params: dict[str, Any], chemicals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    payload = {
+        "source_action": action_name,
+        "linkml_class": get_linkml_step_class(action_name),
+        "slots": normalize_action_to_linkml(action_name, params or {}),
+    }
+    if chemicals:
+        payload["attached_chemicals"] = chemicals
+    return payload
+
+
+def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[str, Any]:
+    slots: dict[str, Any] = {}
+    for key, value in (params or {}).items():
+        if _is_blank(value):
+            continue
+        if key == KEY_QUANTITY:
+            slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
+            if slot:
+                quantity = parse_quantity(value)
+                slots[slot] = quantity.to_dict() if quantity else value
+            continue
+
+        slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
+        if slot:
+            slots[slot] = value
+
+    return {
+        "source_chemical": chemical_name,
+        "linkml_class": get_linkml_chemical_class(chemical_name),
+        "slots": slots,
+    }

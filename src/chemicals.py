@@ -12,6 +12,11 @@ class Chemical:
             "params": self.params
         }
 
+    def to_linkml_dict(self):
+        from .linkml_adapter import chemical_to_linkml_dict
+
+        return chemical_to_linkml_dict(self.__class__.__name__, self.params)
+
 class Substance(Chemical):
     """simple molecule that can be described by atom-level representations."""
     def __init__(self, formula="", smile="", inchi="", **kwargs):

@@ -1,5 +1,8 @@
 # config.py
 
+# --- GLOBAL DEFAULTS ---
+DEFAULT_PROTOCOL_NAME = "laboratory procedure"
+
 # --- INTERNAL VARIABLE NAMES (KEYS) ---
 KEY_DURATION = "duration"
 KEY_TEMPERATURE = "temperature"

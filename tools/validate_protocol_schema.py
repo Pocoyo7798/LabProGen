@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.schema_validator import validate_protocol_shadow, summarize_validation_messages
+from src.schema_validator import validate_linkml_protocol, summarize_validation_messages
 
 
 def _load_protocol(path: Path) -> dict:
@@ -37,7 +37,7 @@ def _load_protocol(path: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate protocol export against LinkML mappings in shadow mode."
+        description="Validate protocol export against the official LinkML schema."
     )
     parser.add_argument("protocol_file", help="Path to protocol file (.json/.yaml/.yml)")
     parser.add_argument(
@@ -59,10 +59,10 @@ def main() -> int:
         print(f"error: failed to load protocol file: {exc}")
         return 2
 
-    messages = validate_protocol_shadow(protocol)
+    messages = validate_linkml_protocol(protocol)
     summary = summarize_validation_messages(messages)
 
-    print(f"schema-shadow summary for {path.name}")
+    print(f"schema-linkml summary for {path.name}")
     print(f"  total: {summary['total']}")
     print(f"  by_level: {summary['by_level']}")
     print(f"  by_code: {summary['by_code']}")

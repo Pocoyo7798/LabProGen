@@ -42,3 +42,6 @@ Thumbs.db
 # protocol export
 protocol*.json
 protocol*.yaml
+ENTITY_*.md
+EXPORT_*.md
+IMPLEMENTATION_*.md

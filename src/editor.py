@@ -11,6 +11,7 @@ from .config import *
 from .actions import *
 from .chemicals import *
 from .protocol import Protocol
+from .linkml_adapter import convert_linkml_to_protocol
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
 
 PRIMARY_BUTTON_STYLE = (
@@ -397,6 +398,12 @@ class Editor(QGraphicsView):
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
         self.export_linkml_btn = QPushButton("🧬 Export LinkML")
+        self.linkml_mode_label = QLabel("Mode:")
+        self.linkml_mode_combo = QComboBox()
+        self.linkml_mode_combo.addItem("Strict (schema-valid)", "strict")
+        self.linkml_mode_combo.addItem("Optimized (registry + refs)", "optimized")
+        self.linkml_mode_combo.setCurrentIndex(0)
+        self.linkml_mode_combo.setToolTip("Choose the LinkML export mode. Strict is the default.")
         self.import_btn = QPushButton("📂 Import Protocol")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
@@ -409,6 +416,8 @@ class Editor(QGraphicsView):
         button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
         button_layout.addWidget(self.export_linkml_btn)
+        button_layout.addWidget(self.linkml_mode_label)
+        button_layout.addWidget(self.linkml_mode_combo)
         button_layout.addWidget(self.import_btn)
         main_layout.addWidget(self.button_bar_widget)
         
@@ -456,7 +465,7 @@ class Editor(QGraphicsView):
             for flow in self.protocol_data.get("flows", []):
                 if flow.get("chemical_block_id") == chemical_block_id:
                     return {
-                        "protocol_name": self.protocol_data.get("protocol_name", "laboratory procedure"),
+                        "protocol_name": self.protocol_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
                         "total_flows": 1,
                         "preview_flows": [copy.deepcopy(flow)],
                         "flows": [copy.deepcopy(flow)],
@@ -476,6 +485,9 @@ class Editor(QGraphicsView):
 
     def load_protocol_data(self, data, include_hidden=False):
         """Load protocol JSON data into the scene."""
+        if isinstance(data, dict) and "activities" in data and "flows" not in data:
+            data = convert_linkml_to_protocol(data)
+
         self.scene.clear()
         self.blocks = []
         self.protocol.actions = []
@@ -578,7 +590,7 @@ class Editor(QGraphicsView):
 
             for owner_block, owner_flows in grouped_hidden.items():
                 procedure = self.open_entity_procedures.setdefault(owner_block, {
-                    "protocol_name": data.get("protocol_name", "laboratory procedure"),
+                    "protocol_name": data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
                     "total_flows": 0,
                     "preview_flows": [],
                     "flows": []
@@ -1706,12 +1718,27 @@ class Editor(QGraphicsView):
 
     def import_protocol(self):
         """import protocol and reconstruct layout from the default start position."""
-        filename, _ = QFileDialog.getOpenFileName(self, "import protocol", "", "json files (*.json)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "import protocol",
+            "",
+            "Protocol Files (*.json *.yaml *.yml);;JSON Files (*.json);;YAML Files (*.yaml *.yml)",
+        )
         if not filename: return
 
         try:
-            with open(filename, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            if filename.lower().endswith((".yaml", ".yml")):
+                try:
+                    import yaml
+                except ImportError as exc:
+                    raise RuntimeError("PyYAML is required to import YAML protocol files.") from exc
+                with open(filename, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+            else:
+                with open(filename, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            if isinstance(data, dict) and "activities" in data and "flows" not in data:
+                data = convert_linkml_to_protocol(data)
             self.load_protocol_data(data, include_hidden=False)
 
         except Exception as e:
@@ -1923,7 +1950,7 @@ class Editor(QGraphicsView):
                 }
                 append_flow(ordered_flow)
 
-        return {"protocol_name": "laboratory procedure", "total_flows": len(flows_list), "flows": flows_list}
+        return Protocol.build_protocol_envelope(flows_list)
     
     def export_protocol(self):
         """export the protocol and split Add actions, supporting intersections."""
@@ -1946,22 +1973,22 @@ class Editor(QGraphicsView):
         if not final_output:
             return
 
-        # Phase 2 shadow mode: emit LinkML alignment warnings without blocking export.
+        # Official LinkML validation: emit semantic issues without blocking export.
         try:
-            from .schema_validator import validate_protocol_shadow, summarize_validation_messages
+            from .schema_validator import validate_linkml_protocol, summarize_validation_messages
 
-            shadow_messages = validate_protocol_shadow(final_output)
-            summary = summarize_validation_messages(shadow_messages)
+            linkml_messages = validate_linkml_protocol(final_output)
+            summary = summarize_validation_messages(linkml_messages)
             print(
-                f"[schema-shadow] total={summary['total']} "
+                f"[schema-linkml] total={summary['total']} "
                 f"by_level={summary['by_level']} by_code={summary['by_code']}"
             )
 
             # Print at most a few examples to keep export logs readable.
-            for msg in shadow_messages[:5]:
-                print(f"[schema-shadow:{msg.level}] {msg.code}: {msg.message} | context={msg.context}")
+            for msg in linkml_messages[:5]:
+                print(f"[schema-linkml:{msg.level}] {msg.code}: {msg.message} | context={msg.context}")
         except Exception as e:
-            print(f"[schema-shadow] skipped due to runtime issue: {e}")
+            print(f"[schema-linkml] skipped due to runtime issue: {e}")
 
         try:
             with open(filename, "w", encoding="utf-8") as f:
@@ -1997,10 +2024,11 @@ class Editor(QGraphicsView):
             return
 
         try:
-            payload = convert_protocol_to_linkml(final_output)
+            mode = self.linkml_mode_combo.currentData() or "strict"
+            payload = convert_protocol_to_linkml(final_output, mode=mode)
             summary = summarize_linkml_export(payload)
             print(
-                f"[linkml-export] activities={summary.activity_count} "
+                f"[linkml-export:{mode}] activities={summary.activity_count} "
                 f"steps={summary.step_count} chemicals={summary.chemical_count} "
                 f"unmapped_fields={summary.unmapped_fields}"
             )

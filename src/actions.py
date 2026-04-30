@@ -22,6 +22,20 @@ class Action:
             data["subproducts"] = [s.to_dict() for s in self.subproducts]
         return data
 
+    def to_linkml_dict(self):
+        from .linkml_adapter import action_to_linkml_dict
+
+        payload = action_to_linkml_dict(
+            self.__class__.__name__,
+            self.params,
+            [c.to_linkml_dict() for c in self.chemicals],
+        )
+        if self.subproducts:
+            payload["subproduct_branch"] = self.subproducts[0].to_linkml_dict()
+            if len(self.subproducts) > 1:
+                payload["subproduct_branches"] = [s.to_linkml_dict() for s in self.subproducts]
+        return payload
+
 # --- Elementary Actions ---
 
 class Add(Action):
