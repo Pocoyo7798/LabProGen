@@ -13,6 +13,7 @@ from .chemicals import *
 from .protocol import Protocol
 from .linkml_adapter import convert_linkml_to_protocol
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
+from .schema_validator import validate_linkml_protocol, summarize_validation_messages
 
 PRIMARY_BUTTON_STYLE = (
     "QPushButton {"
@@ -2024,6 +2025,46 @@ class Editor(QGraphicsView):
             return
 
         try:
+            payload = final_output
+            
+            # Validate against LinkML schema for both export kinds
+            validation_msgs = validate_linkml_protocol(final_output)
+            validation_summary = summarize_validation_messages(validation_msgs)
+            
+            # Report validation results
+            if validation_msgs:
+                msg_count = validation_summary.get("total", 0)
+                error_count = validation_summary.get("by_level", {}).get("error", 0)
+                print(f"[linkml-validation] total_messages={msg_count}, errors={error_count}")
+                
+                # Show first few messages for context
+                for i, msg in enumerate(validation_msgs[:5]):
+                    print(f"  - [{msg.level}] {msg.code}: {msg.message}")
+                if msg_count > 5:
+                    print(f"  ... ({msg_count - 5} more messages)")
+                
+                # Block export if there are errors
+                if error_count > 0:
+                    QMessageBox.critical(
+                        self,
+                        "Validation Failed",
+                        f"Protocol failed LinkML validation ({error_count} error(s)).\n\n"
+                        f"First error: {validation_msgs[0].message}\n\n"
+                        f"Fix the protocol before exporting."
+                    )
+                    return
+                else:
+                    # Show warnings but allow export
+                    QMessageBox.warning(
+                        self,
+                        "Validation Warnings",
+                        f"Protocol has {msg_count} validation warning(s).\n\n"
+                        f"First warning: {validation_msgs[0].message}\n\n"
+                        f"Export will proceed."
+                    )
+            else:
+                print("[linkml-validation] passed (no issues)")
+            
             if export_kind == "linkml":
                 payload = convert_protocol_to_linkml(final_output, mode="strict")
                 summary = summarize_linkml_export(payload)
@@ -2032,8 +2073,6 @@ class Editor(QGraphicsView):
                     f"steps={summary.step_count} chemicals={summary.chemical_count} "
                     f"unmapped_fields={summary.unmapped_fields}"
                 )
-            else:
-                payload = final_output
 
             with open(filename, "w", encoding="utf-8") as f:
                 if filename.lower().endswith((".yaml", ".yml")):
@@ -2044,10 +2083,11 @@ class Editor(QGraphicsView):
             if export_kind == "linkml":
                 print(f"linkml payload exported to {filename}")
             else:
-                print(f"protocol exported to {filename}")
+                print(f"protocol exported to {filename} (validated against LinkML schema)")
 
         except Exception as e:
             print(f"error: {e}")
+            QMessageBox.critical(self, "Export Error", f"Failed to export protocol:\n{e}")
 
     def export_linkml_protocol(self):
         """Backward-compatible helper for LinkML export."""
