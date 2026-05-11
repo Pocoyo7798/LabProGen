@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+tools/export_protocol_linkml.py
+Purpose: CLI wrapper to export an application protocol file (.json/.yaml)
+into a LinkML-aligned semantic payload using the exporter and optionally
+write it as JSON or YAML. Intended for batch/CI usage outside the GUI.
+"""
+
 import argparse
 import json
 import sys

@@ -1,3 +1,12 @@
+"""
+linkml_adapter.py
+Purpose: Adapter layer converting between the project's Python domain objects
+and LinkML-shaped representations. Responsibilities include parsing and
+normalizing raw parameter values (quantities, booleans, enums), building
+schema-compliant LinkML objects for slots and entities, and performing
+roundtrip conversion LinkML -> protocol internal format.
+"""
+
 from __future__ import annotations
 
 import re
@@ -5,41 +14,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-from .config import (
-    DEFAULT_PROTOCOL_NAME,
-    KEY_ADD_TYPE,
-    KEY_AMOUNT,
-    KEY_CHEMICAL,
-    KEY_CONTINUOUS_ADD_TYPE,
-    KEY_CIF,
-    KEY_CONCENTRATION,
-    KEY_DURATION,
-    KEY_FLOW_RATE,
-    KEY_GASES,
-    KEY_METHOD,
-    KEY_MATERIAL,
-    KEY_MAX_SIZE,
-    KEY_MIN_SIZE,
-    KEY_OPEN_FLAME,
-    KEY_NAME,
-    KEY_PHASE,
-    KEY_POWER,
-    KEY_PRESSURE,
-    KEY_PROCESS,
-    KEY_QUANTITY,
-    KEY_RECIPIENT,
-    KEY_RAMP,
-    KEY_SPEED,
-    KEY_STIR_TYPE,
-    KEY_SUBSTANCE,
-    KEY_SUBSTANCE_LIST,
-    KEY_TEMPERATURE,
-    KEY_STATE,
-    KEY_FORMULA,
-    KEY_INCHI,
-    KEY_SMILES,
-    KEY_VOLUME,
-)
+from .config import *
 from .schema_mapping import get_linkml_chemical_class, get_linkml_chemical_slot, get_linkml_slot, get_linkml_step_class
 
 
@@ -299,6 +274,8 @@ CHEMICAL_SLOT_TO_PARAM = {
 
 
 def _slot_value_to_param_value(slot: str, value: Any) -> Any:
+    if slot in {"uses_separation_method", "uses_washing_method"} and isinstance(value, dict):
+        return value.get("id")
     if slot in {"has_open_flame"}:
         return boolean_to_text(value)
     if slot in {"has_step_duration", "has_stirring_speed", "has_flow_rate", "has_pressure", "has_heat_ramp", "has_microwave_power", "has_vessel_volume", "has_minimum_particle_size", "has_maximum_particle_size"}:
@@ -546,6 +523,30 @@ def build_generic_quantitative_attribute(value: Any) -> dict[str, Any] | None:
     return build_duration(value)
 
 
+def build_defined_term(value: Any) -> dict[str, Any] | list[dict[str, Any]] | None:
+    if _is_blank(value):
+        return None
+
+    def normalize(term: str) -> str:
+        return term.strip().lower().replace(" ", "_")
+
+    if isinstance(value, dict):
+        return value if value.get("id") else None
+
+    if isinstance(value, list):
+        built_items = []
+        for item in value:
+            if _is_blank(item):
+                continue
+            if isinstance(item, dict) and item.get("id"):
+                built_items.append(item)
+            else:
+                built_items.append({"id": normalize(str(item))})
+        return built_items if built_items else None
+
+    return {"id": normalize(str(value))}
+
+
 # Mapping of slot names to their expected type and builder functions
 SLOT_BUILDERS: dict[str, tuple[str, callable]] = {
     # Material slots
@@ -583,34 +584,12 @@ SLOT_BUILDERS: dict[str, tuple[str, callable]] = {
     "has_amount": ("Amount", build_generic_quantitative_attribute),
     "has_percentage_of_total": ("PercentageOfTotal", build_generic_quantitative_attribute),
     "has_molar_equivalent": ("MolarEquivalent", build_generic_quantitative_attribute),
+    "uses_separation_method": ("DefinedTerm", build_defined_term),
+    "uses_washing_method": ("DefinedTerm", build_defined_term),
 }
 
 
-MULTIVALUED_SLOTS = {
-    "has_added_material",
-    "uses_washing_material",
-    "has_step_duration",
-    "has_duration",
-    "has_stirring_speed",
-    "has_target_temperature",
-    "has_heat_ramp",
-    "has_microwave_power",
-    "has_flow_rate",
-    "has_pressure",
-    "has_vessel_volume",
-    "has_minimum_particle_size",
-    "has_maximum_particle_size",
-    "has_intermittent_amount",
-    "has_temperature",
-    "has_mass",
-    "has_volume",
-    "has_density",
-    "has_molar_mass",
-    "has_yield",
-    "has_amount",
-    "has_percentage_of_total",
-    "has_molar_equivalent",
-}
+MULTIVALUED_SLOTS: set[str] = set()
 
 
 def convert_slots_to_linkml_objects(slots: dict[str, Any]) -> dict[str, Any]:

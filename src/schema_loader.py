@@ -1,3 +1,11 @@
+"""
+schema_loader.py
+Purpose: Load and prepare LinkML YAML schemas for use by the exporter and
+validator. Provides helpers to load single files, recursively merge local
+imports into a flattened validation schema, and produce brief schema
+summaries for export metadata.
+"""
+
 from functools import lru_cache
 import importlib
 import copy
@@ -95,6 +103,14 @@ def build_validation_schema(schema_name: str = "dcat_p_lab.yaml") -> dict:
     enums = schema.setdefault("enums", {})
     types = schema.setdefault("types", {})
 
+    qualitative_string_slots = {
+        "molecular_formula",
+        "smiles",
+        "inchi",
+        "inchikey",
+        "iupac_name",
+    }
+
     for class_def in classes.values():
         if isinstance(class_def, dict) and class_def.get("mixin"):
             class_def.pop("mixin", None)
@@ -187,6 +203,10 @@ def build_validation_schema(schema_name: str = "dcat_p_lab.yaml") -> dict:
                     if looks_like_class(br) and br not in classes and br not in enums and br not in types:
                         add_class_stub(br)
                         changed = True
+
+    for slot_name, slot_def in slots.items():
+        if slot_name in qualitative_string_slots and isinstance(slot_def, dict):
+            slot_def["range"] = "string"
 
     return schema
 

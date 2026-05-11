@@ -1,3 +1,11 @@
+"""
+schema_mapping.py
+Purpose: Central mapping between the application's internal action/field
+names and the LinkML classes/slots. Encapsulates the translation tables used
+by the adapter/exporter so that Python domain keys can be mapped to the
+official schema identifiers.
+"""
+
 from .config import *
 
 
@@ -52,7 +60,7 @@ CHEMICAL_TO_LINKML_CLASS = {
     "Substance": "ChemicalEntity",
     "Material": "MaterialEntity",
     "Mixture": "ChemicalSubstance",
-    "PerfectSingleCrystalMaterial": "MaterialEntity",
+    "PerfectSingleCrystalMaterial": "ChemicalEntity",
     "Polymers": "Polymer",
     "Media": "ChemicalSubstance",
     "BioProducts": "ChemicalSubstance",

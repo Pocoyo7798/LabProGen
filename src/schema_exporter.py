@@ -1,3 +1,12 @@
+"""
+schema_exporter.py
+Purpose: Build canonical LinkML-oriented export payloads from the internal
+protocol representation. Responsibilities include assembling activities and
+steps, normalizing exporter-only metadata for strict validation, running the
+official LinkML validator in strict mode, and producing an optimized
+registry+reference projection.
+"""
+
 from __future__ import annotations
 
 import copy
@@ -8,7 +17,7 @@ from typing import Any, Literal
 
 from .config import DEFAULT_PROTOCOL_NAME
 from .linkml_adapter import normalize_action_to_linkml, convert_slots_to_linkml_objects
-from .schema_loader import load_linkml_schema, schema_summary
+from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary
 from .schema_mapping import (
     get_linkml_chemical_class,
     get_linkml_chemical_slot,
@@ -216,10 +225,12 @@ def _normalize_linkml_instance(node: Any) -> Any:
 
     for key, value in node.items():
         if key in {
+            "id",
             "block_id",
             "source_action",
             "linkml_class",
             "source_metadata",
+            "source_chemical",
             "attached_chemicals",
             "class",
             "slots",
@@ -301,20 +312,14 @@ def _validate_strict_mode(activities: list[dict]) -> None:
     except Exception as exc:  # pragma: no cover - dependency error surface
         raise RuntimeError(f"LinkML validator is unavailable: {exc}") from exc
 
-    schema_path = Path(__file__).resolve().parent.parent / "schema" / "dcat_p_lab.yaml"
-    cwd = os.getcwd()
-    try:
-        os.chdir(schema_path.parent)
-        load_linkml_schema()
-        for idx, activity in enumerate(activities):
-            instance = _normalize_linkml_instance(activity)
-            report = linkml_validate(instance, schema=schema_path.name, target_class="LabSynthesisActivity", strict=True)
-            results = getattr(report, "results", []) or []
-            if results:
-                first = results[0]
-                raise ValueError(f"Strict LinkML validation failed for activity {idx}: {getattr(first, 'message', first)}")
-    finally:
-        os.chdir(cwd)
+    schema = build_validation_schema()
+    for idx, activity in enumerate(activities):
+        instance = _normalize_linkml_instance(activity)
+        report = linkml_validate(instance, schema=schema, target_class="LabSynthesisActivity", strict=True)
+        results = getattr(report, "results", []) or []
+        if results:
+            first = results[0]
+            raise ValueError(f"Strict LinkML validation failed for activity {idx}: {getattr(first, 'message', first)}")
 
 
 def _build_optimized_export(strict_payload: dict) -> dict:

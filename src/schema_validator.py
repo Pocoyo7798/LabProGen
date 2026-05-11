@@ -1,3 +1,11 @@
+"""
+schema_validator.py
+Purpose: Provide convenience wrappers around the official LinkML validator
+and a set of shadow/summary checks. Exposes functions to run strict and
+non-strict validation on exporter-built instances and to convert validator
+results into a compact project-friendly format.
+"""
+
 from dataclasses import dataclass
 from collections import Counter
 

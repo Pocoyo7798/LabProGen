@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+tools/validate_protocol_schema.py
+Purpose: CLI tool to validate a protocol file against the project's LinkML
+schema. Loads a protocol, runs the LinkML validator via `schema_validator`,
+and prints a concise summary and example messages for developer or CI use.
+"""
+
 import argparse
 import json
 import sys
