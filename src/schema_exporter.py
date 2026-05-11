@@ -383,12 +383,20 @@ def convert_protocol_to_linkml(protocol_data: dict, mode: ExportMode = "strict")
     """
     strict_payload, activities, _, _, _ = _build_protocol_export(protocol_data)
 
+    # Remove embedded application snapshot to avoid duplicating the internal
+    # protocol within the semantic LinkML export. Consumers should reconstruct
+    # the internal protocol from the semantic fields when needed.
+    strict_payload.pop("source_protocol", None)
+
     if mode == "strict":
         _validate_strict_mode(activities)
         return strict_payload
 
     if mode == "optimized":
-        return _build_optimized_export(strict_payload)
+        optimized = _build_optimized_export(strict_payload)
+        # ensure optimized export also does not contain the original protocol
+        optimized.pop("source_protocol", None)
+        return optimized
 
     raise ValueError("mode must be either 'strict' or 'optimized'")
 

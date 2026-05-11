@@ -286,6 +286,18 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
         return value
     if slot == "has_intermittent_amount" and isinstance(value, dict):
         return quantity_to_text(value)
+    # Convert material objects back to simple labels when present
+    if isinstance(value, dict) and "alternative_label" in value:
+        return value.get("alternative_label")
+    if isinstance(value, list):
+        new_list = []
+        for item in value:
+            if isinstance(item, dict) and "alternative_label" in item:
+                new_list.append(item.get("alternative_label"))
+            else:
+                new_list.append(item)
+        return new_list
+
     return value
 
 
@@ -346,8 +358,8 @@ def _convert_linkml_step(step: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    if attached_chemicals:
-        step_payload["chemicals"] = attached_chemicals
+    # Always include a 'chemicals' key for compatibility with internal protocol
+    step_payload["chemicals"] = attached_chemicals
 
     sub_branch = step.get("subproduct_branch")
     if isinstance(sub_branch, dict):
@@ -379,18 +391,15 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
         for step in activity.get("has_synthesis_step", []) or []:
             steps.append(_convert_linkml_step(step))
 
-        flows.append(
-            {
-                "flow_id": activity.get("flow_id", idx),
-                "type": activity.get("flow_type", "horizontal"),
-                "is_explicit_first": bool(activity.get("is_explicit_first", False)),
-                "steps": steps,
-            }
-        )
+        flow_obj = {
+            "flow_id": activity.get("flow_id", idx),
+            "type": activity.get("flow_type", "horizontal"),
+            "steps": steps,
+        }
+        flows.append(flow_obj)
 
     return {
         "protocol_name": linkml_payload.get("source_protocol_name", DEFAULT_PROTOCOL_NAME),
-        "total_flows": len(flows),
         "flows": flows,
     }
 

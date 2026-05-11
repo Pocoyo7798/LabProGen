@@ -309,6 +309,60 @@ class OpenEntityDetailsDialog(QDialog):
             self._set_status(f"New procedure created ({flow_count} flow(s)).", "success")
 
 
+class ExportProtocolDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export Protocol")
+        self.setFixedWidth(420)
+        self.export_kind = "protocol"
+        self.export_format = "json"
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Choose how to export the protocol")
+        title.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(title)
+
+        kind_label = QLabel("Export type")
+        layout.addWidget(kind_label)
+        self.kind_combo = QComboBox()
+        self.kind_combo.addItem("Internal protocol", "protocol")
+        self.kind_combo.addItem("LinkML (strict)", "linkml")
+        layout.addWidget(self.kind_combo)
+
+        format_label = QLabel("File format")
+        layout.addWidget(format_label)
+        self.format_combo = QComboBox()
+        self.format_combo.addItem("JSON", "json")
+        self.format_combo.addItem("YAML", "yaml")
+        layout.addWidget(self.format_combo)
+
+        layout.addStretch()
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+
+        export_btn = QPushButton("Export")
+        export_btn.setMinimumSize(92, 34)
+        export_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        export_btn.clicked.connect(self._accept)
+        button_row.addWidget(export_btn)
+
+        layout.addLayout(button_row)
+
+    def _accept(self):
+        self.export_kind = self.kind_combo.currentData() or "protocol"
+        self.export_format = self.format_combo.currentData() or "json"
+        self.accept()
+
+
 class NewEntityProcedureDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -397,27 +451,16 @@ class Editor(QGraphicsView):
         self.add_action_btn = QPushButton("+ Add Action")
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
-        self.export_linkml_btn = QPushButton("🧬 Export LinkML")
-        self.linkml_mode_label = QLabel("Mode:")
-        self.linkml_mode_combo = QComboBox()
-        self.linkml_mode_combo.addItem("Strict (schema-valid)", "strict")
-        self.linkml_mode_combo.addItem("Optimized (registry + refs)", "optimized")
-        self.linkml_mode_combo.setCurrentIndex(0)
-        self.linkml_mode_combo.setToolTip("Choose the LinkML export mode. Strict is the default.")
         self.import_btn = QPushButton("📂 Import Protocol")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
         self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
-        self.export_linkml_btn.clicked.connect(self.export_linkml_protocol)
         self.import_btn.clicked.connect(self.import_protocol)
         
         button_layout.addWidget(self.add_action_btn)
         button_layout.addWidget(self.add_chemical_btn)
         button_layout.addWidget(self.export_btn)
-        button_layout.addWidget(self.export_linkml_btn)
-        button_layout.addWidget(self.linkml_mode_label)
-        button_layout.addWidget(self.linkml_mode_combo)
         button_layout.addWidget(self.import_btn)
         main_layout.addWidget(self.button_bar_widget)
         
@@ -1953,82 +1996,85 @@ class Editor(QGraphicsView):
         return Protocol.build_protocol_envelope(flows_list)
     
     def export_protocol(self):
-        """export the protocol and split Add actions, supporting intersections."""
-        filename, selected_filter = QFileDialog.getSaveFileName(
-            self,
-            "Export Protocol",
-            "protocol.json",
-            "Protocol Files (*.json *.yaml *.yml);;JSON Files (*.json);;YAML Files (*.yaml *.yml)",
-        )
-        if not filename: return
-
-        lower_name = filename.lower()
-        if not lower_name.endswith((".json", ".yaml", ".yml")):
-            if "YAML" in selected_filter:
-                filename += ".yaml"
-            else:
-                filename += ".json"
-
-        final_output = self.generate_protocol_output(show_feedback=True)
-        if not final_output:
+        """Export either the internal protocol or the LinkML payload."""
+        dialog = ExportProtocolDialog(self)
+        if dialog.exec() != QDialog.Accepted:
             return
 
-        # Official LinkML validation: emit semantic issues without blocking export.
-        try:
-            from .schema_validator import validate_linkml_protocol, summarize_validation_messages
+        export_kind = dialog.export_kind
+        export_format = dialog.export_format
+        default_name = "protocol.linkml" if export_kind == "linkml" else "protocol"
+        default_name = f"{default_name}.{export_format}"
 
-            linkml_messages = validate_linkml_protocol(final_output)
-            summary = summarize_validation_messages(linkml_messages)
-            print(
-                f"[schema-linkml] total={summary['total']} "
-                f"by_level={summary['by_level']} by_code={summary['by_code']}"
-            )
-
-            # Print at most a few examples to keep export logs readable.
-            for msg in linkml_messages[:5]:
-                print(f"[schema-linkml:{msg.level}] {msg.code}: {msg.message} | context={msg.context}")
-        except Exception as e:
-            print(f"[schema-linkml] skipped due to runtime issue: {e}")
-
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                if filename.lower().endswith((".yaml", ".yml")):
-                    f.write(self._to_yaml(final_output))
-                else:
-                    json.dump(final_output, f, indent=2, ensure_ascii=False)
-            print(f"protocol exported to {filename}")
-
-        except Exception as e:
-            print(f"error: {e}")
-
-    def export_linkml_protocol(self):
-        """export the current protocol as a LinkML-aligned semantic payload."""
-        filename, selected_filter = QFileDialog.getSaveFileName(
+        filename, _ = QFileDialog.getSaveFileName(
             self,
-            "Export LinkML Payload",
-            "protocol.linkml.json",
-            "LinkML Files (*.json *.yaml *.yml);;JSON Files (*.json);;YAML Files (*.yaml *.yml)",
+            "Export Protocol",
+            default_name,
+            "JSON Files (*.json);;YAML Files (*.yaml *.yml)",
         )
         if not filename:
             return
 
         lower_name = filename.lower()
         if not lower_name.endswith((".json", ".yaml", ".yml")):
-            if "YAML" in selected_filter:
-                filename += ".yaml"
-            else:
-                filename += ".json"
+            filename += ".yaml" if export_format == "yaml" else ".json"
 
         final_output = self.generate_protocol_output(show_feedback=True)
         if not final_output:
             return
 
         try:
-            mode = self.linkml_mode_combo.currentData() or "strict"
-            payload = convert_protocol_to_linkml(final_output, mode=mode)
+            if export_kind == "linkml":
+                payload = convert_protocol_to_linkml(final_output, mode="strict")
+                summary = summarize_linkml_export(payload)
+                print(
+                    f"[linkml-export:strict] activities={summary.activity_count} "
+                    f"steps={summary.step_count} chemicals={summary.chemical_count} "
+                    f"unmapped_fields={summary.unmapped_fields}"
+                )
+            else:
+                payload = final_output
+
+            with open(filename, "w", encoding="utf-8") as f:
+                if filename.lower().endswith((".yaml", ".yml")):
+                    f.write(self._to_yaml(payload))
+                else:
+                    json.dump(payload, f, indent=2, ensure_ascii=False)
+
+            if export_kind == "linkml":
+                print(f"linkml payload exported to {filename}")
+            else:
+                print(f"protocol exported to {filename}")
+
+        except Exception as e:
+            print(f"error: {e}")
+
+    def export_linkml_protocol(self):
+        """Backward-compatible helper for LinkML export."""
+        self._export_linkml_protocol_legacy()
+
+    def _export_linkml_protocol_legacy(self):
+        final_output = self.generate_protocol_output(show_feedback=True)
+        if not final_output:
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export LinkML Payload",
+            "protocol.linkml.json",
+            "JSON Files (*.json);;YAML Files (*.yaml *.yml)",
+        )
+        if not filename:
+            return
+
+        if not filename.lower().endswith((".json", ".yaml", ".yml")):
+            filename += ".json"
+
+        try:
+            payload = convert_protocol_to_linkml(final_output, mode="strict")
             summary = summarize_linkml_export(payload)
             print(
-                f"[linkml-export:{mode}] activities={summary.activity_count} "
+                f"[linkml-export:strict] activities={summary.activity_count} "
                 f"steps={summary.step_count} chemicals={summary.chemical_count} "
                 f"unmapped_fields={summary.unmapped_fields}"
             )

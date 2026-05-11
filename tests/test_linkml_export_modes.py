@@ -50,7 +50,9 @@ class TestLinkMLExportModes(unittest.TestCase):
         reconstructed = _expand_optimized_export(copy.deepcopy(optimized_payload))
 
         self.assertEqual(reconstructed["activities"], strict_payload["activities"])
-        self.assertEqual(reconstructed["source_protocol"], strict_payload["source_protocol"])
+        # Both sides should either include or omit source snapshots; current
+        # behavior omits the internal `source_protocol` to avoid duplication.
+        self.assertEqual(reconstructed.get("source_protocol"), strict_payload.get("source_protocol"))
         self.assertNotIn("materials", reconstructed)
 
     def test_material_entity_ids_are_stable(self):
