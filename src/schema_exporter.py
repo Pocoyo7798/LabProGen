@@ -16,14 +16,15 @@ import os
 from typing import Any, Literal
 
 from .config import DEFAULT_PROTOCOL_NAME
-from .linkml_adapter import normalize_action_to_linkml, convert_slots_to_linkml_objects
-from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary
-from .schema_mapping import (
+from .linkml_adapter import (
+    normalize_action_to_linkml,
+    convert_slots_to_linkml_objects,
     get_linkml_chemical_class,
     get_linkml_chemical_slot,
     get_linkml_slot,
     get_linkml_step_class,
 )
+from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary
 
 
 @dataclass

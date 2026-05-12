@@ -11,7 +11,7 @@ from collections import Counter
 
 from .config import is_field_required
 from .schema_loader import build_validation_schema, load_linkml_schema
-from .schema_mapping import get_linkml_step_class
+from .linkml_adapter import get_linkml_step_class
 
 
 @dataclass
