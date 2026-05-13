@@ -2,7 +2,7 @@ import copy
 import json
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton
 )
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
@@ -59,7 +59,6 @@ class ActionSelectionDialog(QDialog):
             "Grind": "🔨 Grind",
             "Separate": "⚗ Separate",
             "Sieve": "🏁 Sieve",
-            "Stir": "🔄 Stir",
             "Wait": "⏳ Wait"
         }
         
@@ -81,6 +80,7 @@ class ActionSelectionDialog(QDialog):
             "ChangeAtmosphere": "☁ Change Atmosphere",
             "ChangeTemperature": "🌡 Change Temperature",
             "ChangeRecipient": "🧪 Change Recipient",
+            "ChangeAgitation": "🔄 Change Agitation",
             "NewMixture": "🥣 New Mixture",
             "Repeat": "🔁 Repeat",
             "ContinuousAddition": "➕ Continuous Addition"
@@ -347,6 +347,7 @@ class ExportProtocolDialog(QDialog):
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         cancel_btn.clicked.connect(self.reject)
         button_row.addWidget(cancel_btn)
 
@@ -415,6 +416,9 @@ class Editor(QGraphicsView):
         self.open_entity_procedures = {}
         self.chemical_procedure_index = {}
         self.preview_mode = False
+        self.show_support_actions = True
+        self._support_hidden_positions = {}
+        self._support_hidden_visibility = {}
         
         # Create a container widget and layout for the editor + button
         container = QWidget()
@@ -495,12 +499,185 @@ class Editor(QGraphicsView):
         self.setInteractive(not enabled)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
+    def _toggle_support_visibility(self, checked: bool) -> None:
+        self.show_support_actions = checked
+        label = "Support actions visible" if checked else "Support actions hidden"
+        self.support_toggle_btn.setText(label)
+        if checked:
+            self._restore_support_layout()
+        else:
+            self._apply_hidden_support_layout()
+
+    def _apply_hidden_support_layout(self) -> None:
+        if not self._support_hidden_positions:
+            self._support_hidden_positions = {block: block.pos() for block in self.blocks}
+            self._support_hidden_visibility = {block: block.isVisible() for block in self.blocks}
+
+        supports = [block for block in self.blocks if isinstance(block, SupportAction)]
+        supports.sort(key=lambda b: (b.pos().y(), b.pos().x()))
+
+        for block in supports:
+            block.setVisible(False)
+            self._set_chemical_chain_visible(block.chem_below, False)
+            self._reflow_visible_actions()
+
+        self.adapt_scene_rect()
+
+    def _restore_support_layout(self) -> None:
+        for block in self.blocks:
+            if block in self._support_hidden_positions:
+                block.setPos(self._support_hidden_positions[block])
+            if block in self._support_hidden_visibility:
+                block.setVisible(self._support_hidden_visibility[block])
+
+        self._support_hidden_positions = {}
+        self._support_hidden_visibility = {}
+        self.adapt_scene_rect()
+
+    def _set_chemical_chain_visible(self, chem_block, visible: bool) -> None:
+        curr = chem_block
+        while curr:
+            curr.setVisible(visible)
+            curr = curr.below_block
+
+    def _reflow_visible_actions(self) -> None:
+        overlap, border_overlap, precision = 20, 6, 0.01
+
+        def is_hidden_support(block) -> bool:
+            return isinstance(block, SupportAction) and not self.show_support_actions
+
+        def visible_prev(block):
+            cur = block.prev_block
+            while cur and is_hidden_support(cur):
+                cur = cur.prev_block
+            return cur
+
+        def visible_next(block):
+            cur = block.next_block
+            while cur and is_hidden_support(cur):
+                cur = cur.next_block
+            return cur
+
+        def visible_above(block):
+            cur = block.above_block
+            while cur and is_hidden_support(cur):
+                cur = cur.above_block
+            return cur
+
+        def visible_below(block):
+            cur = block.below_block
+            while cur and is_hidden_support(cur):
+                cur = cur.below_block
+            return cur
+
+        def is_visible_action(block) -> bool:
+            return isinstance(block, (ElementaryAction, SupportAction)) and not is_hidden_support(block)
+
+        def iter_visible_actions():
+            for b in self.blocks:
+                if is_visible_action(b):
+                    yield b
+
+        def reflow_chemicals_for_action(block):
+            if hasattr(block, "chem_below") and block.chem_below:
+                cb = block.chem_below
+                self._set_chemical_chain_visible(cb, True)
+                cb.toggle_orientation(block.orientation)
+                a_rect, c_rect = block.rect(), cb.rect()
+
+                if block.action == "SubProductCreation":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_start_y = block.pos().y() + 18
+                    body_h = a_rect.height() - 18
+                    new_y = body_start_y + (body_h - c_rect.height()) / 2
+                elif block.orientation == "vertical":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_h = a_rect.height() - 18
+                    new_y = block.pos().y() + (body_h - c_rect.height()) / 2
+                else:
+                    body_w = a_rect.width() - 18
+                    new_x = block.pos().x() + (body_w - c_rect.width()) / 2
+                    new_y = block.pos().y() + a_rect.height() - 4
+
+                if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
+                    cb.setPos(new_x, new_y)
+                self.reflow_chemicals(cb, block.orientation)
+
+        def move_visible_component(block, dx, dy, stop=None, visited=None):
+            if not block or (dx == 0 and dy == 0):
+                return
+            if visited is None:
+                visited = set()
+            if block in visited or block == stop:
+                return
+            visited.add(block)
+
+            if is_hidden_support(block):
+                return
+
+            block.setPos(block.pos().x() + dx, block.pos().y() + dy)
+
+            if hasattr(block, "chem_below") and block.chem_below:
+                self._set_chemical_chain_visible(block.chem_below, True)
+                curr = block.chem_below
+                while curr:
+                    curr.setPos(curr.pos().x() + dx, curr.pos().y() + dy)
+                    curr = curr.below_block
+
+            neighbors = [
+                visible_next(block),
+                visible_prev(block),
+                visible_below(block),
+                visible_above(block),
+            ]
+            for neighbor in neighbors:
+                if neighbor and not isinstance(neighbor, ChemicalBlock):
+                    move_visible_component(neighbor, dx, dy, stop=stop, visited=visited)
+
+            if hasattr(block, "subproduct_below") and block.subproduct_below:
+                sb = block.subproduct_below
+                if not is_hidden_support(sb):
+                    move_visible_component(sb, dx, dy, stop=stop, visited=visited)
+
+        max_iter = max(10, len(self.blocks) * 2)
+        for _ in range(max_iter):
+            moved = False
+            visible_actions = list(iter_visible_actions())
+
+            for block in visible_actions:
+                nxt = visible_next(block)
+                if nxt:
+                    target_x = block.pos().x() + block.rect().width() - overlap
+                    target_y = block.pos().y()
+                    dx = target_x - nxt.pos().x()
+                    dy = target_y - nxt.pos().y()
+                    if abs(dx) > precision or abs(dy) > precision:
+                        move_visible_component(nxt, dx, dy, stop=block)
+                        moved = True
+
+                bb = visible_below(block)
+                if bb and not isinstance(bb, ChemicalBlock):
+                    target_x = block.pos().x() + (block.rect().width() - bb.rect().width()) / 2
+                    target_y = block.pos().y() + block.rect().height() - overlap
+                    dx = target_x - bb.pos().x()
+                    dy = target_y - bb.pos().y()
+                    if abs(dx) > precision or abs(dy) > precision:
+                        move_visible_component(bb, dx, dy, stop=block)
+                        moved = True
+
+            for block in visible_actions:
+                block.update()
+                block.update_text()
+                reflow_chemicals_for_action(block)
+
+            if not moved:
+                break
+
     def _register_block_id(self, block, block_id=None):
         if block_id is None:
             block_id = len(self.blocks)
         block.block_id = block_id
         return block_id
-
     def get_open_entity_procedure(self, chemical_block_id):
         if chemical_block_id in self.chemical_procedure_index:
             return self.chemical_procedure_index[chemical_block_id]
@@ -704,9 +881,9 @@ class Editor(QGraphicsView):
         if dialog.exec() == QDialog.Accepted and dialog.selected_action:
             action_map = {
                 "Add": Add, "Grind": Grind, "Separate": Separate, 
-                "Sieve": Sieve, "Stir": Stir, "Wait": Wait,
+                "Sieve": Sieve, "Wait": Wait,
                 "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
-                "ChangeRecipient": ChangeRecipient, "NewMixture": NewMixture,
+                "ChangeRecipient": ChangeRecipient, "ChangeAgitation": ChangeAgitation, "NewMixture": NewMixture,
                 "SubProductCreation": SubProductCreation, "Repeat": Repeat,
                 "ContinuousAddition": ContinuousAddition
             }
@@ -717,11 +894,11 @@ class Editor(QGraphicsView):
                 "Grind": {},
                 "Separate": {KEY_PHASE: "Liquid", KEY_METHOD: "Filtration"},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
-                "Stir": {KEY_DURATION: "30 min", KEY_STIR_TYPE: "Automatic", KEY_SPEED: "0 rpm"},
                 "Wait": {KEY_DURATION: "10 min"},
                 "ChangeAtmosphere": {KEY_GASES: "", KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
                 "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "Electrical", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
                 "ChangeRecipient": {KEY_RECIPIENT: "Beaker", KEY_MATERIAL: "Glass", KEY_VOLUME: "250 mL"},
+                "ChangeAgitation": {KEY_AGITATION_TYPE: "Automatic", KEY_SPEED: "0 rpm"},
                 "NewMixture": {KEY_MIXTURE_NAME: ""},
                 "SubProductCreation": {KEY_SUBSTANCE: ""},
                 "Repeat": {KEY_AMOUNT: "1"},
@@ -755,6 +932,30 @@ class Editor(QGraphicsView):
 
         zoom_layout.addWidget(self.btn_in)
         zoom_layout.addWidget(self.btn_out)
+
+        self.support_toggle_btn = QToolButton()
+        self.support_toggle_btn.setText("Support actions visible")
+        self.support_toggle_btn.setCheckable(True)
+        self.support_toggle_btn.setChecked(True)
+        self.support_toggle_btn.setStyleSheet(
+            "QToolButton {"
+            "  background-color: #f1f5f9;"
+            "  color: #334155;"
+            "  border-radius: 12px;"
+            "  padding: 4px 12px;"
+            "  font-weight: 600;"
+            "  border: 1px solid #e2e8f0;"
+            "}"
+            "QToolButton:hover { background-color: #e2e8f0; }"
+            "QToolButton:checked {"
+            "  background-color: #dbeafe;"
+            "  border: 1px solid #93c5fd;"
+            "  color: #1d4ed8;"
+            "}"
+        )
+        self.support_toggle_btn.toggled.connect(self._toggle_support_visibility)
+        zoom_layout.addSpacing(6)
+        zoom_layout.addWidget(self.support_toggle_btn)
         
         self.zoom_widget.adjustSize()
         self.update_zoom_widget_pos()
@@ -1586,7 +1787,8 @@ class Editor(QGraphicsView):
         type_config = {
             "ChangeTemperature": ("CT", QColor(255, 20, 147)), 
             "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),  
-            "ChangeRecipient": ("CR", QColor(155, 89, 182)),   
+            "ChangeRecipient": ("CR", QColor(155, 89, 182)),
+            "ChangeAgitation": ("AG", QColor(52, 152, 219)),   
             "NewMixture": ("NM", QColor(241, 196, 15)),        
             "SubProductCreation": ("SP", QColor(231, 76, 60)), 
             "Repeat": ("RE", QColor(230, 126, 34)),
@@ -1612,12 +1814,19 @@ class Editor(QGraphicsView):
         def propagate(block, incoming_influences, source_type):
             if not block:
                 return
+
+            disabled_ids = getattr(block, "disabled_influences", set()) or set()
+            block.available_influences = list(incoming_influences.values())
+            filtered_incoming = {
+                key: value for key, value in incoming_influences.items()
+                if value.get("id") not in disabled_ids
+            }
             
             # store incoming based on axis
             if source_type == "h":
-                block._inc_h = incoming_influences
+                block._inc_h = filtered_incoming
             else:
-                block._inc_v = incoming_influences
+                block._inc_v = filtered_incoming
 
             # merge logic: horizontal priority overwrites vertical if keys clash
             merged = block._inc_v.copy()
@@ -1725,7 +1934,7 @@ class Editor(QGraphicsView):
 
     def _create_block_by_name(self, name, params):
         """helper to instantiate the correct block class with proper colors."""
-        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Stir", "Wait"]
+        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Wait"]
         
         if name in elementary_list:
             block = ElementaryAction(name, params, editor=self)
@@ -1735,6 +1944,8 @@ class Editor(QGraphicsView):
         self.scene.addItem(block)
         self.blocks.append(block)
         self._register_block_id(block)
+        if isinstance(block, SupportAction) and not self.show_support_actions:
+            block.setVisible(False)
         return block
     
     def _reconstruct_chemicals(self, action_block, chem_list):

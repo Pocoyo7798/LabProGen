@@ -69,15 +69,6 @@ class Sieve(Action):
             KEY_MAX_SIZE: max_size
         })
 
-class Stir(Action):
-    """Agitation of a mixture."""
-    def __init__(self, duration="30 min", type="Automatic", speed="0 rpm", **kwargs):
-        super().__init__(**{
-            KEY_DURATION: duration,
-            KEY_STIR_TYPE: type,
-            KEY_SPEED: speed
-        })
-
 class Wait(Action):
     """Time passes with nothing happening."""
     def __init__(self, duration="10 min", **kwargs):
@@ -113,6 +104,14 @@ class ChangeRecipient(Action):
             KEY_RECIPIENT: recipient,
             KEY_MATERIAL: material,
             KEY_VOLUME: volume
+        })
+
+class ChangeAgitation(Action):
+    """Agitation of a mixture."""
+    def __init__(self, type="Automatic", speed="0 rpm", **kwargs):
+        super().__init__(**{
+            KEY_AGITATION_TYPE: type,
+            KEY_SPEED: speed
         })
 
 class NewMixture(Action):

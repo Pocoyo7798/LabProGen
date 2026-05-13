@@ -3,7 +3,8 @@ import json
 from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
     QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
-    QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox
+    QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox,
+    QToolButton
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
@@ -102,6 +103,8 @@ class Block(QGraphicsRectItem):
         self.support_id = None  # e.g., CT1 for a change temperature support action
         self.support_color = None
         self.influence_list = [] # list of ids of support actions currently influencing this block (for badges)
+        self.available_influences = []
+        self.disabled_influences = set()
         
         # Hover tooltip support
         self.hover_timer = QTimer()
@@ -681,9 +684,32 @@ class Block(QGraphicsRectItem):
                 else:
                     act.triggered.connect(self.make_first)
             menu.addSeparator()
+
+        # 4. influence toggles for elementary actions
+        if isinstance(self, ElementaryAction) and self.available_influences:
+            influences_menu = menu.addMenu("Influences")
+            for influence in self.available_influences:
+                inf_id = influence.get("id")
+                if not inf_id:
+                    continue
+                action = influences_menu.addAction(inf_id)
+                action.setCheckable(True)
+                action.setChecked(inf_id not in self.disabled_influences)
+                action.toggled.connect(
+                    lambda checked, _id=inf_id: self._toggle_influence(_id, checked)
+                )
+            menu.addSeparator()
         
         menu.addAction("Delete").triggered.connect(self.delete_block)
         menu.exec(event.screenPos())
+
+    def _toggle_influence(self, influence_id: str, enabled: bool) -> None:
+        if enabled:
+            self.disabled_influences.discard(influence_id)
+        else:
+            self.disabled_influences.add(influence_id)
+        if self.editor:
+            self.editor.update_support_logic()
     
     def toggle_orientation(self, target_orient=None):
         """switches or sets orientation (140x60 <-> 60x140)."""
@@ -856,9 +882,13 @@ class Block(QGraphicsRectItem):
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
         dialog.setFixedWidth(400)
-        form_layout = QFormLayout(dialog)
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+
+        form_layout = QFormLayout()
         form_layout.setSpacing(12)
-        form_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.addLayout(form_layout)
 
         input_map = {}
         row_widgets = {}
@@ -868,16 +898,68 @@ class Block(QGraphicsRectItem):
         else:
             ordered_keys = list(params_for_dialog.keys())
 
+        required_keys: list[str] = []
+        optional_keys: list[str] = []
         for key in ordered_keys:
+            if is_field_required(key, params=params_for_dialog, action_name=self.action):
+                required_keys.append(key)
+            else:
+                optional_keys.append(key)
+
+        def _add_field(target_layout: QFormLayout, key: str) -> None:
             value = params_for_dialog.get(key, "")
             # Retrieve label from config. Fallback to capitalized key string
             config = FIELD_CONFIG.get(key.lower(), {})
             label = config.get("label", key.capitalize())
-            
+
             widget, tracker = self._get_field_widget(key, value)
-            form_layout.addRow(label + ":", widget)
+            target_layout.addRow(label + ":", widget)
             input_map[key] = tracker
             row_widgets[key] = widget
+
+        for key in required_keys:
+            _add_field(form_layout, key)
+
+        advanced_container = None
+        if optional_keys:
+            advanced_toggle = QToolButton()
+            advanced_toggle.setText("Advanced parameters")
+            advanced_toggle.setCheckable(True)
+            advanced_toggle.setChecked(False)
+            advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
+            advanced_toggle.setStyleSheet(
+                "QToolButton {"
+                "  background-color: #f8fafc;"
+                "  color: #334155;"
+                "  border-radius: 8px;"
+                "  padding: 6px 12px;"
+                "  font-weight: 600;"
+                "  border: 1px solid #e2e8f0;"
+                "}"
+                "QToolButton:hover { background-color: #f1f5f9; }"
+                "QToolButton:pressed { background-color: #e2e8f0; }"
+            )
+
+            advanced_container = QWidget()
+            advanced_layout = QFormLayout(advanced_container)
+            advanced_layout.setSpacing(12)
+            advanced_container.setVisible(False)
+
+            def _toggle_advanced(checked: bool) -> None:
+                advanced_container.setVisible(checked)
+                advanced_toggle.setArrowType(
+                    Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                )
+                dialog.adjustSize()
+
+            advanced_toggle.toggled.connect(_toggle_advanced)
+
+            main_layout.addWidget(advanced_toggle)
+            main_layout.addWidget(advanced_container)
+
+            for key in optional_keys:
+                _add_field(advanced_layout, key)
 
         preview_btn = None
         if is_chemical and self.params.get(KEY_ENTITY_PRIVACY) == "Open Entity":
@@ -899,10 +981,12 @@ class Block(QGraphicsRectItem):
             preview_btn.clicked.connect(show_preview)
 
         save_btn = QPushButton("Save Changes")
+        button_row = QHBoxLayout()
         if preview_btn:
-            form_layout.addRow(preview_btn, save_btn)
-        else:
-            form_layout.addWidget(save_btn)
+            button_row.addWidget(preview_btn)
+        button_row.addStretch()
+        button_row.addWidget(save_btn)
+        main_layout.addLayout(button_row)
 
         def apply_changes():
             new_params = self.params.copy()

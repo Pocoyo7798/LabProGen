@@ -110,7 +110,7 @@ def _convert_step(step: dict) -> dict:
     for key, value in params.items():
         if _is_blank(value):
             continue
-        if key in {"duration", "temperature", "add_type", "open_flame", "phase_to_keep", "method", "min_size", "max_size", "stir_type", "speed", "gases", "flow_rate", "pressure", "process", "ramp", "power", "recipient", "material", "volume", "substance_list", "continuous_add_type", "amount", "chemical"}:
+        if key in {"duration", "temperature", "add_type", "open_flame", "phase_to_keep", "method", "min_size", "max_size", "speed", "gases", "flow_rate", "pressure", "process", "ramp", "power", "recipient", "material", "volume", "substance_list", "continuous_add_type", "amount", "chemical"}:
             continue
 
         slot = get_linkml_slot(key, action_name=action_name)

@@ -17,7 +17,7 @@ KEY_PHASE = "phase_to_keep"
 KEY_METHOD = "method"
 KEY_MIN_SIZE = "min_size"
 KEY_MAX_SIZE = "max_size"
-KEY_STIR_TYPE = "stir_type"
+KEY_AGITATION_TYPE = "agitation_type"
 KEY_SPEED = "speed"
 KEY_GASES = "gases"
 KEY_FLOW_RATE = "flow_rate"
@@ -82,7 +82,7 @@ FIELD_CONFIG = {
     KEY_ADD_TYPE: {"label": "Add Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"], "required": True},
     KEY_OPEN_FLAME: {"label": "Open Flame", "type": "dropdown", "options": ["True", "False"], "required": True},
     KEY_CONTINUOUS_ADD_TYPE: {"label": "Type", "type": "dropdown", "options": ["Continuous", "Intermittent"], "required": True},
-    KEY_STIR_TYPE: {"label": "Stirring Type", "type": "dropdown", "options": ["Manual", "Automatic"], "required": True},
+    KEY_AGITATION_TYPE: {"label": "Type", "type": "dropdown", "options": ["Manual", "Automatic", "None"], "required": True},
     KEY_PHASE: {"label": "Phase to Keep", "type": "dropdown", "options": ["Liquid", "Solid", "Aqueous", "Organic"], "required": True},
     KEY_METHOD: {"label": "Method", "type": "dropdown", "options": ["Filtration", "Centrifugation", "Decantation"], "required": True},
     KEY_PROCESS: {"label": "Process", "type": "dropdown", "options": ["Electrical", "Microwave", "Ice-bath", "Atmospheric"], "required": True},

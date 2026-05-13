@@ -118,7 +118,11 @@ def validate_protocol_shadow(protocol_data: dict) -> list[ValidationMessage]:
 
 
 def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthesisActivity") -> list[ValidationMessage]:
-    """Validate the exported protocol with the official LinkML validator."""
+    """Validate the exported protocol with the official LinkML validator.
+    
+    Best-effort validation: only validates actions that have LinkML mappings.
+    Actions defined in Python/config but not in LinkML are skipped without error.
+    """
 
     try:
         from linkml.validator import validate as linkml_validate
@@ -160,6 +164,18 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         )
         return messages
 
+    def _has_linkml_mapping(source_action: str | None, linkml_class: str | None) -> bool:
+        """Check if action has a LinkML mapping (best-effort validation)."""
+        if not source_action and not linkml_class:
+            return False
+        # Check if action is mapped to LinkML
+        if source_action and get_linkml_step_class(source_action):
+            return True
+        # If no source_action but has linkml_class, assume it's valid
+        if linkml_class:
+            return True
+        return False
+
     def _validate_instance(instance, class_name: str, activity_index: int, step_index: int | None = None):
         try:
             report = linkml_validate(instance, schema=schema, target_class=class_name, strict=False)
@@ -188,7 +204,22 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         _validate_instance(activity_instance, target_class, activity_index)
 
         for step_index, step in enumerate(activity.get("has_synthesis_step", []) or []):
-            step_class = step.get("linkml_class") or "LabSynthesisStep"
+            source_action = step.get("source_action")
+            linkml_class = step.get("linkml_class")
+            
+            # Skip validation if action is not mapped to LinkML (best-effort)
+            if not _has_linkml_mapping(source_action, linkml_class):
+                messages.append(
+                    ValidationMessage(
+                        level="info",
+                        code="linkml.unmapped_action",
+                        message=f"Action '{source_action}' has no LinkML mapping; validation skipped.",
+                        context={"activity_index": activity_index, "step_index": step_index},
+                    )
+                )
+                continue
+            
+            step_class = linkml_class or "LabSynthesisStep"
             _validate_instance(_normalize_linkml_instance(step), step_class, activity_index, step_index)
 
             for chem_index, chem in enumerate(step.get("attached_chemicals", []) or []):

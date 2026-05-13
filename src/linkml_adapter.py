@@ -23,11 +23,11 @@ ACTION_TO_LINKML_STEP = {
     "Grind": "GrindingStep",
     "Separate": "SeparationStep",
     "Sieve": "SievingStep",
-    "Stir": "StirringStep",
     "Wait": "WaitingStep",
     "ChangeAtmosphere": "AtmosphereChangeStep",
     "ChangeTemperature": "TemperatureChangeStep",
     "ChangeRecipient": "RecipientChangeStep",
+    "ChangeAgitation": "StirringStep",
     "NewMixture": "SolutionPreparationStep",
     "SubProductCreation": "SubProductCreationStep",
     "Repeat": "RepetitionBlock",
@@ -46,7 +46,7 @@ FIELD_TO_LINKML_SLOT = {
     KEY_METHOD: "uses_separation_method",
     KEY_MIN_SIZE: "has_minimum_particle_size",
     KEY_MAX_SIZE: "has_maximum_particle_size",
-    KEY_STIR_TYPE: "stirring_type",
+    KEY_AGITATION_TYPE: "stirring_type",
     KEY_SPEED: "has_stirring_speed",
     KEY_GASES: "has_atmosphere_type",
     KEY_FLOW_RATE: "has_flow_rate",
@@ -236,11 +236,11 @@ def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def stir_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+def change_agitation_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+    """Convert ChangeAgitation action parameters to StirringStep LinkML slots."""
     return {
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
+        "stirring_type": params.get(KEY_AGITATION_TYPE),
         "has_stirring_speed": _quantity_or_raw(params.get(KEY_SPEED)),
-        "stirring_type": params.get(KEY_STIR_TYPE),
     }
 
 
@@ -299,11 +299,11 @@ def continuous_addition_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
 
 ACTION_TO_ADAPTER = {
     "Add": add_to_linkml,
-    "Stir": stir_to_linkml,
     "Separate": separate_to_linkml,
     "ChangeAtmosphere": change_atmosphere_to_linkml,
     "ChangeTemperature": change_temperature_to_linkml,
     "ChangeRecipient": change_recipient_to_linkml,
+    "ChangeAgitation": change_agitation_to_linkml,
     "Sieve": sieve_to_linkml,
     "Repeat": repeat_to_linkml,
     "ContinuousAddition": continuous_addition_to_linkml,
@@ -337,11 +337,11 @@ LINKML_STEP_TO_ACTION = {
     "GrindingStep": "Grind",
     "SeparationStep": "Separate",
     "SievingStep": "Sieve",
-    "StirringStep": "Stir",
     "WaitingStep": "Wait",
     "AtmosphereChangeStep": "ChangeAtmosphere",
     "TemperatureChangeStep": "ChangeTemperature",
     "RecipientChangeStep": "ChangeRecipient",
+    "StirringStep": "ChangeAgitation",
     "SolutionPreparationStep": "NewMixture",
     "SubProductCreationStep": "SubProductCreation",
     "RepetitionBlock": "Repeat",
@@ -366,7 +366,7 @@ STEP_SLOT_TO_PARAM = {
     "uses_separation_method": KEY_METHOD,
     "has_minimum_particle_size": KEY_MIN_SIZE,
     "has_maximum_particle_size": KEY_MAX_SIZE,
-    "stirring_type": KEY_STIR_TYPE,
+    "stirring_type": KEY_AGITATION_TYPE,
     "has_stirring_speed": KEY_SPEED,
     "has_atmosphere_type": KEY_GASES,
     "has_flow_rate": KEY_FLOW_RATE,
