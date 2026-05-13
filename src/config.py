@@ -57,10 +57,12 @@ KEY_ORIGIN = "origin"
 KEY_PRODUCTION_PHASE = "production_phase"
 KEY_LOCATION = "location"
 KEY_TOXICITY_TO_PRODUCER = "toxicity_to_producer"
-KEY_ENTITY_PRIVACY = "entity_privacy"
+
+# --- FIRST LEVEL CHEMICAL ENTITY FIELDS (Base class, optional) ---
+KEY_PREPARATION_PROCEDURE = "preparation_procedure"
 KEY_ENTITY_ID = "entity_id"
 KEY_PRODUCER = "entity_producer"
-KEY_PRIVATE_PURITY = "entity_purity"
+KEY_ENTITY_PURITY = "entity_purity"
 
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
@@ -99,7 +101,12 @@ FIELD_CONFIG = {
     KEY_LIGHT_SENSITIVITY: {"label": "Light Sensitivity", "type": "dropdown", "options": ["yes", "no"], "required": False},
     KEY_OXIDATION_SENSITIVITY: {"label": "Oxidation Sensitivity", "type": "dropdown", "options": ["yes", "no"], "required": False},
     KEY_TOXICITY_TO_PRODUCER: {"label": "Toxicity to Producer", "type": "dropdown", "options": ["inhibitory", "toxic", "neutral"], "required": True},
-    KEY_ENTITY_PRIVACY: {"label": "Entity Type", "type": "dropdown", "options": ["Open Entity", "Private Entity"], "required": True},
+
+    # FIRST LEVEL CHEMICAL ENTITY (optional base fields for all chemicals)
+    KEY_PREPARATION_PROCEDURE: {"label": "Preparation Procedure", "type": "text", "placeholder": "Description of preparation...", "required": False},
+    KEY_ENTITY_ID: {"label": "ID", "type": "text", "placeholder": "Commercial or internal ID...", "required": False},
+    KEY_PRODUCER: {"label": "Producer", "type": "text", "placeholder": "Institution that created the entity...", "required": False},
+    KEY_ENTITY_PURITY: {"label": "Purity", "type": "text", "placeholder": "Degree of purity...", "required": False},
 
     # text fields
     KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity name...", "required": True},
@@ -119,9 +126,6 @@ FIELD_CONFIG = {
     KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities...", "required": True},
     KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases...", "required": True},
     KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details...", "required": False},
-    KEY_ENTITY_ID: {"label": "ID", "type": "text", "placeholder": "Commercial or internal ID...", "required": True},
-    KEY_PRODUCER: {"label": "Producer", "type": "text", "placeholder": "Institution that created the entity...", "required": True},
-    KEY_PRIVATE_PURITY: {"label": "Purity", "type": "text", "placeholder": "Degree of purity...", "required": False},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity...", "required": True},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture...", "required": True},
     KEY_AMOUNT: {

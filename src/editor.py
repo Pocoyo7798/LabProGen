@@ -1,8 +1,9 @@
 import copy
 import json
+import re
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame
 )
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
@@ -11,7 +12,7 @@ from .config import *
 from .actions import *
 from .chemicals import *
 from .protocol import Protocol
-from .linkml_adapter import convert_linkml_to_protocol
+from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
 from .schema_validator import validate_linkml_protocol, summarize_validation_messages
 
@@ -144,150 +145,108 @@ class ChemicalSelectionDialog(QDialog):
         self.accept()
 
 
-class EntityPrivacyDialog(QDialog):
+class UnifiedChemicalDetailsDialog(QDialog):
+    """Single dialog for adding chemical entity with First Level fields.
+    
+    First Level fields are optional:
+    - ID (commercial or internal)
+    - Producer (institution)
+    - Purity
+    
+    Preparation procedure is managed through import/create buttons.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Entity Visibility")
-        self.setFixedWidth(320)
-        self.selected_privacy = "Open Entity"
+        self.setWindowTitle("Chemical Entity Details")
+        self.setFixedWidth(480)
+        self.imported_procedure = None
+        self.first_level_fields = {}
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
-        label = QLabel("Select entity visibility")
-        layout.addWidget(label)
 
-        self.combo = QComboBox()
-        self.combo.addItems(["Open Entity", "Private Entity"])
-        layout.addWidget(self.combo)
+        # First Level Chemical Entity Section
+        first_label = QLabel("Chemical Information (optional)")
+        first_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(first_label)
 
-        layout.addStretch()
-        next_row = QHBoxLayout()
-        next_row.addStretch()
-        next_btn = QPushButton("Next")
-        next_btn.setMinimumSize(92, 34)
-        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        next_btn.clicked.connect(self._accept)
-        next_row.addWidget(next_btn)
-        layout.addLayout(next_row)
-
-    def _accept(self):
-        self.selected_privacy = self.combo.currentText()
-        self.accept()
-
-
-class PrivateEntityDetailsDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Private Entity Details")
-        self.setFixedWidth(420)
-        self.details = {}
-
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setSpacing(12)
-        outer_layout.setContentsMargins(20, 20, 20, 20)
-
-        form_layout = QFormLayout()
-        form_layout.setSpacing(10)
+        first_form = QFormLayout()
+        first_form.setSpacing(10)
 
         self.id_edit = QLineEdit()
         self.id_edit.setPlaceholderText("Commercial or internal ID...")
+        first_form.addRow("ID:", self.id_edit)
+
         self.producer_edit = QLineEdit()
         self.producer_edit.setPlaceholderText("Institution that created the entity...")
+        first_form.addRow("Producer:", self.producer_edit)
+
         self.purity_edit = QLineEdit()
         self.purity_edit.setPlaceholderText("Degree of purity...")
+        first_form.addRow("Purity:", self.purity_edit)
 
-        form_layout.addRow("ID:", self.id_edit)
-        form_layout.addRow("Producer:", self.producer_edit)
-        form_layout.addRow("Purity:", self.purity_edit)
+        layout.addLayout(first_form)
 
-        outer_layout.addLayout(form_layout)
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(sep)
 
-        next_row = QHBoxLayout()
-        next_row.addStretch()
-        next_btn = QPushButton("Next")
-        next_btn.setMinimumSize(92, 34)
-        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        next_btn.clicked.connect(self._accept)
-        next_row.addWidget(next_btn)
-        outer_layout.addLayout(next_row)
+        # Preparation Procedure Import Section
+        proc_label = QLabel("Preparation Procedure (optional)")
+        proc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(proc_label)
 
-    def _accept(self):
-        raw_details = {
-            KEY_ENTITY_ID: self.id_edit.text().strip(),
-            KEY_PRODUCER: self.producer_edit.text().strip(),
-            KEY_PRIVATE_PURITY: self.purity_edit.text().strip(),
-        }
-
-        for key, value in raw_details.items():
-            if is_field_required(key, params=raw_details) and not value:
-                label = FIELD_CONFIG.get(key.lower(), {}).get("label", key.capitalize())
-                QMessageBox.warning(self, "Missing Required Field", f"'{label}' is required.")
-                return
-
-        self.details = {
-            KEY_ENTITY_ID: raw_details[KEY_ENTITY_ID],
-            KEY_PRODUCER: raw_details[KEY_PRODUCER],
-            KEY_PRIVATE_PURITY: raw_details[KEY_PRIVATE_PURITY],
-        }
-        self.accept()
-
-
-class OpenEntityDetailsDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Open Entity")
-        self.setFixedWidth(420)
-        self.imported_procedure = None
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        label = QLabel("Choose how to handle the open entity")
-        label.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
-        layout.addWidget(label)
+        proc_desc = QLabel("Import or create a preparation procedure for this entity")
+        proc_desc.setStyleSheet("font-size: 11px; color: #6b7280;")
+        layout.addWidget(proc_desc)
 
         import_btn = QPushButton("Import Procedure")
-        import_btn.setMinimumHeight(36)
+        import_btn.setMinimumHeight(32)
         import_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        import_btn.clicked.connect(self.import_procedure)
+        import_btn.clicked.connect(self._import_procedure)
         layout.addWidget(import_btn)
 
-        new_btn = QPushButton("New")
-        new_btn.setMinimumHeight(36)
+        new_btn = QPushButton("Create New Procedure")
+        new_btn.setMinimumHeight(32)
         new_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        new_btn.clicked.connect(self.new_entity)
+        new_btn.clicked.connect(self._new_procedure)
         layout.addWidget(new_btn)
 
         self.status = QLabel()
         self.status.setWordWrap(True)
-        self.status.setStyleSheet("padding: 10px 12px; border-radius: 8px;")
-        self._set_status("No procedure selected yet.", "neutral")
+        self.status.setStyleSheet("padding: 8px 10px; border-radius: 6px; font-size: 11px;")
+        self._set_status("No procedure selected.", "neutral")
         layout.addWidget(self.status)
 
         layout.addStretch()
-        next_row = QHBoxLayout()
-        next_row.addStretch()
-        next_btn = QPushButton("Next")
-        next_btn.setMinimumSize(92, 34)
-        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        next_btn.clicked.connect(self._accept)
-        next_row.addWidget(next_btn)
-        layout.addLayout(next_row)
 
-    def _accept(self):
-        if not self.imported_procedure:
-            QMessageBox.warning(self, "Missing Procedure", "Open Entity requires a preparation procedure.")
-            return
-        self.accept()
+        # Action Buttons
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+
+        ok_btn = QPushButton("Add Chemical")
+        ok_btn.setMinimumSize(92, 34)
+        ok_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        ok_btn.clicked.connect(self._accept)
+        button_row.addWidget(ok_btn)
+
+        layout.addLayout(button_row)
 
     def _set_status(self, message, tone="neutral"):
         style = STATUS_BADGE_STYLE.get(tone, STATUS_BADGE_STYLE["neutral"])
         self.status.setText(message)
-        self.status.setStyleSheet(f"padding: 10px 12px; border-radius: 8px; {style}")
+        self.status.setStyleSheet(f"padding: 8px 10px; border-radius: 6px; font-size: 11px; {style}")
 
-    def import_procedure(self):
+    def _import_procedure(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Import Procedure", "", "JSON Files (*.json)")
         if not filename:
             return
@@ -298,16 +257,36 @@ class OpenEntityDetailsDialog(QDialog):
                 QMessageBox.warning(self, "Invalid File", "The selected file does not contain a valid protocol.")
                 return
             self.imported_procedure = data
-            self._set_status(f"Procedure imported: {filename.split('/')[-1]}", "info")
+            self._set_status(f"✓ Imported: {filename.split('/')[-1]}", "success")
         except Exception as e:
             QMessageBox.warning(self, "Import Error", f"Could not import procedure: {e}")
 
-    def new_entity(self):
+    def _new_procedure(self):
         dialog = NewEntityProcedureDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.procedure_data:
             self.imported_procedure = dialog.procedure_data
             flow_count = len(dialog.procedure_data.get("flows", []))
-            self._set_status(f"New procedure created ({flow_count} flow(s)).", "success")
+            self._set_status(f"✓ Created new procedure ({flow_count} flow(s))", "success")
+
+    def _accept(self):
+        # Collect First Level fields
+        id_val = self.id_edit.text().strip()
+        prod_val = self.producer_edit.text().strip()
+        pur_val = self.purity_edit.text().strip()
+
+        self.first_level_fields = {
+            KEY_ENTITY_ID: id_val,
+            KEY_PRODUCER: prod_val,
+            KEY_ENTITY_PURITY: pur_val,
+        }
+        
+        self.accept()
+
+
+
+
+
+
 
 
 class ExportProtocolDialog(QDialog):
@@ -673,6 +652,215 @@ class Editor(QGraphicsView):
             if not moved:
                 break
 
+    def _reflow_import_layout(self) -> None:
+        """Layout imported flows without moving horizontal anchors.
+
+        Horizontal links pull blocks to the right; vertical links pull blocks upward
+        toward their attachment block. This prevents vertical chains from detaching
+        when blocks participate in both horizontal and vertical flows.
+        """
+        overlap, border_overlap, precision = 20, 6, 0.01
+
+        def is_hidden_support(block) -> bool:
+            return isinstance(block, SupportAction) and not self.show_support_actions
+
+        def is_visible_action(block) -> bool:
+            return isinstance(block, (ElementaryAction, SupportAction)) and not is_hidden_support(block)
+
+        def visible_prev(block):
+            cur = block.prev_block
+            while cur and is_hidden_support(cur):
+                cur = cur.prev_block
+            return cur
+
+        def visible_above(block):
+            cur = block.above_block
+            while cur and is_hidden_support(cur):
+                cur = cur.above_block
+            return cur
+
+        def iter_visible_actions():
+            for b in self.blocks:
+                if is_visible_action(b):
+                    yield b
+
+        def reflow_chemicals_for_action(block):
+            if hasattr(block, "chem_below") and block.chem_below:
+                cb = block.chem_below
+                self._set_chemical_chain_visible(cb, True)
+                cb.toggle_orientation(block.orientation)
+                a_rect, c_rect = block.rect(), cb.rect()
+
+                if block.action == "SubProductCreation":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_start_y = block.pos().y() + 18
+                    body_h = a_rect.height() - 18
+                    new_y = body_start_y + (body_h - c_rect.height()) / 2
+                elif block.orientation == "vertical":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_h = a_rect.height() - 18
+                    new_y = block.pos().y() + (body_h - c_rect.height()) / 2
+                else:
+                    body_w = a_rect.width() - 18
+                    new_x = block.pos().x() + (body_w - c_rect.width()) / 2
+                    new_y = block.pos().y() + a_rect.height() - 4
+
+                if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
+                    cb.setPos(new_x, new_y)
+                self.reflow_chemicals(cb, block.orientation)
+
+            if hasattr(block, "subproduct_below") and block.subproduct_below:
+                sb = block.subproduct_below
+                new_x = block.pos().x() + (block.rect().width() - sb.rect().width()) / 2
+                new_y = block.pos().y() + block.rect().height() - 8
+                if abs(sb.pos().x() - new_x) > precision or abs(sb.pos().y() - new_y) > precision:
+                    sb.setPos(new_x, new_y)
+
+        max_iter = max(10, len(self.blocks) * 2)
+        for _ in range(max_iter):
+            moved = False
+
+            # Horizontal pass: move blocks based on prev only.
+            for block in iter_visible_actions():
+                prev = visible_prev(block)
+                if not prev:
+                    continue
+                target_x = prev.pos().x() + prev.rect().width() - overlap
+                target_y = prev.pos().y()
+                if abs(block.pos().x() - target_x) > precision or abs(block.pos().y() - target_y) > precision:
+                    block.setPos(target_x, target_y)
+                    moved = True
+
+            # Vertical pass: move above blocks based on their below block.
+            for block in iter_visible_actions():
+                above = visible_above(block)
+                if not above:
+                    continue
+                target_x = block.pos().x() + (block.rect().width() - above.rect().width()) / 2
+                target_y = block.pos().y() - above.rect().height() + overlap
+                if abs(above.pos().x() - target_x) > precision or abs(above.pos().y() - target_y) > precision:
+                    above.setPos(target_x, target_y)
+                    moved = True
+
+            for block in iter_visible_actions():
+                block.update()
+                block.update_text()
+                has_conn = bool(
+                    block.prev_block or block.next_block or
+                    block.above_block or block.below_block or
+                    (hasattr(block, "chem_below") and block.chem_below) or
+                    (hasattr(block, "subproduct_below") and block.subproduct_below)
+                )
+                block.set_connected(has_conn)
+                reflow_chemicals_for_action(block)
+
+            if not moved:
+                break
+
+    def _reflow_component_layout(self, anchor_block) -> None:
+        """Layout a connected component after edits (e.g., delete) without breaking links."""
+        if not anchor_block:
+            return
+
+        cluster = self.get_full_cluster(anchor_block)
+        if not cluster:
+            return
+
+        overlap, border_overlap, precision = 20, 6, 0.01
+
+        def is_hidden_support(block) -> bool:
+            return isinstance(block, SupportAction) and not self.show_support_actions
+
+        def is_visible_action(block) -> bool:
+            return (
+                block in cluster
+                and isinstance(block, (ElementaryAction, SupportAction))
+                and not is_hidden_support(block)
+            )
+
+        def visible_prev(block):
+            cur = block.prev_block
+            while cur and (cur not in cluster or is_hidden_support(cur)):
+                cur = cur.prev_block
+            return cur if cur in cluster else None
+
+        def visible_above(block):
+            cur = block.above_block
+            while cur and (cur not in cluster or is_hidden_support(cur)):
+                cur = cur.above_block
+            return cur if cur in cluster else None
+
+        def iter_visible_actions():
+            for b in cluster:
+                if is_visible_action(b):
+                    yield b
+
+        def reflow_chemicals_for_action(block):
+            if hasattr(block, "chem_below") and block.chem_below:
+                cb = block.chem_below
+                self._set_chemical_chain_visible(cb, not is_hidden_support(block))
+                cb.toggle_orientation(block.orientation)
+                a_rect, c_rect = block.rect(), cb.rect()
+
+                if block.action == "SubProductCreation":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_start_y = block.pos().y() + 18
+                    body_h = a_rect.height() - 18
+                    new_y = body_start_y + (body_h - c_rect.height()) / 2
+                elif block.orientation == "vertical":
+                    new_x = block.pos().x() - c_rect.width() + border_overlap
+                    body_h = a_rect.height() - 18
+                    new_y = block.pos().y() + (body_h - c_rect.height()) / 2
+                else:
+                    body_w = a_rect.width() - 18
+                    new_x = block.pos().x() + (body_w - c_rect.width()) / 2
+                    new_y = block.pos().y() + a_rect.height() - 4
+
+                if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
+                    cb.setPos(new_x, new_y)
+                self.reflow_chemicals(cb, block.orientation)
+
+        max_iter = max(8, len(cluster) * 2)
+        for _ in range(max_iter):
+            moved = False
+
+            # Horizontal pass: align to prev only.
+            for block in iter_visible_actions():
+                prev = visible_prev(block)
+                if not prev:
+                    continue
+                target_x = prev.pos().x() + prev.rect().width() - overlap
+                target_y = prev.pos().y()
+                if abs(block.pos().x() - target_x) > precision or abs(block.pos().y() - target_y) > precision:
+                    block.setPos(target_x, target_y)
+                    moved = True
+
+            # Vertical pass: align above to its below block.
+            for block in iter_visible_actions():
+                above = visible_above(block)
+                if not above:
+                    continue
+                target_x = block.pos().x() + (block.rect().width() - above.rect().width()) / 2
+                target_y = block.pos().y() - above.rect().height() + overlap
+                if abs(above.pos().x() - target_x) > precision or abs(above.pos().y() - target_y) > precision:
+                    above.setPos(target_x, target_y)
+                    moved = True
+
+            for block in iter_visible_actions():
+                block.update()
+                block.update_text()
+                has_conn = bool(
+                    block.prev_block or block.next_block or
+                    block.above_block or block.below_block or
+                    (hasattr(block, "chem_below") and block.chem_below) or
+                    (hasattr(block, "subproduct_below") and block.subproduct_below)
+                )
+                block.set_connected(has_conn)
+                reflow_chemicals_for_action(block)
+
+            if not moved:
+                break
+
     def _register_block_id(self, block, block_id=None):
         if block_id is None:
             block_id = len(self.blocks)
@@ -830,9 +1018,7 @@ class Editor(QGraphicsView):
                 if getattr(owner_block, "block_id", None) is not None:
                     self.chemical_procedure_index[owner_block.block_id] = procedure
 
-        for b in self.blocks:
-            if not isinstance(b, ChemicalBlock):
-                self.reflow_entire_cluster(b)
+        self._reflow_import_layout()
 
         self.adapt_scene_rect()
         self.update_linked_sequence()
@@ -1008,24 +1194,12 @@ class Editor(QGraphicsView):
         """show dialog and add the specific chemical entity to the scene."""
         dialog = ChemicalSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
-            privacy_dialog = EntityPrivacyDialog(self)
-            if privacy_dialog.exec() != QDialog.Accepted:
+            details_dialog = UnifiedChemicalDetailsDialog(self)
+            if details_dialog.exec() != QDialog.Accepted:
                 return
 
-            privacy = privacy_dialog.selected_privacy
-            imported_procedure = None
-            entity_params = {KEY_ENTITY_PRIVACY: privacy}
-
-            if privacy == "Private Entity":
-                details_dialog = PrivateEntityDetailsDialog(self)
-                if details_dialog.exec() != QDialog.Accepted:
-                    return
-                entity_params.update(details_dialog.details)
-            else:
-                details_dialog = OpenEntityDetailsDialog(self)
-                if details_dialog.exec() != QDialog.Accepted:
-                    return
-                imported_procedure = details_dialog.imported_procedure
+            imported_procedure = details_dialog.imported_procedure
+            entity_params = details_dialog.first_level_fields.copy()
 
             # mapping keys to classes from chemicals.py
             
@@ -2052,10 +2226,6 @@ class Editor(QGraphicsView):
             while curr_chem:
                 visited_globally.add(curr_chem)
                 chem_params = curr_chem.params.copy()
-                if chem_params.get(KEY_ENTITY_PRIVACY) != "Private Entity":
-                    chem_params.pop(KEY_ENTITY_ID, None)
-                    chem_params.pop(KEY_PRODUCER, None)
-                    chem_params.pop(KEY_PRIVATE_PURITY, None)
                 chemicals.append({
                     "block_id": block_to_id[curr_chem],
                     "chemical": curr_chem.action,
@@ -2255,24 +2425,111 @@ class Editor(QGraphicsView):
                     print(f"  ... ({msg_count - 5} more messages)")
                 
                 # Block export if there are errors
-                if error_count > 0:
-                    QMessageBox.critical(
-                        self,
-                        "Validation Failed",
-                        f"Protocol failed LinkML validation ({error_count} error(s)).\n\n"
-                        f"First error: {validation_msgs[0].message}\n\n"
-                        f"Fix the protocol before exporting."
+                def _format_validation_notice(msg, label):
+                    ctx = msg.context or {}
+                    location_parts = []
+                    if "activity_index" in ctx:
+                        location_parts.append(f"Activity {ctx['activity_index'] + 1}")
+                    if "step_index" in ctx:
+                        location_parts.append(f"Step {ctx['step_index'] + 1}")
+                    if "flow_index" in ctx:
+                        location_parts.append(f"Flow {ctx['flow_index'] + 1}")
+                    if "action" in ctx:
+                        location_parts.append(f"Action {ctx['action']}")
+                    location = " • ".join(location_parts) if location_parts else "Unknown location"
+                    short_message = msg.message.strip()
+
+                    def _extract_slot_label(message: str) -> str | None:
+                        path_match = re.search(r"in\s+(?P<path>/[^\s]+)", message)
+                        if not path_match:
+                            return None
+                        path = path_match.group("path")
+                        parts = [p for p in path.split("/") if p]
+                        slot = None
+                        for part in reversed(parts):
+                            if not part.isdigit():
+                                slot = part
+                                break
+                        if not slot:
+                            return None
+                        param_key = STEP_SLOT_TO_PARAM.get(slot)
+                        if not param_key:
+                            return None
+                        return FIELD_CONFIG.get(param_key, {}).get("label")
+
+                    def _extract_enum_hint(message: str) -> str | None:
+                        if "not one of" not in message:
+                            return None
+                        list_match = re.search(r"not one of\s*\[(?P<allowed>[^\]]+)\]", message)
+                        if not list_match:
+                            return None
+
+                        allowed_raw = list_match.group("allowed")
+                        allowed_items = [
+                            item.strip().strip("'\"")
+                            for item in allowed_raw.split(",")
+                            if item.strip()
+                        ]
+                        allowed_text = ", ".join(allowed_items)
+
+                        slot_label = _extract_slot_label(message)
+                        if slot_label:
+                            return f"Field: {slot_label}\nAllowed: {allowed_text}"
+                        return f"Allowed: {allowed_text}"
+
+                    def _extract_additional_properties_hint(message: str) -> str | None:
+                        if "Additional properties are not allowed" not in message:
+                            return None
+                        slot_label = _extract_slot_label(message)
+                        if slot_label:
+                            return (
+                                f"Field: {slot_label}\n"
+                                "Expected: simple text with value and unit (e.g., '50 C' or '50 °C')."
+                            )
+                        return "Expected: simple text with value and unit (e.g., '50 C' or '50 °C')."
+
+                    hint = _extract_enum_hint(short_message) or _extract_additional_properties_hint(short_message)
+                    if not hint:
+                        slot_label = _extract_slot_label(short_message)
+                        if slot_label:
+                            hint = f"Field: {slot_label}"
+                    hint_text = f"\n{hint}\n" if hint else ""
+                    return (
+                        f"{label}\n\n"
+                        f"Where: {location}\n"
+                        f"What: {short_message}\n"
+                        f"{hint_text}\n"
+                        f"Open the step and adjust its parameters."
                     )
+
+                if error_count > 0:
+                    first_error = validation_msgs[0]
+                    box = QMessageBox(self)
+                    box.setIcon(QMessageBox.Icon.Critical)
+                    box.setWindowTitle("Validation Failed")
+                    box.setText(
+                        _format_validation_notice(
+                            first_error,
+                            f"Protocol validation failed ({error_count} error(s))."
+                        )
+                    )
+                    box.setDetailedText(first_error.message)
+                    box.exec()
                     return
                 else:
                     # Show warnings but allow export
-                    QMessageBox.warning(
-                        self,
-                        "Validation Warnings",
-                        f"Protocol has {msg_count} validation warning(s).\n\n"
-                        f"First warning: {validation_msgs[0].message}\n\n"
-                        f"Export will proceed."
+                    first_warning = validation_msgs[0]
+                    box = QMessageBox(self)
+                    box.setIcon(QMessageBox.Icon.Warning)
+                    box.setWindowTitle("Validation Warnings")
+                    box.setText(
+                        _format_validation_notice(
+                            first_warning,
+                            f"Protocol has {msg_count} validation warning(s)."
+                        )
                     )
+                    box.setDetailedText(first_warning.message)
+                    box.exec()
             else:
                 print("[linkml-validation] passed (no issues)")
             

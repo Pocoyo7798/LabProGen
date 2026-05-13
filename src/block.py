@@ -599,10 +599,14 @@ class Block(QGraphicsRectItem):
             scene.removeItem(self)
         
         # sync positions of the remaining blocks in the old clusters
-        if p_h: self.editor.reflow_entire_cluster(p_h)
-        elif n_h: self.editor.reflow_entire_cluster(n_h)
-        if p_v: self.editor.reflow_entire_cluster(p_v)
-        elif n_v: self.editor.reflow_entire_cluster(n_v)
+        anchors = [p_h, n_h, p_v, n_v]
+        seen = set()
+        for anchor in anchors:
+            if not anchor or anchor in seen:
+                continue
+            cluster = self.editor.get_full_cluster(anchor)
+            seen.update(cluster)
+            self.editor._reflow_component_layout(anchor)
 
         self.editor.update_linked_sequence()
         # force influence refresh so subproduct substance fields are updated
@@ -877,7 +881,7 @@ class Block(QGraphicsRectItem):
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
 
-        hidden_chemical_keys = [KEY_ENTITY_PRIVACY, KEY_ENTITY_ID, KEY_PRODUCER, KEY_PRIVATE_PURITY]
+        hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY]
 
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
@@ -962,7 +966,8 @@ class Block(QGraphicsRectItem):
                 _add_field(advanced_layout, key)
 
         preview_btn = None
-        if is_chemical and self.params.get(KEY_ENTITY_PRIVACY) == "Open Entity":
+        # Check if chemical has imported procedure (visually indicated)
+        if is_chemical and self.imported_procedure:
             preview_btn = QPushButton("Preview")
 
             def show_preview():
@@ -971,7 +976,7 @@ class Block(QGraphicsRectItem):
                     procedure = self.editor.get_open_entity_procedure(self.block_id)
                 if not procedure:
                     from PySide6.QtWidgets import QMessageBox
-                    QMessageBox.information(dialog, "Preview", "No procedure imported for this open entity.")
+                    QMessageBox.information(dialog, "Preview", "No procedure available for this chemical entity.")
                     return
 
                 self._preview_window = ProcedurePreviewDialog(procedure, parent=dialog)

@@ -208,6 +208,14 @@ def build_validation_schema(schema_name: str = "dcat_p_lab.yaml") -> dict:
         if slot_name in qualitative_string_slots and isinstance(slot_def, dict):
             slot_def["range"] = "string"
 
+    # Ensure quantity-like classes keep their value/unit/raw structure during
+    # validation even when the external imported base classes are not available.
+    qa = classes.get("QuantitativeAttribute")
+    if isinstance(qa, dict):
+        qa_slots = qa.get("slots")
+        if not isinstance(qa_slots, list) or not qa_slots:
+            qa["slots"] = ["value", "unit", "raw"]
+
     return schema
 
 

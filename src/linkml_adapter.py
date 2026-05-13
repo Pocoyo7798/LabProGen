@@ -80,7 +80,6 @@ CHEMICAL_TO_LINKML_CLASS = {
 
 
 CHEMICAL_FIELD_TO_LINKML_SLOT = {
-    "entity_privacy": "entity_privacy",
     "entity_id": "entity_id",
     "entity_producer": "entity_producer",
     "entity_purity": "entity_purity",
@@ -223,8 +222,52 @@ def boolean_to_text(value: Any) -> Any:
 def _quantity_or_raw(value: Any) -> dict[str, Any] | Any:
     if _is_blank(value):
         return None
+    if isinstance(value, dict):
+        text = quantity_to_text(value)
+        return text
+
     quantity = parse_quantity(value)
     return quantity.to_dict() if quantity else value
+
+
+def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
+    """Build an AmountOfSubstance object.
+
+    Continuous addition uses a quantitative slot in the schema, so we keep a
+    structured representation even when the UI only provides a bare number.
+    """
+    if _is_blank(value):
+        return None
+
+    if isinstance(value, dict):
+        numeric = value.get("value")
+        unit = value.get("unit")
+        raw = value.get("raw")
+        if not _is_blank(numeric):
+            built: dict[str, Any] = {"value": numeric}
+            if not _is_blank(unit):
+                built["unit"] = unit
+            built["raw"] = raw if not _is_blank(raw) else quantity_to_text(value) or str(numeric)
+            return built
+        return None
+
+    qty = parse_quantity(value)
+    if qty:
+        return qty.to_dict()
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        numeric_value = float(text)
+    except ValueError:
+        return {"value": text, "raw": text}
+
+    if numeric_value.is_integer():
+        numeric_value = int(numeric_value)
+
+    return {"value": numeric_value, "raw": text}
 
 
 def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
@@ -261,7 +304,7 @@ def change_atmosphere_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
 
 def change_temperature_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "has_target_temperature": _quantity_or_raw(params.get(KEY_TEMPERATURE)),
+        "has_target_temperature": quantity_to_text(params.get(KEY_TEMPERATURE)),
         "heating_process": params.get(KEY_PROCESS),
         "has_heat_ramp": _quantity_or_raw(params.get(KEY_RAMP)),
         "has_microwave_power": _quantity_or_raw(params.get(KEY_POWER)),
@@ -293,7 +336,7 @@ def continuous_addition_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "has_added_material": params.get(KEY_SUBSTANCE_LIST),
         "continuous_addition_type": params.get(KEY_CONTINUOUS_ADD_TYPE),
-        "has_intermittent_amount": _quantity_or_raw(params.get(KEY_AMOUNT)),
+        "has_intermittent_amount": build_amount_of_substance(params.get(KEY_AMOUNT)),
     }
 
 
@@ -320,6 +363,10 @@ def get_linkml_slot(field_key: str, action_name: str | None = None) -> str | Non
             return "has_intermittent_amount"
         if action_name == "Repeat":
             return "repetition_count"
+
+    if field_key == KEY_MIXTURE_NAME and action_name == "NewMixture":
+        # SolutionPreparationStep does not expose a name slot in the schema.
+        return None
 
     return FIELD_TO_LINKML_SLOT.get(field_key)
 
@@ -384,10 +431,9 @@ STEP_SLOT_TO_PARAM = {
 
 
 CHEMICAL_SLOT_TO_PARAM = {
-    "entity_privacy": "entity_privacy",
-    "entity_id": "entity_id",
-    "entity_producer": "entity_producer",
-    "entity_purity": "entity_purity",
+    "entity_id": KEY_ENTITY_ID,
+    "entity_producer": KEY_PRODUCER,
+    "entity_purity": KEY_ENTITY_PURITY,
     "molecular_formula": KEY_FORMULA,
     "smiles": KEY_SMILES,
     "inchi": KEY_INCHI,
@@ -713,7 +759,7 @@ SLOT_BUILDERS: dict[str, tuple[str, callable]] = {
     "has_vessel_volume": ("Volume", build_generic_quantitative_attribute),
     "has_minimum_particle_size": ("ParticleSize", build_generic_quantitative_attribute),
     "has_maximum_particle_size": ("ParticleSize", build_generic_quantitative_attribute),
-    "has_intermittent_amount": ("Amount", build_generic_quantitative_attribute),
+    "has_intermittent_amount": ("AmountOfSubstance", build_amount_of_substance),
     "has_ph_value": ("PhValue", build_generic_quantitative_attribute),
     "has_density": ("Density", build_generic_quantitative_attribute),
     "has_molar_mass": ("MolarMass", build_generic_quantitative_attribute),
