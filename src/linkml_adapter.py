@@ -94,22 +94,58 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
     },
     "Mixture": {
         KEY_NAME: "alternative_label",
+        KEY_MIXTURE_TYPE: "alternative_label",
         KEY_QUANTITY: "has_volume",
+        KEY_CHEMICAL_LIST: "alternative_label",
     },
     "PerfectSingleCrystalMaterial": {
         KEY_FORMULA: "molecular_formula",
         KEY_CIF: "has_crystallographic_information_file",
     },
+    "Molecules": {
+        KEY_FORMULA: "molecular_formula",
+        KEY_SMILES: "smiles",
+        KEY_INCHI: "inchi",
+    },
     "Polymers": {
+        KEY_FORMULA: "molecular_formula",
         KEY_BIGSMILES: "alternative_label",
+        KEY_INCHI: "inchi",
     },
     "Media": {
+        KEY_NAME: "alternative_label",
         KEY_QUANTITY: "has_volume",
         KEY_CONCENTRATION: "has_concentration",
         KEY_STATE: "has_physical_state",
+        KEY_FUNCTION: "alternative_label",
+        KEY_PURITY: "alternative_label",
+        KEY_STERILITY: "alternative_label",
+        KEY_SOLUBILITY: "alternative_label",
     },
     "BioProducts": {
         KEY_NAME: "alternative_label",
+        KEY_ORIGIN: "alternative_label",
+        KEY_PRODUCTION_PHASE: "alternative_label",
+        KEY_LOCATION: "alternative_label",
+    },
+    "HeterogeneousCatalysts": {
+        KEY_NAME: "alternative_label",
+        KEY_FORMULA: "molecular_formula",
+        KEY_3D_STRUCTURE: "alternative_label",
+        KEY_CRYSTALLINITY: "alternative_label",
+        KEY_N2_ADSORPTION_BET_AREA: "alternative_label",
+        KEY_N2_ADSORPTION_MICROPORE_AREA: "alternative_label",
+        KEY_N2_ADSORPTION_MESOPORE_AREA: "alternative_label",
+        KEY_N2_ADSORPTION_TOTAL_VOLUME: "alternative_label",
+        KEY_N2_ADSORPTION_MICROPORE_VOLUME: "alternative_label",
+        KEY_N2_MESOPORE_VOLUME: "alternative_label",
+        KEY_PY_B_150: "alternative_label",
+        KEY_PY_B_450: "alternative_label",
+        KEY_PY_L_150: "alternative_label",
+        KEY_PY_L_450: "alternative_label",
+    },
+    "MixtureChemical": {
+        KEY_CONCENTRATION: "has_concentration",
     },
     "ComplexMaterial": {
         KEY_BASE_MAT: "alternative_label",
@@ -219,6 +255,21 @@ def boolean_to_text(value: Any) -> Any:
     return value
 
 
+def normalize_physical_state(value: Any) -> Any:
+    if _is_blank(value):
+        return value
+    text = str(value).strip().upper().replace(" ", "_")
+    state_map = {
+        "LIQUID": "LIQUID",
+        "SOLID": "SOLID",
+        "GAS": "GASEOUS",
+        "GASEOUS": "GASEOUS",
+        "CRYSTAL": "CRYSTAL",
+        "CRYSTALLINE": "CRYSTAL",
+    }
+    return state_map.get(text, text)
+
+
 def _quantity_or_raw(value: Any) -> dict[str, Any] | Any:
     if _is_blank(value):
         return None
@@ -228,6 +279,20 @@ def _quantity_or_raw(value: Any) -> dict[str, Any] | Any:
 
     quantity = parse_quantity(value)
     return quantity.to_dict() if quantity else value
+
+
+def physical_state_to_text(value: Any) -> Any:
+    if _is_blank(value):
+        return value
+    text = str(value).strip().upper()
+    reverse_map = {
+        "LIQUID": "Liquid",
+        "SOLID": "Solid",
+        "GASEOUS": "Gas",
+        "GAS": "Gas",
+        "CRYSTAL": "Crystal",
+    }
+    return reverse_map.get(text, str(value))
 
 
 def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
@@ -458,6 +523,8 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
         if isinstance(value, list):
             return ", ".join(str(v) for v in value if not _is_blank(v))
         return value
+    if slot == "has_physical_state":
+        return physical_state_to_text(value)
     if slot == "has_intermittent_amount" and isinstance(value, dict):
         return quantity_to_text(value)
     # Convert material objects back to simple labels when present
@@ -484,6 +551,10 @@ def _convert_linkml_chemical_slots(slots: dict[str, Any]) -> dict[str, Any]:
 
         if slot in {"has_volume", "has_mass", "has_amount"}:
             params[param_key] = quantity_to_text(value)
+            continue
+
+        if slot == "has_physical_state":
+            params[param_key] = physical_state_to_text(value)
             continue
 
         params[param_key] = value
@@ -753,6 +824,7 @@ SLOT_BUILDERS: dict[str, tuple[str, callable]] = {
     "has_concentration": ("Concentration", build_generic_quantitative_attribute),
     "has_mass": ("Mass", build_generic_quantitative_attribute),
     "has_flow_rate": ("FlowRate", build_generic_quantitative_attribute),
+    "has_physical_state": ("PhysicalState", normalize_physical_state),
     "has_heat_ramp": ("HeatRamp", build_generic_quantitative_attribute),
     "has_microwave_power": ("MicrowavePower", build_generic_quantitative_attribute),
     "has_stirring_speed": ("StirringSpeed", build_generic_quantitative_attribute),
@@ -827,6 +899,12 @@ def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[
             if slot:
                 quantity = parse_quantity(value)
                 slots[slot] = quantity.to_dict() if quantity else value
+            continue
+
+        if key == KEY_STATE:
+            slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
+            if slot:
+                slots[slot] = normalize_physical_state(value)
             continue
 
         slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)

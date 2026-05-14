@@ -31,13 +31,25 @@ class ChemicalEntity:
         return chemical_to_linkml_dict(self.__class__.__name__, self.params)
 
 class Substance(ChemicalEntity):
-    """simple molecule that can be described by atom-level representations."""
-    def __init__(self, formula="", smile="", inchi="", **kwargs):
+    """Second Level: Simple molecule that can be described by atom-level representations."""
+    def __init__(self, name="", **kwargs):
         super().__init__(**{
+            KEY_NAME: name,
+            **kwargs
+        })
+
+
+class Molecules(Substance):
+    """Third Level: Chemical entities described fully by formula + SMILES/InChi.
+    
+    Inherits from Substance with identical fields.
+    """
+    def __init__(self, name="", formula="", smile="", inchi="", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.params.update({
             KEY_FORMULA: formula,
             KEY_SMILES: smile,
             KEY_INCHI: inchi,
-            **kwargs
         })
 
 class Material(ChemicalEntity):
@@ -52,10 +64,37 @@ class Material(ChemicalEntity):
         })
 
 class Mixture(ChemicalEntity):
-    """mixture entity represented by name."""
-    def __init__(self, name="", **kwargs):
+    """Mixture entity with optional mixture type and chemical list."""
+    def __init__(self, name="", mixture_type="", chemical_list=None, **kwargs):
+        if chemical_list is None:
+            chemical_list = []
         super().__init__(**{
             KEY_NAME: name,
+            KEY_MIXTURE_TYPE: mixture_type,
+            KEY_CHEMICAL_LIST: chemical_list,
+            **kwargs
+        })
+
+
+class MixtureChemical(ChemicalEntity):
+    """Third Level: Individual chemical in a mixture with concentration.
+    
+    Used only within Mixture.chemical_list as array items.
+    Stores: {type, chemical_type, params, concentration}
+    """
+    def __init__(self, chemical_type="", params=None, concentration="", **kwargs):
+        """
+        Args:
+            chemical_type: Name of the chemical class (e.g., 'Substance', 'Molecules')
+            params: Dict of chemical-specific parameters
+            concentration: Proportion in mixture (e.g., 'g/L', 'M', 'vol/vol')
+        """
+        if params is None:
+            params = {}
+        super().__init__(**{
+            "chemical_type": chemical_type,
+            **params,
+            KEY_CONCENTRATION: concentration,
             **kwargs
         })
 
@@ -68,19 +107,24 @@ class PerfectSingleCrystalMaterial(ChemicalEntity):
             **kwargs
         })
 
-class Polymers(ChemicalEntity):
-    """polymer entity represented by BigSMILES."""
-    def __init__(self, bigsmiles="", **kwargs):
-        super().__init__(**{
-            KEY_BIGSMILES: bigsmiles,
-            **kwargs
-        })
+class Polymers(Molecules):
+    """Third Level: Polymers using BigSMILES instead of SMILES.
+    
+    Inherits from Molecules, replaces smiles field with bigsmiles.
+    """
+    def __init__(self, name="", formula="", bigsmiles="", inchi="", **kwargs):
+        super().__init__(name=name, formula=formula, smile=bigsmiles, inchi=inchi, **kwargs)
+        # Replace SMILES with BigSMILES
+        if KEY_SMILES in self.params:
+            del self.params[KEY_SMILES]
+        self.params[KEY_BIGSMILES] = bigsmiles
 
-class Media(ChemicalEntity):
-    """cell-culture media entity with functional and quality descriptors."""
+class Media(Mixture):
+    """Third Level: Biological media (inherits from Mixture)."""
     def __init__(
         self,
-        quantity="0 g",
+        name="",
+        quantity="",
         function="",
         state="",
         concentration="",
@@ -92,7 +136,7 @@ class Media(ChemicalEntity):
         oxidation_sensitivity="",
         **kwargs,
     ):
-        super().__init__(**{
+        super().__init__(name=name, **{
             KEY_QUANTITY: quantity,
             KEY_FUNCTION: function,
             KEY_STATE: state,
@@ -107,9 +151,14 @@ class Media(ChemicalEntity):
         })
 
 class BioProducts(ChemicalEntity):
-    """biological products with production and localization metadata."""
+    """biological products with production and localization metadata.
+    
+    Has entity_type field (Substance or Mixture) to determine inheritance behavior.
+    name field only populated if entity_type=="Substance".
+    """
     def __init__(
         self,
+        entity_type="Substance",
         name="",
         origin="",
         production_phase="",
@@ -117,11 +166,12 @@ class BioProducts(ChemicalEntity):
         temperature_stability="",
         light_sensitivity="",
         oxidation_sensitivity="",
-        toxicity_to_producer="neutral",
+        toxicity_to_producer="",
         **kwargs,
     ):
         super().__init__(**{
-            KEY_NAME: name,
+            KEY_ENTITY_TYPE: entity_type,
+            KEY_NAME: name if entity_type == "Substance" else "",
             KEY_ORIGIN: origin,
             KEY_PRODUCTION_PHASE: production_phase,
             KEY_LOCATION: location,
@@ -131,5 +181,48 @@ class BioProducts(ChemicalEntity):
             KEY_TOXICITY_TO_PRODUCER: toxicity_to_producer,
             **kwargs
         })
+
+
+class HeterogeneousCatalysts(ChemicalEntity):
+    """Third Level: Heterogeneous catalysts (inherits from Substance or Mixture via entity_type field). All params optional."""
+    def __init__(
+        self,
+        entity_type="Substance",
+        name="",
+        formula="",
+        structure_3d="",
+        crystallinity="",
+        n2_bet_area="",
+        n2_micropore_area="",
+        n2_mesopore_area="",
+        n2_total_volume="",
+        n2_micropore_volume="",
+        n2_mesopore_volume="",
+        py_b_150="",
+        py_b_450="",
+        py_l_150="",
+        py_l_450="",
+        **kwargs,
+    ):
+        super().__init__(**{
+            KEY_ENTITY_TYPE: entity_type,
+            KEY_NAME: name if entity_type == "Substance" else "",
+            KEY_FORMULA: formula,
+            KEY_3D_STRUCTURE: structure_3d,
+            KEY_CRYSTALLINITY: crystallinity,
+            KEY_N2_ADSORPTION_BET_AREA: n2_bet_area,
+            KEY_N2_ADSORPTION_MICROPORE_AREA: n2_micropore_area,
+            KEY_N2_ADSORPTION_MESOPORE_AREA: n2_mesopore_area,
+            KEY_N2_ADSORPTION_TOTAL_VOLUME: n2_total_volume,
+            KEY_N2_ADSORPTION_MICROPORE_VOLUME: n2_micropore_volume,
+            KEY_N2_MESOPORE_VOLUME: n2_mesopore_volume,
+            KEY_PY_B_150: py_b_150,
+            KEY_PY_B_450: py_b_450,
+            KEY_PY_L_150: py_l_150,
+            KEY_PY_L_450: py_l_450,
+            **kwargs
+        })
+
+
 # Backward compatibility alias
 Chemical = ChemicalEntity

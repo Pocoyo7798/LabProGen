@@ -3,10 +3,11 @@ import json
 import re
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame
+    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Qt, QPointF
-from PySide6.QtGui import QCursor, QFont, QPainter, QColor
+from PySide6.QtGui import QCursor, QFont, QPainter, QColor, QDoubleValidator
 from .block import ElementaryAction, SupportAction, ChemicalBlock
 from .config import *
 from .actions import *
@@ -31,11 +32,68 @@ STATUS_BADGE_STYLE = {
     "info": "background-color: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe;",
 }
 
+
+def get_chemical_default_params(chemical_type: str) -> dict:
+    """Return the default parameter dictionary for a chemical type."""
+    defaults = {
+        "Substance": {KEY_NAME: ""},
+        "MixtureChemical": {"chemical_type": "Substance", KEY_FORMULA: "", KEY_CONCENTRATION: ""},
+        "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
+        "Mixture": {KEY_NAME: "", KEY_MIXTURE_TYPE: "", KEY_CHEMICAL_LIST: []},
+        "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
+        "Molecules": {KEY_NAME: "", KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: ""},
+        "Polymers": {KEY_NAME: "", KEY_FORMULA: "", KEY_BIGSMILES: "", KEY_INCHI: ""},
+        "Media": {
+            KEY_NAME: "",
+            KEY_MIXTURE_TYPE: "",
+            KEY_CHEMICAL_LIST: [],
+            KEY_QUANTITY: "",
+            KEY_FUNCTION: "",
+            KEY_STATE: "",
+            KEY_CONCENTRATION: "",
+            KEY_PURITY: "",
+            KEY_STERILITY: "",
+            KEY_SOLUBILITY: "",
+            KEY_TEMPERATURE_STABILITY: "",
+            KEY_LIGHT_SENSITIVITY: "",
+            KEY_OXIDATION_SENSITIVITY: "",
+        },
+        "BioProducts": {
+            KEY_ENTITY_TYPE: "Substance",
+            KEY_NAME: "",
+            KEY_ORIGIN: "",
+            KEY_PRODUCTION_PHASE: "",
+            KEY_LOCATION: "",
+            KEY_TEMPERATURE_STABILITY: "",
+            KEY_LIGHT_SENSITIVITY: "",
+            KEY_OXIDATION_SENSITIVITY: "",
+            KEY_TOXICITY_TO_PRODUCER: "",
+        },
+        "HeterogeneousCatalysts": {
+            KEY_ENTITY_TYPE: "Substance",
+            KEY_NAME: "",
+            KEY_FORMULA: "",
+            KEY_3D_STRUCTURE: "",
+            KEY_CRYSTALLINITY: "",
+            KEY_N2_ADSORPTION_BET_AREA: "",
+            KEY_N2_ADSORPTION_MICROPORE_AREA: "",
+            KEY_N2_ADSORPTION_MESOPORE_AREA: "",
+            KEY_N2_ADSORPTION_TOTAL_VOLUME: "",
+            KEY_N2_ADSORPTION_MICROPORE_VOLUME: "",
+            KEY_N2_MESOPORE_VOLUME: "",
+            KEY_PY_B_150: "",
+            KEY_PY_B_450: "",
+            KEY_PY_L_150: "",
+            KEY_PY_L_450: "",
+        },
+    }
+    return copy.deepcopy(defaults.get(chemical_type, {}))
+
 class ActionSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Action")
-        self.setFixedWidth(500)
+        self.setMinimumWidth(500)
         self.selected_action = None
         
         main_layout = QVBoxLayout()
@@ -100,6 +158,7 @@ class ActionSelectionDialog(QDialog):
         grid.addLayout(supp_layout)
         main_layout.addLayout(grid)
         
+        self.adjustSize()
         self.setLayout(main_layout)
     
     def select_action(self, action):
@@ -110,7 +169,7 @@ class ChemicalSelectionDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Chemical Entity")
-        self.setFixedWidth(350)
+        self.setMinimumWidth(350)
         self.selected_chemical = None
         layout = QVBoxLayout()
         layout.setSpacing(8)
@@ -121,14 +180,19 @@ class ChemicalSelectionDialog(QDialog):
         layout.addWidget(title)
         
         # list of all entities from the data model
+        # Second Level and Third Level chemicals
         entities = {
-            "Substance": "Molecules",
-            "Material": "Material",
+            # Ordered as requested by user
+            "Substance": "Substance",
+            "MixtureChemical": "MixtureChemical",
             "Mixture": "Mixture",
-            "PerfectSingleCrystalMaterial": "Perfect Single Crystal Material",
-            "Polymers": "Polymers",
-            "Media": "Media",
-            "BioProducts": "BioProducts"
+
+            # Third Level
+            "BioProducts": "BioProducts",
+            "Molecules": "Molecules (Substance)",
+            "Polymers": "Polymers (Molecule)",
+            "Media": "Media (Mixture)",
+            "HeterogeneousCatalysts": "HeterogeneousCatalysts",
         }
         
         for key, label in entities.items():
@@ -138,6 +202,7 @@ class ChemicalSelectionDialog(QDialog):
             btn.clicked.connect(lambda checked=False, k=key: self.select_chemical(k))
             layout.addWidget(btn)
         
+        self.adjustSize()
         self.setLayout(layout)
     
     def select_chemical(self, chemical):
@@ -158,7 +223,7 @@ class UnifiedChemicalDetailsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chemical Entity Details")
-        self.setFixedWidth(480)
+        self.setMinimumWidth(480)
         self.imported_procedure = None
         self.first_level_fields = {}
 
@@ -221,8 +286,6 @@ class UnifiedChemicalDetailsDialog(QDialog):
         self._set_status("No procedure selected.", "neutral")
         layout.addWidget(self.status)
 
-        layout.addStretch()
-
         # Action Buttons
         button_row = QHBoxLayout()
         button_row.addStretch()
@@ -240,6 +303,7 @@ class UnifiedChemicalDetailsDialog(QDialog):
         button_row.addWidget(ok_btn)
 
         layout.addLayout(button_row)
+        self.adjustSize()
 
     def _set_status(self, message, tone="neutral"):
         style = STATUS_BADGE_STYLE.get(tone, STATUS_BADGE_STYLE["neutral"])
@@ -283,17 +347,323 @@ class UnifiedChemicalDetailsDialog(QDialog):
         self.accept()
 
 
+class NewEntityProcedureDialog(QDialog):
+    """Minimal dialog to create an empty preparation procedure."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Create New Procedure")
+        self.setMinimumWidth(420)
+        self.procedure_data = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Create a new empty procedure")
+        title.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Procedure name...")
+        form.addRow("Name:", self.name_edit)
+        layout.addLayout(form)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+
+        create_btn = QPushButton("Create")
+        create_btn.setMinimumSize(92, 34)
+        create_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        create_btn.clicked.connect(self._accept)
+        button_row.addWidget(create_btn)
+
+        layout.addLayout(button_row)
+        self.adjustSize()
+
+    def _accept(self):
+        name = self.name_edit.text().strip() or DEFAULT_PROTOCOL_NAME
+        self.procedure_data = {
+            "protocol_name": name,
+            "total_flows": 0,
+            "preview_flows": [],
+            "flows": [],
+        }
+        self.accept()
 
 
+class MixtureChemicalParametersDialog(QDialog):
+    """Second step dialog that reuses the normal chemical editor."""
+    def __init__(self, chemical_type, parent=None, initial_params=None):
+        super().__init__(parent)
+        self.selected_chemical_type = chemical_type
+        self.initial_params = initial_params or {}
+        self.chemical_params = {}
+
+    def exec(self):
+        temp_params = get_chemical_default_params(self.selected_chemical_type)
+        temp_params.update(self.initial_params)
+
+        temp_block = ChemicalBlock(self.selected_chemical_type, temp_params, editor=self.parent())
+        temp_block.open_editor()
+
+        if getattr(temp_block, "_editor_accepted", False):
+            self.chemical_params = temp_block.params.copy()
+            return QDialog.Accepted
+
+        return QDialog.Rejected
 
 
+class MixtureChemicalDialog(QDialog):
+    """First step dialog for a MixtureChemical item.
+    
+    Collects only the chemical type and concentration.
+    """
+    def __init__(self, parent=None, initial_type="Substance", initial_concentration=""):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Mixture Chemical")
+        self.setMinimumWidth(420)
+        self.selected_chemical_type = None
+        self.concentration = ""
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        type_label = QLabel("Chemical Type")
+        type_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(type_label)
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItem("Substance", "Substance")
+        self.type_combo.addItem("Molecules", "Molecules")
+        self.type_combo.addItem("BioProducts", "BioProducts")
+        self.type_combo.addItem("Polymers", "Polymers")
+        self.type_combo.addItem("Media (Mixture)", "Media")
+        self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
+        idx = self.type_combo.findData(initial_type)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        layout.addWidget(self.type_combo)
+
+        conc_label = QLabel("Concentration")
+        conc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(conc_label)
+
+        # Create concentration widget with value input and unit dropdown
+        conc_container = QWidget()
+        conc_layout = QHBoxLayout(conc_container)
+        conc_layout.setContentsMargins(0, 0, 0, 0)
+        conc_layout.setSpacing(8)
+
+        self.conc_edit = QLineEdit()
+        self.conc_edit.setPlaceholderText("Enter value")
+        self.conc_edit.setValidator(QDoubleValidator(0.0, 999999.0, 2))
+        
+        self.conc_unit = QComboBox()
+        self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
+        
+        # Parse initial value (e.g., "10 g/L" or "1 M")
+        if initial_concentration:
+            parts = initial_concentration.strip().split()
+            if len(parts) == 2:
+                self.conc_edit.setText(parts[0])
+                idx = self.conc_unit.findText(parts[1])
+                if idx >= 0:
+                    self.conc_unit.setCurrentIndex(idx)
+            elif len(parts) == 1 and parts[0]:
+                self.conc_edit.setText(parts[0])
+        
+        conc_layout.addWidget(self.conc_edit, 2)
+        conc_layout.addWidget(self.conc_unit, 1)
+        layout.addWidget(conc_container)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+
+        next_btn = QPushButton("Next")
+        next_btn.setMinimumSize(92, 34)
+        next_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        next_btn.clicked.connect(self._accept)
+        button_row.addWidget(next_btn)
+
+        layout.addLayout(button_row)
+        self.adjustSize()
+
+    def _accept(self):
+        self.selected_chemical_type = self.type_combo.currentData()
+        # Combine value and unit
+        value = self.conc_edit.text().strip()
+        unit = self.conc_unit.currentText()
+        self.concentration = f"{value} {unit}" if value else ""
+        self.accept()
+
+
+class MixtureChemicalListDialog(QDialog):
+    """Dialog to manage list of MixtureChemical items for a Mixture.
+    
+    Shows a table of chemicals with concentration, allows Add/Edit/Remove.
+    """
+    def __init__(self, parent=None, chemical_list=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Mixture Chemicals")
+        self.setFixedSize(600, 400)
+        
+        if chemical_list is None:
+            chemical_list = []
+        self.chemical_list = chemical_list.copy() if isinstance(chemical_list, list) else []
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Chemicals in Mixture")
+        title.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(title)
+
+        # Table to display chemicals
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Type", "Formula/Name", "Concentration", "Actions"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        layout.addWidget(self.table)
+
+        self._populate_table()
+
+        # Buttons for list management
+        list_btn_row = QHBoxLayout()
+        
+        add_btn = QPushButton("Add Chemical")
+        add_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        add_btn.clicked.connect(self._add_chemical)
+        list_btn_row.addWidget(add_btn)
+
+        list_btn_row.addStretch()
+        layout.addLayout(list_btn_row)
+
+        # Dialog action buttons
+        dialog_btn_row = QHBoxLayout()
+        dialog_btn_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        dialog_btn_row.addWidget(cancel_btn)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setMinimumSize(92, 34)
+        ok_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        ok_btn.clicked.connect(self.accept)
+        dialog_btn_row.addWidget(ok_btn)
+
+        layout.addLayout(dialog_btn_row)
+
+    def _populate_table(self):
+        """Populate table with current chemicals."""
+        self.table.setRowCount(len(self.chemical_list))
+        for row, chem in enumerate(self.chemical_list):
+            chem_type = chem.get("chemical_type", "Unknown")
+            formula = chem.get(KEY_FORMULA, chem.get("name", "—"))
+            concentration = chem.get(KEY_CONCENTRATION, "—")
+
+            self.table.setItem(row, 0, QTableWidgetItem(chem_type))
+            self.table.setItem(row, 1, QTableWidgetItem(formula))
+            self.table.setItem(row, 2, QTableWidgetItem(concentration))
+
+            # Edit/Remove buttons
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout(actions_widget)
+            actions_layout.setContentsMargins(0, 0, 0, 0)
+
+            edit_btn = QPushButton("Edit")
+            edit_btn.setMaximumWidth(50)
+            edit_btn.clicked.connect(lambda checked=False, r=row: self._edit_chemical(r))
+            actions_layout.addWidget(edit_btn)
+
+            remove_btn = QPushButton("Remove")
+            remove_btn.setMaximumWidth(70)
+            remove_btn.clicked.connect(lambda checked=False, r=row: self._remove_chemical(r))
+            actions_layout.addWidget(remove_btn)
+
+            self.table.setCellWidget(row, 3, actions_widget)
+
+    def _add_chemical(self):
+        """Open dialog to add new chemical."""
+        dialog = MixtureChemicalDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        params_dlg = MixtureChemicalParametersDialog(
+            dialog.selected_chemical_type,
+            self,
+            initial_params=get_chemical_default_params(dialog.selected_chemical_type),
+        )
+        if params_dlg.exec() != QDialog.Accepted:
+            return
+
+        new_chem = {
+            "chemical_type": dialog.selected_chemical_type,
+            **params_dlg.chemical_params,
+            KEY_CONCENTRATION: dialog.concentration,
+        }
+        self.chemical_list.append(new_chem)
+        self._populate_table()
+
+    def _edit_chemical(self, row):
+        """Open dialog to edit chemical at row."""
+        if 0 <= row < len(self.chemical_list):
+            chem = self.chemical_list[row]
+            dialog = MixtureChemicalDialog(self, initial_type=chem.get("chemical_type", "Substance"), initial_concentration=chem.get(KEY_CONCENTRATION, ""))
+            if dialog.exec() != QDialog.Accepted:
+                return
+
+            params_dialog = MixtureChemicalParametersDialog(
+                dialog.selected_chemical_type,
+                self,
+                initial_params={**get_chemical_default_params(chem.get("chemical_type", "Substance")), **chem},
+            )
+            if params_dialog.exec() != QDialog.Accepted:
+                return
+
+            self.chemical_list[row] = {
+                "chemical_type": dialog.selected_chemical_type,
+                **params_dialog.chemical_params,
+                KEY_CONCENTRATION: dialog.concentration,
+            }
+            self._populate_table()
+
+    def _remove_chemical(self, row):
+        """Remove chemical at row."""
+        if 0 <= row < len(self.chemical_list):
+            del self.chemical_list[row]
+            self._populate_table()
+
+    def get_chemical_list(self):
+        """Return the managed chemical list."""
+        return self.chemical_list
 
 
 class ExportProtocolDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Export Protocol")
-        self.setFixedWidth(420)
+        self.setMinimumWidth(420)
         self.export_kind = "protocol"
         self.export_format = "json"
 
@@ -319,8 +689,6 @@ class ExportProtocolDialog(QDialog):
         self.format_combo.addItem("YAML", "yaml")
         layout.addWidget(self.format_combo)
 
-        layout.addStretch()
-
         button_row = QHBoxLayout()
         button_row.addStretch()
 
@@ -344,53 +712,18 @@ class ExportProtocolDialog(QDialog):
         self.accept()
 
 
-class NewEntityProcedureDialog(QDialog):
+class Editor(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("New Entity Procedure")
-        self.resize(1200, 820)
-        self.procedure_data = None
 
-        self.editor = Editor()
-
-        # Keep the normal editor experience, but replace Import/Export with Save.
-        self.editor.export_btn.hide()
-        self.editor.import_btn.hide()
-
-        save_btn = QPushButton("💾 Save Procedure")
-        save_btn.clicked.connect(self.save_procedure)
-
-        button_layout = self.editor.button_bar_widget.layout()
-        if button_layout is not None:
-            button_layout.addWidget(save_btn)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.editor.container)
-
-    def save_procedure(self):
-        data = self.editor.generate_protocol_output(show_feedback=False)
-        if not data:
-            QMessageBox.warning(self, "Save Procedure", "Create at least one valid flow before saving.")
-            return
-        self.procedure_data = data
-        self.accept()
-
-
-class Editor(QGraphicsView):
-    def __init__(self):
-        scene = QGraphicsScene()
-        super().__init__(scene)
-        self.scene = scene
+        self.scene = QGraphicsScene(self)
+        self.setScene(self.scene)
+        self.setSceneRect(0, 0, 1200, 900)
         self.setWindowTitle("Laboratory Protocol Builder")
-        self.setSceneRect(0, 0, 1200, 700)
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        
-        # Initialize protocol
-        self.protocol = Protocol()
-        self.blocks = []  # Keep track of all blocks
-        self.linked_sequence = []  # Ordered list of linked actions by x-axis position
+        self.blocks = []
+        self.linked_sequence = []
         self.link_distance = 100  # Distance threshold for linking
+        self.protocol = Protocol()
         self.protocol_data = {}
         self.open_entity_procedures = {}
         self.chemical_procedure_index = {}
@@ -899,6 +1232,7 @@ class Editor(QGraphicsView):
 
         self.scene.clear()
         self.blocks = []
+        self.protocol = Protocol()
         self.protocol.actions = []
         self.protocol_data = copy.deepcopy(data) if isinstance(data, dict) else {}
         self.open_entity_procedures = {}
@@ -1207,45 +1541,18 @@ class Editor(QGraphicsView):
                 "Substance": Substance,
                 "Material": Material,
                 "Mixture": Mixture,
+                "MixtureChemical": None,  # handled as a list item, not a standalone block
                 "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
+                "Molecules": Molecules,
                 "Polymers": Polymers,
                 "Media": Media,
-                "BioProducts": BioProducts
-            }
-            
-            # define initial parameters for each type using config keys
-            default_params_map = {
-                "Substance": {KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: ""},
-                "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
-                "Mixture": {KEY_NAME: ""},
-                "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
-                "Polymers": {KEY_BIGSMILES: ""},
-                "Media": {
-                    KEY_QUANTITY: "0 g",
-                    KEY_FUNCTION: "",
-                    KEY_STATE: "",
-                    KEY_CONCENTRATION: "",
-                    KEY_PURITY: "",
-                    KEY_STERILITY: "",
-                    KEY_SOLUBILITY: "",
-                    KEY_TEMPERATURE_STABILITY: "",
-                    KEY_LIGHT_SENSITIVITY: "",
-                    KEY_OXIDATION_SENSITIVITY: "",
-                },
-                "BioProducts": {
-                    KEY_NAME: "",
-                    KEY_ORIGIN: "",
-                    KEY_PRODUCTION_PHASE: "",
-                    KEY_LOCATION: "",
-                    KEY_TEMPERATURE_STABILITY: "",
-                    KEY_LIGHT_SENSITIVITY: "",
-                    KEY_OXIDATION_SENSITIVITY: "",
-                    KEY_TOXICITY_TO_PRODUCER: "neutral",
-                }
+                "BioProducts": BioProducts,
+                "HeterogeneousCatalysts": HeterogeneousCatalysts,
             }
             
             chem_type = dialog.selected_chemical
-            params = {**entity_params, **default_params_map.get(chem_type, {})}
+            params = {**entity_params, **get_chemical_default_params(chem_type)}
+            
             chem_class = chemical_map.get(chem_type)
             
             if chem_class:

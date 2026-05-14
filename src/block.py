@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
     QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
     QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox,
-    QToolButton
+    QToolButton, QSizePolicy
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
@@ -867,6 +867,121 @@ class Block(QGraphicsRectItem):
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             return combo, combo
+
+        elif f_type == "list":
+            # Create compact chemical list widget with add button and tags
+            list_value = value if isinstance(value, list) else (value or [])
+            
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
+
+            # Add button row
+            button_layout = QHBoxLayout()
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            
+            add_btn = QPushButton("+ Add")
+            add_btn.setFixedHeight(30)
+            add_btn.setStyleSheet(
+                "QPushButton {"
+                "  font-size: 11px;"
+                "  padding: 6px 10px;"
+                "  text-align: center;"
+                "}"
+            )
+            add_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            
+            def _add_chemical():
+                from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog
+
+                parent_dialog = self.editor if self.editor else self
+
+                dlg = MixtureChemicalDialog(parent_dialog)
+                if dlg.exec() != QDialog.Accepted:
+                    return
+
+                params_dlg = MixtureChemicalParametersDialog(dlg.selected_chemical_type, parent_dialog)
+                if params_dlg.exec() != QDialog.Accepted:
+                    return
+
+                new_chem = {
+                    "chemical_type": dlg.selected_chemical_type,
+                    **params_dlg.chemical_params,
+                    KEY_CONCENTRATION: dlg.concentration,
+                }
+                list_value.append(new_chem)
+                _update_tags()
+            
+            add_btn.clicked.connect(_add_chemical)
+            button_layout.addWidget(add_btn)
+            layout.addLayout(button_layout)
+            
+            # Tags area for showing added items
+            tags_container = QWidget()
+            tags_layout = QHBoxLayout(tags_container)
+            tags_layout.setContentsMargins(0, 0, 0, 0)
+            tags_layout.setSpacing(4)
+            tags_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            
+            def _update_tags():
+                # Clear existing tags
+                while tags_layout.count():
+                    child = tags_layout.takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+                
+                # Add tag for each chemical
+                for idx, chem in enumerate(list_value):
+                    chem_type = chem.get("chemical_type", "Unknown")
+                    formula = chem.get(KEY_FORMULA, "—")
+                    conc = chem.get(KEY_CONCENTRATION, "")
+                    
+                    # Create tag label
+                    tag_text = f"{chem_type}: {formula}"
+                    if conc:
+                        tag_text += f" ({conc})"
+                    
+                    tag_label = QLabel(tag_text)
+                    tag_label.setStyleSheet(
+                        "background-color: #e0e7ff; color: #3730a3; padding: 4px 8px; "
+                        "border-radius: 4px; font-size: 11px; border: 1px solid #c7d2fe;"
+                    )
+                    
+                    # Remove button
+                    remove_btn = QPushButton("✕")
+                    remove_btn.setMaximumWidth(20)
+                    remove_btn.setMaximumHeight(20)
+                    remove_btn.setStyleSheet(
+                        "QPushButton { background-color: transparent; color: #6b7280; "
+                        "border: none; font-weight: bold; } "
+                        "QPushButton:hover { color: #ef4444; }"
+                    )
+                    
+                    def _remove(check=False, i=idx):
+                        if 0 <= i < len(list_value):
+                            del list_value[i]
+                            _update_tags()
+                    
+                    remove_btn.clicked.connect(_remove)
+                    
+                    tag_row = QHBoxLayout()
+                    tag_row.setContentsMargins(0, 0, 0, 0)
+                    tag_row.setSpacing(2)
+                    tag_row.addWidget(tag_label)
+                    tag_row.addWidget(remove_btn)
+                    
+                    tag_widget = QWidget()
+                    tag_widget.setLayout(tag_row)
+                    tags_layout.addWidget(tag_widget)
+                
+                tags_layout.addStretch()
+            
+            _update_tags()
+            layout.addWidget(tags_container)
+            
+            # tracker will be the actual list object
+            return container, list_value
         
         else:
             edit = QLineEdit(str(value))
@@ -878,14 +993,21 @@ class Block(QGraphicsRectItem):
         if not self.params:
             return
 
+        self._editor_accepted = False
+
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
+
+        can_switch_to_mixture = self.action in {"BioProducts", "HeterogeneousCatalysts"}
+        if can_switch_to_mixture:
+            params_for_dialog.setdefault(KEY_MIXTURE_TYPE, "")
+            params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY]
 
         dialog = QDialog()
         dialog.setWindowTitle(self.action)
-        dialog.setFixedWidth(400)
+        dialog.setMinimumWidth(400)
         main_layout = QVBoxLayout(dialog)
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -896,35 +1018,82 @@ class Block(QGraphicsRectItem):
 
         input_map = {}
         row_widgets = {}
+        row_labels = {}  # Store label widgets for visibility control
 
         if is_chemical:
             ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_chemical_keys]
         else:
             ordered_keys = list(params_for_dialog.keys())
 
+        # Extract entity_type if exists and move it to the front
+        entity_type_key = None
+        if KEY_ENTITY_TYPE in ordered_keys:
+            ordered_keys.remove(KEY_ENTITY_TYPE)
+            entity_type_key = KEY_ENTITY_TYPE
+
         required_keys: list[str] = []
         optional_keys: list[str] = []
+        entity_type_value = params_for_dialog.get(KEY_ENTITY_TYPE, "")
+        force_required_keys = set()
+        if self.action in {"Mixture", "Media"}:
+            force_required_keys.update({KEY_MIXTURE_TYPE, KEY_CHEMICAL_LIST})
+
+        main_conditional_keys: list[str] = []
+        if can_switch_to_mixture:
+            main_conditional_keys.extend([KEY_MIXTURE_TYPE, KEY_CHEMICAL_LIST])
+        
         for key in ordered_keys:
-            if is_field_required(key, params=params_for_dialog, action_name=self.action):
+            if key in main_conditional_keys:
+                continue
+            # When entity_type is Mixture, chemical_list and mixture_type are required
+            if key in force_required_keys or (entity_type_value == "Mixture" and key in [KEY_CHEMICAL_LIST, KEY_MIXTURE_TYPE]):
+                required_keys.append(key)
+            elif is_field_required(key, params=params_for_dialog, action_name=self.action):
                 required_keys.append(key)
             else:
                 optional_keys.append(key)
 
-        def _add_field(target_layout: QFormLayout, key: str) -> None:
+        def _add_field(target_layout: QFormLayout, key: str, show: bool = True) -> dict | None:
+            """Add field to layout. Returns row index if added, None if hidden."""
+            if not show:
+                return None
+                
             value = params_for_dialog.get(key, "")
             # Retrieve label from config. Fallback to capitalized key string
             config = FIELD_CONFIG.get(key.lower(), {})
             label = config.get("label", key.capitalize())
 
             widget, tracker = self._get_field_widget(key, value)
-            target_layout.addRow(label + ":", widget)
+            # Explicitly create label widget to ensure proper visibility control
+            label_widget = QLabel(label + ":")
+            target_layout.addRow(label_widget, widget)
             input_map[key] = tracker
             row_widgets[key] = widget
+            row_labels[key] = label_widget  # Store label widget for later visibility control
+            return {"widget": widget, "tracker": tracker, "label": label}
+
+        # Add entity_type field first if it exists
+        entity_type_widget = None
+        if entity_type_key:
+            result = _add_field(form_layout, entity_type_key, show=True)
+            if result:
+                entity_type_widget = result["widget"]
 
         for key in required_keys:
             _add_field(form_layout, key)
 
+        for key in main_conditional_keys:
+            _add_field(form_layout, key)
+
+        # For chemicals that can switch between Substance and Mixture types,
+        # ensure NAME is added to the visible fields if not already present
+        if can_switch_to_mixture and KEY_NAME not in row_labels:
+            if KEY_NAME in optional_keys:
+                optional_keys.remove(KEY_NAME)  # Will be added below
+            _add_field(form_layout, KEY_NAME)
+
         advanced_container = None
+        advanced_toggle = None
         if optional_keys:
             advanced_toggle = QToolButton()
             advanced_toggle.setText("Advanced parameters")
@@ -965,6 +1134,30 @@ class Block(QGraphicsRectItem):
             for key in optional_keys:
                 _add_field(advanced_layout, key)
 
+        def _update_conditional_fields() -> None:
+            current_type = entity_type_widget.currentText() if entity_type_widget else entity_type_value
+            show_mixture_fields = current_type == "Mixture" and can_switch_to_mixture
+
+            # NAME field is always visible (Mixtures and regular entities both have names)
+            # Show/hide mixture-specific fields based on entity type
+            for cond_key in main_conditional_keys:
+                if cond_key in row_widgets and cond_key in row_labels:
+                    should_show = show_mixture_fields
+                    row_labels[cond_key].setVisible(should_show)
+                    row_widgets[cond_key].setVisible(should_show)
+
+            if advanced_container and advanced_toggle:
+                dialog.adjustSize()
+
+        # Handler for entity_type changes to show/hide conditional fields
+        if entity_type_widget and isinstance(entity_type_widget, QComboBox):
+            def on_entity_type_changed():
+                _update_conditional_fields()
+            
+            entity_type_widget.currentTextChanged.connect(on_entity_type_changed)
+
+        _update_conditional_fields()
+
         preview_btn = None
         # Check if chemical has imported procedure (visually indicated)
         if is_chemical and self.imported_procedure:
@@ -995,6 +1188,7 @@ class Block(QGraphicsRectItem):
 
         def apply_changes():
             new_params = self.params.copy()
+            current_type = entity_type_widget.currentText() if entity_type_widget else entity_type_value
 
             def is_empty_value(val):
                 if val is None:
@@ -1014,6 +1208,9 @@ class Block(QGraphicsRectItem):
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields
                     value = tracker.currentText().strip()
+                elif isinstance(tracker, list):
+                    # For list fields, tracker is the list itself
+                    value = tracker
                 else:
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
@@ -1038,12 +1235,25 @@ class Block(QGraphicsRectItem):
 
                 new_params[k] = value
 
+            if can_switch_to_mixture:
+                if current_type == "Mixture":
+                    new_params[KEY_ENTITY_TYPE] = "Mixture"
+                    new_params[KEY_NAME] = ""
+                    new_params.setdefault(KEY_MIXTURE_TYPE, "")
+                    new_params.setdefault(KEY_CHEMICAL_LIST, [])
+                else:
+                    new_params[KEY_ENTITY_TYPE] = "Substance"
+                    new_params.pop(KEY_MIXTURE_TYPE, None)
+                    new_params.pop(KEY_CHEMICAL_LIST, None)
+
             self.params.update(new_params)
+            self._editor_accepted = True
 
             self.update_text()
             dialog.accept()
 
         save_btn.clicked.connect(apply_changes)
+        dialog.adjustSize()
         dialog.exec()
 
 
