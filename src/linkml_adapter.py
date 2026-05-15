@@ -66,12 +66,14 @@ FIELD_TO_LINKML_SLOT = {
 
 CHEMICAL_TO_LINKML_CLASS = {
     "Substance": "ChemicalEntity",
+    "Molecules": "ChemicalEntity",
     "Material": "MaterialEntity",
     "Mixture": "ChemicalSubstance",
     "PerfectSingleCrystalMaterial": "ChemicalEntity",
     "Polymers": "Polymer",
     "Media": "ChemicalSubstance",
     "BioProducts": "ChemicalSubstance",
+    "HeterogeneousCatalysts": "Catalyst",
     # Legacy/older protocol exports kept as fallback for migration compatibility
     "ComplexMaterial": "MaterialEntity",
     "HeterogeneousMaterial": "MaterialEntity",
@@ -130,7 +132,7 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
     },
     "HeterogeneousCatalysts": {
         KEY_NAME: "alternative_label",
-        KEY_FORMULA: "molecular_formula",
+        KEY_FORMULA: "alternative_label",
         KEY_3D_STRUCTURE: "alternative_label",
         KEY_CRYSTALLINITY: "alternative_label",
         KEY_N2_ADSORPTION_BET_AREA: "alternative_label",

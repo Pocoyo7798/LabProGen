@@ -40,7 +40,7 @@ class Action:
 
 class Add(Action):
     """Addition of a chemical entity."""
-    def __init__(self, chemical="", duration="0 s", type="Normal", open_flame="False", **kwargs):
+    def __init__(self, chemical="", duration="0 s", type="", open_flame="", **kwargs):
         super().__init__(**{
             KEY_CHEMICAL: chemical,
             KEY_DURATION: duration,
@@ -55,7 +55,7 @@ class Grind(Action):
 
 class Separate(Action):
     """Physical separation of two different phases."""
-    def __init__(self, phase_to_keep="Liquid", method="Filtration", **kwargs):
+    def __init__(self, phase_to_keep="", method="", **kwargs):
         super().__init__(**{
             KEY_PHASE: phase_to_keep,
             KEY_METHOD: method
@@ -89,7 +89,7 @@ class ChangeAtmosphere(Action):
 
 class ChangeTemperature(Action):
     """Temperature modification."""
-    def __init__(self, temperature="50 °C", process="Electrical", ramp="0 °C/min", power="0 W", **kwargs):
+    def __init__(self, temperature="50 °C", process="", ramp="0 °C/min", power="0 W", **kwargs):
         super().__init__(**{
             KEY_TEMPERATURE: temperature,
             KEY_PROCESS: process,
@@ -99,7 +99,7 @@ class ChangeTemperature(Action):
 
 class ChangeRecipient(Action):
     """Modification of the mixture recipient."""
-    def __init__(self, recipient="Beaker", material="Glass", volume="250 mL", **kwargs):
+    def __init__(self, recipient="", material="", volume="250 mL", **kwargs):
         super().__init__(**{
             KEY_RECIPIENT: recipient,
             KEY_MATERIAL: material,
@@ -108,7 +108,7 @@ class ChangeRecipient(Action):
 
 class ChangeAgitation(Action):
     """Agitation of a mixture."""
-    def __init__(self, type="Automatic", speed="0 rpm", **kwargs):
+    def __init__(self, type="", speed="0 rpm", **kwargs):
         super().__init__(**{
             KEY_AGITATION_TYPE: type,
             KEY_SPEED: speed

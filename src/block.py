@@ -13,6 +13,29 @@ from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
 
 
+class EditDialog(QDialog):
+    """Custom QDialog that asks for confirmation when user tries to close without saving."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._accepted_by_user = False
+    
+    def reject(self):
+        """Override reject to ask for confirmation when ESC or close button is pressed."""
+        reply = QMessageBox.question(
+            self,
+            "Close without saving?",
+            "Are you sure you want to close this dialog without saving?\n\nThe block will not be created.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel
+        )
+        if reply == QMessageBox.StandardButton.Ok:
+            super().reject()
+    
+    def set_accepted(self):
+        """Mark that the dialog was accepted by user (save button clicked)."""
+        self._accepted_by_user = True
+
+
 class PreviewGraphicsView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
@@ -841,6 +864,8 @@ class Block(QGraphicsRectItem):
             edit.setValidator(val)
 
             combo = QComboBox()
+            # Add placeholder unit first so untouched fields export as ""
+            combo.addItem("Select...")
             combo.addItems(config.get("units", []))
 
             str_val = str(value).strip()
@@ -860,12 +885,15 @@ class Block(QGraphicsRectItem):
         
         elif f_type == "dropdown":
             combo = QComboBox()
+            # Add placeholder item first so untouched fields export as ""
+            combo.addItem("Select...")
             combo.addItems(config.get("options", []))
-            # Set the current value if it exists in params
-            current_val = str(value)
-            idx = combo.findText(current_val)
-            if idx >= 0:
-                combo.setCurrentIndex(idx)
+            # Set the current value only if it exists and is not empty
+            current_val = str(value).strip()
+            if current_val:
+                idx = combo.findText(current_val)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
             return combo, combo
 
         elif f_type == "list":
@@ -1005,7 +1033,7 @@ class Block(QGraphicsRectItem):
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY]
 
-        dialog = QDialog()
+        dialog = EditDialog(self.editor if self.editor else None)
         dialog.setWindowTitle(self.action)
         dialog.setMinimumWidth(400)
         main_layout = QVBoxLayout(dialog)
@@ -1204,10 +1232,17 @@ class Block(QGraphicsRectItem):
                     # For Unit fields (LineEdit, ComboBox)
                     edit_field, combo_field = tracker
                     raw_value = edit_field.text().strip()
-                    value = f"{raw_value} {combo_field.currentText()}" if raw_value else ""
+                    unit_text = combo_field.currentText().strip()
+                    # Convert "Select..." placeholder back to empty
+                    if unit_text == "Select...":
+                        unit_text = ""
+                    value = f"{raw_value} {unit_text}" if raw_value else ""
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields
                     value = tracker.currentText().strip()
+                    # Convert placeholder "Select..." back to empty string
+                    if value == "Select...":
+                        value = ""
                 elif isinstance(tracker, list):
                     # For list fields, tracker is the list itself
                     value = tracker
@@ -1250,11 +1285,16 @@ class Block(QGraphicsRectItem):
             self._editor_accepted = True
 
             self.update_text()
+            dialog.set_accepted()
             dialog.accept()
 
         save_btn.clicked.connect(apply_changes)
         dialog.adjustSize()
         dialog.exec()
+    
+    def get_editor_accepted(self) -> bool:
+        """Return whether the last editor dialog was accepted by the user."""
+        return getattr(self, '_editor_accepted', False)
 
 
 class ElementaryAction(Block):

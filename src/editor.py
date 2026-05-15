@@ -441,6 +441,7 @@ class MixtureChemicalDialog(QDialog):
         layout.addWidget(type_label)
 
         self.type_combo = QComboBox()
+        self.type_combo.addItem("Select...", "")
         self.type_combo.addItem("Substance", "Substance")
         self.type_combo.addItem("Molecules", "Molecules")
         self.type_combo.addItem("BioProducts", "BioProducts")
@@ -467,6 +468,8 @@ class MixtureChemicalDialog(QDialog):
         self.conc_edit.setValidator(QDoubleValidator(0.0, 999999.0, 2))
         
         self.conc_unit = QComboBox()
+        # Add placeholder first
+        self.conc_unit.addItem("Select...")
         self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
         
         # Parse initial value (e.g., "10 g/L" or "1 M")
@@ -506,7 +509,10 @@ class MixtureChemicalDialog(QDialog):
         self.selected_chemical_type = self.type_combo.currentData()
         # Combine value and unit
         value = self.conc_edit.text().strip()
-        unit = self.conc_unit.currentText()
+        unit = self.conc_unit.currentText().strip()
+        # Convert "Select..." placeholder back to empty
+        if unit == "Select...":
+            unit = ""
         self.concentration = f"{value} {unit}" if value else ""
         self.accept()
 
@@ -1410,19 +1416,19 @@ class Editor(QGraphicsView):
             
             # Numeric values should be strings with units for the reflow parser
             default_params = {
-                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "Normal", KEY_OPEN_FLAME: "False"},
+                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "", KEY_OPEN_FLAME: ""},
                 "Grind": {},
-                "Separate": {KEY_PHASE: "Liquid", KEY_METHOD: "Filtration"},
+                "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
                 "Wait": {KEY_DURATION: "10 min"},
                 "ChangeAtmosphere": {KEY_GASES: "", KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
-                "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "Electrical", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
-                "ChangeRecipient": {KEY_RECIPIENT: "Beaker", KEY_MATERIAL: "Glass", KEY_VOLUME: "250 mL"},
-                "ChangeAgitation": {KEY_AGITATION_TYPE: "Automatic", KEY_SPEED: "0 rpm"},
+                "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
+                "ChangeRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
+                "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
                 "NewMixture": {KEY_MIXTURE_NAME: ""},
                 "SubProductCreation": {KEY_SUBSTANCE: ""},
                 "Repeat": {KEY_AMOUNT: "1"},
-                "ContinuousAddition": {KEY_SUBSTANCE_LIST: "", KEY_CONTINUOUS_ADD_TYPE: "Continuous", KEY_AMOUNT: "1"}
+                "ContinuousAddition": {KEY_SUBSTANCE_LIST: "", KEY_CONTINUOUS_ADD_TYPE: "", KEY_AMOUNT: "1"}
             }
             
             params = default_params.get(dialog.selected_action, {})
@@ -1523,6 +1529,13 @@ class Editor(QGraphicsView):
         
         if params:
             block.open_editor()
+            # If the editor was rejected (e.g., ESC pressed), remove the block
+            if not block.get_editor_accepted():
+                self.scene.removeItem(block)
+                self.blocks.remove(block)
+                self.update_linked_sequence()
+                self.adapt_scene_rect()
+                self.update_support_logic()
 
     def add_chemical_block(self):
         """show dialog and add the specific chemical entity to the scene."""
@@ -1582,6 +1595,18 @@ class Editor(QGraphicsView):
                 self.update_support_logic()
                 
                 block.open_editor()
+                
+                # If the editor was rejected (e.g., ESC pressed), remove the block
+                if not block.get_editor_accepted():
+                    self.scene.removeItem(block)
+                    self.blocks.remove(block)
+                    if block in self.open_entity_procedures:
+                        del self.open_entity_procedures[block]
+                    if block.block_id in self.chemical_procedure_index:
+                        del self.chemical_procedure_index[block.block_id]
+                    self.update_linked_sequence()
+                    self.adapt_scene_rect()
+                    self.update_support_logic()
     
     def update_linked_sequence(self):
         """Update the linked_sequence list based on current block linkages.
