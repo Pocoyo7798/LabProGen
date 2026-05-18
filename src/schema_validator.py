@@ -176,7 +176,7 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
             return True
         return False
 
-    def _validate_instance(instance, class_name: str, activity_index: int, step_index: int | None = None):
+    def _validate_instance(instance, class_name: str, activity_index: int, step_index: int | None = None, source_action: str | None = None, source_chemical: str | None = None, chemical_index: int | None = None):
         try:
             report = linkml_validate(instance, schema=schema, target_class=class_name, strict=False)
             results = getattr(report, "results", []) or []
@@ -185,11 +185,50 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
                 msg.context.update({"activity_index": activity_index})
                 if step_index is not None:
                     msg.context["step_index"] = step_index
+                if source_action:
+                    msg.context["source_action"] = source_action
+                if source_chemical:
+                    msg.context["source_chemical"] = source_chemical
+                if chemical_index is not None:
+                    msg.context["chemical_index"] = chemical_index
+
+                # Try to infer a step index and action from the validator path,
+                # which is especially important for activity-level validation
+                # errors that point into nested has_synthesis_step entries.
+                path = msg.context.get("path")
+                if isinstance(path, str) and "has_synthesis_step" in path and "step_index" not in msg.context:
+                    parts = [p for p in path.split("/") if p]
+                    for idx, part in enumerate(parts):
+                        if part == "has_synthesis_step" and idx + 1 < len(parts):
+                            next_part = parts[idx + 1]
+                            if next_part.isdigit():
+                                inferred_step_index = int(next_part)
+                                msg.context["step_index"] = inferred_step_index
+                                if not msg.context.get("source_action"):
+                                    steps = instance.get("has_synthesis_step", []) if isinstance(instance, dict) else []
+                                    if inferred_step_index < len(steps):
+                                        inferred_action = steps[inferred_step_index].get("source_action")
+                                        if inferred_action:
+                                            msg.context["source_action"] = inferred_action
+                                        # try to infer attached chemical index if present in path
+                                        for j in range(idx + 2, len(parts)):
+                                            if parts[j] == "attached_chemicals" and j + 1 < len(parts) and parts[j+1].isdigit():
+                                                inferred_chem_index = int(parts[j+1])
+                                                msg.context["chemical_index"] = inferred_chem_index
+                                                if not msg.context.get("source_chemical"):
+                                                    attached = steps[inferred_step_index].get("attached_chemicals", []) or []
+                                                    if 0 <= inferred_chem_index < len(attached):
+                                                        msg.context["source_chemical"] = attached[inferred_chem_index].get("chemical")
+                                                break
                 messages.append(msg)
         except Exception as exc:
             ctx = {"activity_index": activity_index}
             if step_index is not None:
                 ctx["step_index"] = step_index
+            if source_action:
+                ctx["source_action"] = source_action
+            if source_chemical:
+                ctx["source_chemical"] = source_chemical
             messages.append(
                 ValidationMessage(
                     level="error",
@@ -220,12 +259,21 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
                 continue
             
             step_class = linkml_class or "LabSynthesisStep"
-            _validate_instance(_normalize_linkml_instance(step), step_class, activity_index, step_index)
+            _validate_instance(_normalize_linkml_instance(step), step_class, activity_index, step_index, source_action)
 
             for chem_index, chem in enumerate(step.get("attached_chemicals", []) or []):
                 chem_class = chem.get("linkml_class") or "ChemicalEntity"
-                chem_ctx_index = step_index * 1000 + chem_index
-                _validate_instance(_normalize_linkml_instance(chem), chem_class, activity_index, chem_ctx_index)
+                # Pass the original step_index and the chemical index separately so
+                # the UI can correctly identify the parent step and the chemical.
+                _validate_instance(
+                    _normalize_linkml_instance(chem),
+                    chem_class,
+                    activity_index,
+                    step_index,
+                    source_action,
+                    chem.get("chemical"),
+                    chemical_index=chem_index,
+                )
 
     return messages
 

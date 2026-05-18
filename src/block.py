@@ -7,10 +7,34 @@ from PySide6.QtWidgets import (
     QToolButton, QSizePolicy
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
-from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter
+from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter, QFontMetrics
 from .config import *
 from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
+# Style for small primary action buttons (used for compact add buttons)
+ADD_BUTTON_STYLE = (
+    "QToolButton {"
+    "  font-size: 14px;"
+    "  color: white;"
+    "  background-color: #6b4cff;"
+    "  border-radius: 6px;"
+    "  border: 1px solid #5a3fe6;"
+    "  padding: 0px; margin: 0px;"
+    "}"
+    "QToolButton:hover { background-color: #5a3fe6; }"
+    "QToolButton:pressed { background-color: #4b33bf; }"
+)
+
+LIST_ICON_BUTTON_STYLE = (
+    "QToolButton {"
+    "  background-color: #f8fafc;"
+    "  border: 1px solid #e2e8f0;"
+    "  border-radius: 5px;"
+    "  color: #334155;"
+    "}"
+    "QToolButton:hover { background-color: #eef2ff; border-color: #c7d2fe; }"
+    "QToolButton:pressed { background-color: #e0e7ff; }"
+)
 
 
 class EditDialog(QDialog):
@@ -864,8 +888,7 @@ class Block(QGraphicsRectItem):
             edit.setValidator(val)
 
             combo = QComboBox()
-            # Add placeholder unit first so untouched fields export as ""
-            combo.addItem("Select...")
+            # Unit fields should always have a concrete default unit selected
             combo.addItems(config.get("units", []))
 
             str_val = str(value).strip()
@@ -908,17 +931,18 @@ class Block(QGraphicsRectItem):
             # Add button row
             button_layout = QHBoxLayout()
             button_layout.setContentsMargins(0, 0, 0, 0)
+            button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
             
-            add_btn = QPushButton("+ Add")
-            add_btn.setFixedHeight(30)
-            add_btn.setStyleSheet(
-                "QPushButton {"
-                "  font-size: 11px;"
-                "  padding: 6px 10px;"
-                "  text-align: center;"
-                "}"
-            )
-            add_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            # Compact add button that shows the label without causing elision
+            add_btn = QToolButton()
+            add_btn.setText("+ Add")
+            add_btn.setToolTip("Add chemical")
+            # make it visible: keep compact height but allow enough width for the text
+            add_btn.setAutoRaise(False)
+            add_btn.setFixedHeight(28)
+            add_btn.setMinimumWidth(60)
+            add_btn.setStyleSheet(ADD_BUTTON_STYLE)
+            add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             
             def _add_chemical():
                 from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog
@@ -945,68 +969,102 @@ class Block(QGraphicsRectItem):
             button_layout.addWidget(add_btn)
             layout.addLayout(button_layout)
             
-            # Tags area for showing added items
-            tags_container = QWidget()
-            tags_layout = QHBoxLayout(tags_container)
-            tags_layout.setContentsMargins(0, 0, 0, 0)
-            tags_layout.setSpacing(4)
-            tags_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            # Rows area for showing added items
+            rows_container = QWidget()
+            rows_layout = QVBoxLayout(rows_container)
+            rows_layout.setContentsMargins(0, 0, 0, 0)
+            rows_layout.setSpacing(4)
             
             def _update_tags():
-                # Clear existing tags
-                while tags_layout.count():
-                    child = tags_layout.takeAt(0)
+                # Clear existing rows
+                while rows_layout.count():
+                    child = rows_layout.takeAt(0)
                     if child.widget():
                         child.widget().deleteLater()
                 
-                # Add tag for each chemical
+                # Add one compact row per chemical
                 for idx, chem in enumerate(list_value):
                     chem_type = chem.get("chemical_type", "Unknown")
                     formula = chem.get(KEY_FORMULA, "—")
                     conc = chem.get(KEY_CONCENTRATION, "")
                     
-                    # Create tag label
-                    tag_text = f"{chem_type}: {formula}"
+                    # Create row label
+                    row_text = f"{chem_type}: {formula}"
                     if conc:
-                        tag_text += f" ({conc})"
-                    
-                    tag_label = QLabel(tag_text)
-                    tag_label.setStyleSheet(
+                        row_text += f" ({conc})"
+
+                    row_widget = QWidget()
+                    row_widget.setFixedHeight(28)
+                    row_layout = QHBoxLayout(row_widget)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.setSpacing(6)
+
+                    text_label = QLabel()
+                    text_label.setToolTip(row_text)
+                    text_label.setStyleSheet(
                         "background-color: #e0e7ff; color: #3730a3; padding: 4px 8px; "
                         "border-radius: 4px; font-size: 11px; border: 1px solid #c7d2fe;"
                     )
+                    text_label.setFixedHeight(28)
+                    text_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                    text_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+                    fm = QFontMetrics(text_label.font())
+                    text_label.setText(fm.elidedText(row_text, Qt.TextElideMode.ElideRight, 220))
                     
-                    # Remove button
-                    remove_btn = QPushButton("✕")
-                    remove_btn.setMaximumWidth(20)
-                    remove_btn.setMaximumHeight(20)
+                    # Edit and Remove buttons
+                    edit_btn = QToolButton()
+                    edit_btn.setText("✎")
+                    edit_btn.setFixedSize(22, 22)
+                    edit_btn.setStyleSheet(LIST_ICON_BUTTON_STYLE)
+
+                    remove_btn = QToolButton()
+                    remove_btn.setText("✕")
+                    remove_btn.setFixedSize(22, 22)
                     remove_btn.setStyleSheet(
-                        "QPushButton { background-color: transparent; color: #6b7280; "
-                        "border: none; font-weight: bold; } "
-                        "QPushButton:hover { color: #ef4444; }"
+                        LIST_ICON_BUTTON_STYLE
+                        + "QToolButton { font-weight: bold; color: #6b7280; }"
+                        + "QToolButton:hover { color: #ef4444; }"
                     )
-                    
+
                     def _remove(check=False, i=idx):
                         if 0 <= i < len(list_value):
                             del list_value[i]
                             _update_tags()
-                    
+
+                    def _edit(check=False, i=idx):
+                        from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, get_chemical_default_params
+                        parent_dialog = self.editor if self.editor else self
+
+                        chem = list_value[i]
+                        dlg = MixtureChemicalDialog(parent_dialog, initial_type=chem.get("chemical_type", "Substance"), initial_concentration=chem.get(KEY_CONCENTRATION, ""))
+                        if dlg.exec() != QDialog.Accepted:
+                            return
+
+                        params_dlg = MixtureChemicalParametersDialog(
+                            dlg.selected_chemical_type,
+                            parent_dialog,
+                            initial_params={**get_chemical_default_params(dlg.selected_chemical_type), **chem},
+                        )
+                        if params_dlg.exec() != QDialog.Accepted:
+                            return
+
+                        updated = {"chemical_type": dlg.selected_chemical_type, **params_dlg.chemical_params, KEY_CONCENTRATION: dlg.concentration}
+                        list_value[i] = updated
+                        _update_tags()
+
+                    edit_btn.clicked.connect(_edit)
                     remove_btn.clicked.connect(_remove)
-                    
-                    tag_row = QHBoxLayout()
-                    tag_row.setContentsMargins(0, 0, 0, 0)
-                    tag_row.setSpacing(2)
-                    tag_row.addWidget(tag_label)
-                    tag_row.addWidget(remove_btn)
-                    
-                    tag_widget = QWidget()
-                    tag_widget.setLayout(tag_row)
-                    tags_layout.addWidget(tag_widget)
+
+                    row_layout.addWidget(text_label, 1)
+                    row_layout.addWidget(edit_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+                    row_layout.addWidget(remove_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+                    rows_layout.addWidget(row_widget)
                 
-                tags_layout.addStretch()
+                rows_layout.addStretch()
             
             _update_tags()
-            layout.addWidget(tags_container)
+            layout.addWidget(rows_container)
             
             # tracker will be the actual list object
             return container, list_value
@@ -1233,9 +1291,6 @@ class Block(QGraphicsRectItem):
                     edit_field, combo_field = tracker
                     raw_value = edit_field.text().strip()
                     unit_text = combo_field.currentText().strip()
-                    # Convert "Select..." placeholder back to empty
-                    if unit_text == "Select...":
-                        unit_text = ""
                     value = f"{raw_value} {unit_text}" if raw_value else ""
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields

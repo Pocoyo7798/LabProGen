@@ -13,7 +13,7 @@ from .config import *
 from .actions import *
 from .chemicals import *
 from .protocol import Protocol
-from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM
+from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM, CHEMICAL_SLOT_TO_PARAM
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
 from .schema_validator import validate_linkml_protocol, summarize_validation_messages
 
@@ -468,8 +468,7 @@ class MixtureChemicalDialog(QDialog):
         self.conc_edit.setValidator(QDoubleValidator(0.0, 999999.0, 2))
         
         self.conc_unit = QComboBox()
-        # Add placeholder first
-        self.conc_unit.addItem("Select...")
+        # Unit dropdown should default to the first available unit
         self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
         
         # Parse initial value (e.g., "10 g/L" or "1 M")
@@ -510,9 +509,6 @@ class MixtureChemicalDialog(QDialog):
         # Combine value and unit
         value = self.conc_edit.text().strip()
         unit = self.conc_unit.currentText().strip()
-        # Convert "Select..." placeholder back to empty
-        if unit == "Select...":
-            unit = ""
         self.concentration = f"{value} {unit}" if value else ""
         self.accept()
 
@@ -1952,6 +1948,11 @@ class Editor(QGraphicsView):
         elif old_n: self.reflow_entire_cluster(old_n)
         self.reflow_entire_cluster(moved_block)
 
+        # 5. Final constraint pass to align all vertical support blocks
+        # This ensures that support actions (Change Recipient, etc.) linked to
+        # blocks in the chain also move along when the horizontal chain reorganizes
+        self._reflow_visible_actions()
+
         self.adapt_scene_rect()
         self.update_linked_sequence()
 
@@ -2044,6 +2045,9 @@ class Editor(QGraphicsView):
         # fix gaps in the old chain
         if old_parent: self.reflow_entire_cluster(old_parent)
         elif old_child: self.reflow_entire_cluster(old_child)
+
+        # Final constraint pass to ensure all vertical blocks are properly positioned
+        self._reflow_visible_actions()
 
         self.update_linked_sequence()
     
@@ -2757,82 +2761,145 @@ class Editor(QGraphicsView):
                     print(f"  ... ({msg_count - 5} more messages)")
                 
                 # Block export if there are errors
-                def _format_validation_notice(msg, label):
+                def _format_validation_notice(msg, label, protocol=None):
+                    """Format validation errors in a user-friendly way with context about the block."""
                     ctx = msg.context or {}
-                    location_parts = []
-                    if "activity_index" in ctx:
-                        location_parts.append(f"Activity {ctx['activity_index'] + 1}")
-                    if "step_index" in ctx:
-                        location_parts.append(f"Step {ctx['step_index'] + 1}")
-                    if "flow_index" in ctx:
-                        location_parts.append(f"Flow {ctx['flow_index'] + 1}")
-                    if "action" in ctx:
-                        location_parts.append(f"Action {ctx['action']}")
-                    location = " • ".join(location_parts) if location_parts else "Unknown location"
-                    short_message = msg.message.strip()
+                    message_text = msg.message.strip()
 
-                    def _extract_slot_label(message: str) -> str | None:
-                        path_match = re.search(r"in\s+(?P<path>/[^\s]+)", message)
+                    def _humanize_name(name: str | None) -> str | None:
+                        if not name:
+                            return None
+                        text = str(name).replace("_", " ")
+                        text = re.sub(r"(?<!^)(?=[A-Z])", " ", text)
+                        text = re.sub(r"\s+", " ", text).strip()
+                        return text if text else None
+
+                    def _extract_step_index(message: str) -> int | None:
+                        """Extract the step index from a LinkML path such as /has_synthesis_step/7/..."""
+                        path_match = re.search(r"(?:in\s+)?(?P<path>/[^\s]+)", message)
                         if not path_match:
                             return None
-                        path = path_match.group("path")
-                        parts = [p for p in path.split("/") if p]
-                        slot = None
-                        for part in reversed(parts):
-                            if not part.isdigit():
-                                slot = part
-                                break
-                        if not slot:
-                            return None
-                        param_key = STEP_SLOT_TO_PARAM.get(slot)
-                        if not param_key:
-                            return None
-                        return FIELD_CONFIG.get(param_key, {}).get("label")
-
-                    def _extract_enum_hint(message: str) -> str | None:
-                        if "not one of" not in message:
-                            return None
-                        list_match = re.search(r"not one of\s*\[(?P<allowed>[^\]]+)\]", message)
-                        if not list_match:
-                            return None
-
-                        allowed_raw = list_match.group("allowed")
-                        allowed_items = [
-                            item.strip().strip("'\"")
-                            for item in allowed_raw.split(",")
-                            if item.strip()
-                        ]
-                        allowed_text = ", ".join(allowed_items)
-
-                        slot_label = _extract_slot_label(message)
-                        if slot_label:
-                            return f"Field: {slot_label}\nAllowed: {allowed_text}"
-                        return f"Allowed: {allowed_text}"
-
-                    def _extract_additional_properties_hint(message: str) -> str | None:
-                        if "Additional properties are not allowed" not in message:
-                            return None
-                        slot_label = _extract_slot_label(message)
-                        if slot_label:
-                            return (
-                                f"Field: {slot_label}\n"
-                                "Expected: simple text with value and unit (e.g., '50 C' or '50 °C')."
-                            )
-                        return "Expected: simple text with value and unit (e.g., '50 C' or '50 °C')."
-
-                    hint = _extract_enum_hint(short_message) or _extract_additional_properties_hint(short_message)
-                    if not hint:
-                        slot_label = _extract_slot_label(short_message)
-                        if slot_label:
-                            hint = f"Field: {slot_label}"
-                    hint_text = f"\n{hint}\n" if hint else ""
+                        parts = [p for p in path_match.group("path").split("/") if p]
+                        for idx, part in enumerate(parts):
+                            if part == "has_synthesis_step" and idx + 1 < len(parts):
+                                next_part = parts[idx + 1]
+                                if next_part.isdigit():
+                                    return int(next_part)
+                        return None
+                    
+                    # 1. Find action name from validation context first
+                    action_name = ctx.get("source_action")
+                    chemical_name = ctx.get("source_chemical")
+                    if not ctx.get("step_index"):
+                        inferred_step_index = _extract_step_index(message_text)
+                        if inferred_step_index is not None:
+                            ctx["step_index"] = inferred_step_index
+                    if not action_name and protocol and "activities" in protocol:
+                        activity_idx = ctx.get("activity_index", 0)
+                        step_idx = ctx.get("step_index")
+                        if activity_idx < len(protocol["activities"]) and step_idx is not None:
+                            activity = protocol["activities"][activity_idx]
+                            steps = activity.get("has_synthesis_step", [])
+                            if step_idx < len(steps):
+                                action_name = steps[step_idx].get("source_action")
+                    if not chemical_name and protocol and "activities" in protocol:
+                        activity_idx = ctx.get("activity_index", 0)
+                        step_idx = ctx.get("step_index")
+                        if activity_idx < len(protocol["activities"]) and step_idx is not None:
+                            activity = protocol["activities"][activity_idx]
+                            steps = activity.get("has_synthesis_step", [])
+                            if step_idx < len(steps):
+                                attached = steps[step_idx].get("attached_chemicals", []) or []
+                                chem_idx = ctx.get("chemical_index")
+                                if isinstance(chem_idx, int) and 0 <= chem_idx < len(attached):
+                                    chemical_name = attached[chem_idx].get("chemical")
+                    
+                    # 2. Extract field name and invalid value from error message
+                    def extract_field_and_value():
+                        """Extract field name and the invalid value from LinkML error message."""
+                        field_label = None
+                        invalid_value = None
+                        slot_name = None
+                        
+                        # Try to extract slot name from path: /has_synthesis_step/7/has_atmosphere_type/0
+                        path_match = re.search(r"in\s+(?P<path>/[^\s]+)", message_text)
+                        if path_match:
+                            path = path_match.group("path")
+                            parts = [p for p in path.split("/") if p and not p.isdigit()]
+                            if parts:
+                                slot_name = parts[-1]
+                                param_key = STEP_SLOT_TO_PARAM.get(slot_name) or CHEMICAL_SLOT_TO_PARAM.get(slot_name)
+                                if param_key:
+                                    field_label = FIELD_CONFIG.get(param_key, {}).get("label", slot_name)
+                        
+                        # Extract invalid value from quotes
+                        value_match = re.search(r"'([^']*)' is not one of", message_text)
+                        if not value_match:
+                            value_match = re.search(r"'([^']*)' is not valid under any of the given schemas", message_text)
+                        if value_match:
+                            invalid_value = value_match.group(1)
+                        
+                        return field_label, invalid_value, slot_name
+                    
+                    # 3. Extract allowed values for enum errors
+                    def extract_allowed_values():
+                        """Extract the list of allowed values."""
+                        list_match = re.search(r"\[([^\]]+)\]", message_text)
+                        if list_match:
+                            allowed_raw = list_match.group(1)
+                            return [
+                                item.strip().strip("'\"")
+                                for item in allowed_raw.split(",")
+                                if item.strip()
+                            ]
+                        return []
+                    
+                    field_label, invalid_value, slot_name = extract_field_and_value()
+                    allowed_values = extract_allowed_values()
+                    
+                    # 4. Build user-friendly location string
+                    location_parts = []
+                    step_num = ctx.get("step_index", 0) + 1 if ctx.get("step_index") is not None else None
+                    if chemical_name:
+                        location_parts.append(f"Chemical: {_humanize_name(chemical_name) or chemical_name}")
+                        if action_name:
+                            location_parts.append(f"Parent block: {_humanize_name(action_name) or action_name}")
+                    elif action_name:
+                        location_parts.append(f"Block: {_humanize_name(action_name) or action_name}")
+                    if step_num:
+                        location_parts.append(f"Step #{step_num}")
+                    activity_num = ctx.get("activity_index", 0) + 1
+                    if activity_num > 1:
+                        location_parts.append(f"Activity {activity_num}")
+                    
+                    location = " | ".join(location_parts) if location_parts else "Unknown location"
+                    
+                    # 5. Build hint about what's wrong and what's allowed
+                    hint_parts = []
+                    if field_label:
+                        hint_parts.append(f"Field: {field_label}")
+                    if invalid_value:
+                        hint_parts.append(f"Current value: '{invalid_value}' ❌")
+                    if allowed_values:
+                        allowed_str = ", ".join([f"'{v}'" for v in allowed_values])
+                        hint_parts.append(f"Allowed values: {allowed_str}")
+                    elif "not valid under any of the given schemas" in message_text:
+                        hint_parts.append("Format: use value and unit (e.g., '12 mL' or '5 g').")
+                    elif "Additional properties are not allowed" in message_text:
+                        hint_parts.append("Expected: a simple value (e.g., '50 C' or '50 °C')")
+                    elif slot_name and not field_label:
+                        hint_parts.append(f"Field: {slot_name}")
+                    
+                    hint_text = "\n".join(hint_parts) if hint_parts else message_text
+                    
+                    # 6. Build final formatted message
                     return (
                         f"{label}\n\n"
-                        f"Where: {location}\n"
-                        f"What: {short_message}\n"
-                        f"{hint_text}\n"
-                        f"Open the step and adjust its parameters."
+                        f"📍 {location}\n\n"
+                        f"{hint_text}\n\n"
+                        f"👉 Review this step and fix the highlighted field."
                     )
+
 
                 if error_count > 0:
                     first_error = validation_msgs[0]
@@ -2842,10 +2909,10 @@ class Editor(QGraphicsView):
                     box.setText(
                         _format_validation_notice(
                             first_error,
-                            f"Protocol validation failed ({error_count} error(s))."
+                            f"Protocol validation failed ({error_count} error(s)).",
+                            protocol=final_output
                         )
                     )
-                    box.setDetailedText(first_error.message)
                     box.exec()
                     return
                 else:
@@ -2857,10 +2924,10 @@ class Editor(QGraphicsView):
                     box.setText(
                         _format_validation_notice(
                             first_warning,
-                            f"Protocol has {msg_count} validation warning(s)."
+                            f"Protocol has {msg_count} validation warning(s).",
+                            protocol=final_output
                         )
                     )
-                    box.setDetailedText(first_warning.message)
                     box.exec()
             else:
                 print("[linkml-validation] passed (no issues)")
