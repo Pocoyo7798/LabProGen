@@ -70,7 +70,7 @@ CHEMICAL_TO_LINKML_CLASS = {
     "Material": "MaterialEntity",
     "Mixture": "ChemicalSubstance",
     "PerfectSingleCrystalMaterial": "ChemicalEntity",
-    "Polymers": "Polymer",
+    "Polymers": "ChemicalEntity",
     "Media": "ChemicalSubstance",
     "BioProducts": "ChemicalSubstance",
     "HeterogeneousCatalysts": "Catalyst",
@@ -111,7 +111,7 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
     },
     "Polymers": {
         KEY_FORMULA: "molecular_formula",
-        KEY_BIGSMILES: "alternative_label",
+        KEY_BIGSMILES: "smiles",
         KEY_INCHI: "inchi",
     },
     "Media": {
@@ -339,7 +339,6 @@ def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
 
 def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "has_added_material": params.get(KEY_CHEMICAL),
         "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
         "addition_type": params.get(KEY_ADD_TYPE),
         "has_open_flame": normalize_boolean(params.get(KEY_OPEN_FLAME)),
@@ -544,10 +543,12 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
     return value
 
 
-def _convert_linkml_chemical_slots(slots: dict[str, Any]) -> dict[str, Any]:
+def _convert_linkml_chemical_slots(slots: dict[str, Any], source_chemical: str | None = None) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for slot, value in (slots or {}).items():
         param_key = CHEMICAL_SLOT_TO_PARAM.get(slot)
+        if source_chemical == "Polymers" and slot == "smiles":
+            param_key = KEY_BIGSMILES
         if not param_key:
             continue
 
@@ -595,11 +596,12 @@ def _convert_linkml_step(step: dict[str, Any]) -> dict[str, Any]:
 
     attached_chemicals = []
     for chem in step.get("attached_chemicals", []) or []:
-        chem_params = _convert_linkml_chemical_slots(chem.get("slots", {}))
+        source_chemical = chem.get("source_chemical")
+        chem_params = _convert_linkml_chemical_slots(chem.get("slots", {}), source_chemical)
         attached_chemicals.append(
             {
                 "block_id": chem.get("block_id", 0),
-                "chemical": chem.get("source_chemical")
+                "chemical": source_chemical
                 or LINKML_CHEMICAL_TO_SOURCE.get(chem.get("linkml_class"), chem.get("linkml_class") or "Chemical"),
                 "params": chem_params,
             }
@@ -886,8 +888,14 @@ def action_to_linkml_dict(action_name: str, params: dict[str, Any], chemicals: l
         "linkml_class": get_linkml_step_class(action_name),
         "slots": normalize_action_to_linkml(action_name, params or {}),
     }
+    slots = payload.get("slots") or {}
+    # If attached chemical entities exist, prefer them as the source for has_added_material
     if chemicals:
         payload["attached_chemicals"] = chemicals
+        names = [c.get("source_chemical") for c in chemicals if c.get("source_chemical")]
+        if names:
+            slots["has_added_material"] = build_material_entity(names if len(names) > 1 else names[0])
+            payload["slots"] = slots
     return payload
 
 

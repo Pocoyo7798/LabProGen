@@ -40,9 +40,8 @@ class Action:
 
 class Add(Action):
     """Addition of a chemical entity."""
-    def __init__(self, chemical="", duration="0 s", type="", open_flame="", **kwargs):
+    def __init__(self, duration="0 s", type="", open_flame="", **kwargs):
         super().__init__(**{
-            KEY_CHEMICAL: chemical,
             KEY_DURATION: duration,
             KEY_ADD_TYPE: type,
             KEY_OPEN_FLAME: open_flame

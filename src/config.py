@@ -172,7 +172,7 @@ FIELD_CONFIG = {
 
     # SECOND LEVEL: Mixture
     KEY_MIXTURE_TYPE: {"label": "Mixture Type", "type": "dropdown", "options": ["Composite", "Solutions", "Physical Mixture"], "required": False, "required_if": [{"action": "Mixture"}, {"action": "Media"}, {"action": "BioProducts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}, {"action": "HeterogeneousCatalysts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}]},
-    KEY_ENTITY_TYPE: {"label": "Type", "type": "dropdown", "options": ["Substance", "Mixture"], "required": False},
+    KEY_ENTITY_TYPE: {"label": "Type", "type": "dropdown", "options": ["Substance", "Mixture"], "required": True},
     KEY_CHEMICAL_LIST: {"label": "Chemical List", "type": "list", "placeholder": "Manage chemicals...", "required": False, "required_if": [{"action": "Mixture"}, {"action": "Media"}, {"action": "BioProducts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}, {"action": "HeterogeneousCatalysts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}]},
 
     # FIRST LEVEL CHEMICAL ENTITY (optional base fields for all chemicals)

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
     QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
     QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox,
-    QToolButton, QSizePolicy
+    QToolButton, QSizePolicy, QFrame
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
 from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter, QFontMetrics
@@ -1084,7 +1084,7 @@ class Block(QGraphicsRectItem):
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
 
-        can_switch_to_mixture = self.action in {"BioProducts", "HeterogeneousCatalysts"}
+        can_switch_to_mixture = self.action in {"BioProducts", "HeterogeneousCatalysts", "Molecules", "Polymers", "Media"}
         if can_switch_to_mixture:
             params_for_dialog.setdefault(KEY_MIXTURE_TYPE, "")
             params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
@@ -1164,6 +1164,12 @@ class Block(QGraphicsRectItem):
             result = _add_field(form_layout, entity_type_key, show=True)
             if result:
                 entity_type_widget = result["widget"]
+                # Add visual separator after entity_type field
+                separator = QFrame()
+                separator.setFrameShape(QFrame.HLine)
+                separator.setFrameShadow(QFrame.Sunken)
+                separator.setStyleSheet("color: #d1d5db;")
+                form_layout.addRow(separator)
 
         for key in required_keys:
             _add_field(form_layout, key)
@@ -1232,8 +1238,9 @@ class Block(QGraphicsRectItem):
                     row_labels[cond_key].setVisible(should_show)
                     row_widgets[cond_key].setVisible(should_show)
 
-            if advanced_container and advanced_toggle:
-                dialog.adjustSize()
+            # Resize dialog to adapt to shown/hidden fields
+            main_layout.invalidate()
+            QTimer.singleShot(0, dialog.adjustSize)
 
         # Handler for entity_type changes to show/hide conditional fields
         if entity_type_widget and isinstance(entity_type_widget, QComboBox):
@@ -1291,6 +1298,15 @@ class Block(QGraphicsRectItem):
                     edit_field, combo_field = tracker
                     raw_value = edit_field.text().strip()
                     unit_text = combo_field.currentText().strip()
+                    # enforce numeric-only values for unit fields
+                    if raw_value:
+                        try:
+                            float(raw_value)
+                        except Exception:
+                            label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
+                            QMessageBox.warning(dialog, "Invalid Value", f"'{label}' must be a numeric value (no letters).")
+                            edit_field.setFocus()
+                            return
                     value = f"{raw_value} {unit_text}" if raw_value else ""
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields

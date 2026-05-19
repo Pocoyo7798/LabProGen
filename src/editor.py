@@ -41,9 +41,22 @@ def get_chemical_default_params(chemical_type: str) -> dict:
         "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
         "Mixture": {KEY_NAME: "", KEY_MIXTURE_TYPE: "", KEY_CHEMICAL_LIST: []},
         "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
-        "Molecules": {KEY_NAME: "", KEY_FORMULA: "", KEY_SMILES: "", KEY_INCHI: ""},
-        "Polymers": {KEY_NAME: "", KEY_FORMULA: "", KEY_BIGSMILES: "", KEY_INCHI: ""},
+        "Molecules": {
+            KEY_ENTITY_TYPE: "Substance",
+            KEY_NAME: "",
+            KEY_FORMULA: "",
+            KEY_SMILES: "",
+            KEY_INCHI: "",
+        },
+        "Polymers": {
+            KEY_ENTITY_TYPE: "Substance",
+            KEY_NAME: "",
+            KEY_FORMULA: "",
+            KEY_BIGSMILES: "",
+            KEY_INCHI: "",
+        },
         "Media": {
+            KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
             KEY_MIXTURE_TYPE: "",
             KEY_CHEMICAL_LIST: [],
@@ -183,15 +196,11 @@ class ChemicalSelectionDialog(QDialog):
         # Second Level and Third Level chemicals
         entities = {
             # Ordered as requested by user
-            "Substance": "Substance",
-            "MixtureChemical": "MixtureChemical",
-            "Mixture": "Mixture",
-
             # Third Level
             "BioProducts": "BioProducts",
-            "Molecules": "Molecules (Substance)",
-            "Polymers": "Polymers (Molecule)",
-            "Media": "Media (Mixture)",
+            "Molecules": "Molecules",
+            "Polymers": "Polymers",
+            "Media": "Media",
             "HeterogeneousCatalysts": "HeterogeneousCatalysts",
         }
         
@@ -442,13 +451,14 @@ class MixtureChemicalDialog(QDialog):
 
         self.type_combo = QComboBox()
         self.type_combo.addItem("Select...", "")
-        self.type_combo.addItem("Substance", "Substance")
         self.type_combo.addItem("Molecules", "Molecules")
         self.type_combo.addItem("BioProducts", "BioProducts")
         self.type_combo.addItem("Polymers", "Polymers")
         self.type_combo.addItem("Media (Mixture)", "Media")
         self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
         idx = self.type_combo.findData(initial_type)
+        if idx < 0:
+            idx = self.type_combo.findData("Molecules")
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
         layout.addWidget(self.type_combo)
@@ -1412,7 +1422,7 @@ class Editor(QGraphicsView):
             
             # Numeric values should be strings with units for the reflow parser
             default_params = {
-                "Add": {KEY_CHEMICAL: "", KEY_DURATION: "0 s", KEY_ADD_TYPE: "", KEY_OPEN_FLAME: ""},
+                "Add": {KEY_DURATION: "0 s", KEY_ADD_TYPE: "", KEY_OPEN_FLAME: ""},
                 "Grind": {},
                 "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
@@ -1549,8 +1559,6 @@ class Editor(QGraphicsView):
             chemical_map = {
                 "Substance": Substance,
                 "Material": Material,
-                "Mixture": Mixture,
-                "MixtureChemical": None,  # handled as a list item, not a standalone block
                 "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
                 "Molecules": Molecules,
                 "Polymers": Polymers,
