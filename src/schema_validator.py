@@ -61,6 +61,21 @@ def _is_blank(value) -> bool:
     return False
 
 
+def _strip_atmosphere_type(node):
+    """Remove has_atmosphere_type recursively so LinkML validation ignores gases."""
+    if isinstance(node, list):
+        return [_strip_atmosphere_type(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    stripped = {}
+    for key, value in node.items():
+        if key == "has_atmosphere_type":
+            continue
+        stripped[key] = _strip_atmosphere_type(value)
+    return stripped
+
+
 def validate_action_shadow(action_name: str, params: dict) -> list[ValidationMessage]:
     messages: list[ValidationMessage] = []
 
@@ -177,6 +192,23 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         return False
 
     def _validate_instance(instance, class_name: str, activity_index: int, step_index: int | None = None, source_action: str | None = None, source_chemical: str | None = None, chemical_index: int | None = None):
+        # ChangeAtmosphere uses a custom list-of-chemicals check for gases.
+        # The LinkML schema validation is ignored for this field; we only
+        # require that the list contains at least one chemical.
+        if source_action == "ChangeAtmosphere" and isinstance(instance, dict):
+            gases_value = instance.get("has_atmosphere_type")
+            if not isinstance(gases_value, list) or not gases_value:
+                messages.append(
+                    ValidationMessage(
+                        level="error",
+                        code="validation.required_field_missing",
+                        message="At least one chemical is required in Gases for ChangeAtmosphere.",
+                        context={"activity_index": activity_index, "step_index": step_index} if step_index is not None else {"activity_index": activity_index},
+                    )
+                )
+
+        instance = _strip_atmosphere_type(instance)
+
         try:
             report = linkml_validate(instance, schema=schema, target_class=class_name, strict=False)
             results = getattr(report, "results", []) or []

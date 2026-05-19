@@ -704,7 +704,7 @@ class Block(QGraphicsRectItem):
                             self.below_block or self.chem_below)
 
         # 1. orientation (not for chemicals or subproducts)
-        if not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
+        if ENABLE_VERTICAL_ORIENTATION_TOGGLE and not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
             label = "Set Vertical" if self.orientation == "horizontal" else "Set Horizontal"
             toggle = menu.addAction(label)
             if is_connected:
@@ -945,7 +945,7 @@ class Block(QGraphicsRectItem):
             add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             
             def _add_chemical():
-                from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog
+                from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, UnifiedChemicalDetailsDialog, get_chemical_default_params
 
                 parent_dialog = self.editor if self.editor else self
 
@@ -953,15 +953,30 @@ class Block(QGraphicsRectItem):
                 if dlg.exec() != QDialog.Accepted:
                     return
 
-                params_dlg = MixtureChemicalParametersDialog(dlg.selected_chemical_type, parent_dialog)
+                # First Level Chemical Details (ID, Producer, Purity, Procedure)
+                details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
+                if details_dialog.exec() != QDialog.Accepted:
+                    return
+
+                params_dlg = MixtureChemicalParametersDialog(dlg.selected_chemical_type, parent_dialog, initial_params=get_chemical_default_params(dlg.selected_chemical_type))
                 if params_dlg.exec() != QDialog.Accepted:
                     return
 
                 new_chem = {
                     "chemical_type": dlg.selected_chemical_type,
                     **params_dlg.chemical_params,
+                    **details_dialog.first_level_fields,
                     KEY_CONCENTRATION: dlg.concentration,
                 }
+                if details_dialog.imported_procedure:
+                    new_chem[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+                
+                # Validate that chemical has a name (required for all chemicals)
+                chem_name = new_chem.get(KEY_NAME, "").strip()
+                if not chem_name:
+                    QMessageBox.warning(parent_dialog, "Missing Chemical Name", f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.")
+                    return
+                
                 list_value.append(new_chem)
                 _update_tags()
             
@@ -1032,12 +1047,24 @@ class Block(QGraphicsRectItem):
                             _update_tags()
 
                     def _edit(check=False, i=idx):
-                        from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, get_chemical_default_params
+                        from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, UnifiedChemicalDetailsDialog, get_chemical_default_params
                         parent_dialog = self.editor if self.editor else self
 
                         chem = list_value[i]
                         dlg = MixtureChemicalDialog(parent_dialog, initial_type=chem.get("chemical_type", "Substance"), initial_concentration=chem.get(KEY_CONCENTRATION, ""))
                         if dlg.exec() != QDialog.Accepted:
+                            return
+
+                        # First Level Chemical Details (ID, Producer, Purity, Procedure)
+                        details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
+                        # Pre-fill with existing values
+                        details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
+                        details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
+                        details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
+                        if KEY_PREPARATION_PROCEDURE in chem:
+                            details_dialog.imported_procedure = chem[KEY_PREPARATION_PROCEDURE]
+                            details_dialog._set_status("✓ Procedure loaded", "success")
+                        if details_dialog.exec() != QDialog.Accepted:
                             return
 
                         params_dlg = MixtureChemicalParametersDialog(
@@ -1048,7 +1075,16 @@ class Block(QGraphicsRectItem):
                         if params_dlg.exec() != QDialog.Accepted:
                             return
 
-                        updated = {"chemical_type": dlg.selected_chemical_type, **params_dlg.chemical_params, KEY_CONCENTRATION: dlg.concentration}
+                        updated = {"chemical_type": dlg.selected_chemical_type, **params_dlg.chemical_params, **details_dialog.first_level_fields, KEY_CONCENTRATION: dlg.concentration}
+                        if details_dialog.imported_procedure:
+                            updated[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+                        
+                        # Validate that chemical has a name (required for all chemicals)
+                        chem_name = updated.get(KEY_NAME, "").strip()
+                        if not chem_name:
+                            QMessageBox.warning(parent_dialog, "Missing Chemical Name", f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.")
+                            return
+                        
                         list_value[i] = updated
                         _update_tags()
 

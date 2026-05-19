@@ -3,6 +3,10 @@
 # --- GLOBAL DEFAULTS ---
 DEFAULT_PROTOCOL_NAME = "laboratory procedure"
 
+# --- FEATURE FLAGS ---
+# Disable vertical flow/orientation;
+ENABLE_VERTICAL_ORIENTATION_TOGGLE = False
+
 # --- INTERNAL VARIABLE NAMES (KEYS) ---
 KEY_DURATION = "duration"
 KEY_TEMPERATURE = "temperature"
@@ -143,7 +147,7 @@ FIELD_CONFIG = {
     KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity...", "required": True},
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name...", "required": True},
     KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities...", "required": True},
-    KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases...", "required": True},
+    KEY_GASES: {"label": "Gases", "type": "list", "placeholder": "Manage gases...", "required": True},
     KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details...", "required": False},
     KEY_AMOUNT: {
         "label": "Amount",
@@ -197,7 +201,7 @@ FIELD_CONFIG = {
     KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity...", "required": True},
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name...", "required": True},
     KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities...", "required": True},
-    KEY_GASES: {"label": "Gases", "type": "text", "placeholder": "List of gases...", "required": True},
+    KEY_GASES: {"label": "Gases", "type": "list", "placeholder": "Manage gases...", "required": True},
     KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details...", "required": False},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity...", "required": True},
     KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture...", "required": True},

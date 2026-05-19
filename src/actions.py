@@ -79,7 +79,9 @@ class Wait(Action):
 
 class ChangeAtmosphere(Action):
     """Modification of the atmosphere composition."""
-    def __init__(self, gases="", flow_rate="0 mL/min", pressure="1 bar", **kwargs):
+    def __init__(self, gases=None, flow_rate="0 mL/min", pressure="1 bar", **kwargs):
+        if gases is None:
+            gases = []
         super().__init__(**{
             KEY_GASES: gases,
             KEY_FLOW_RATE: flow_rate,

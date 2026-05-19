@@ -222,15 +222,44 @@ def parse_quantity(value: Any) -> StructuredQuantity | None:
 
 
 def parse_gases(value: Any) -> list[str] | Any:
+    """Parse gases field. Handles both legacy text format and new list of chemical objects.
+    
+    For chemical objects, extracts the name (KEY_NAME) which should be one of:
+    'air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen'
+    """
     if _is_blank(value):
         return []
+    
+    # If it's a list of chemical objects (new format)
     if isinstance(value, list):
-        return [str(item).strip() for item in value if not _is_blank(item)]
+        results = []
+        for item in value:
+            if isinstance(item, dict):
+                # Extract chemical name from the chemical object
+                # Prefer KEY_NAME, fallback to other possible name fields
+                name = (item.get(KEY_NAME, "") or 
+                        item.get("name", "") or
+                        item.get("chemical_name", "")).strip()
+                
+                # Skip empty names - don't add to results
+                if name:
+                    results.append(name)
+                else:
+                    # Log warning if no name found - indicates incomplete chemical object
+                    print(f"[parse_gases] Warning: Chemical object has no name field: {item}")
+            else:
+                # Legacy text items in list
+                text = str(item).strip()
+                if text and text not in results:  # Avoid duplicates
+                    results.append(text)
+        return results if results else []
+    
+    # Legacy text format - comma or semicolon separated
     text = str(value).strip()
     if not text:
         return []
     parts = [part.strip() for part in re.split(r"[,;]", text) if part.strip()]
-    return parts if parts else [text]
+    return parts if parts else []
 
 
 def quantity_to_text(value: Any) -> Any:
@@ -521,9 +550,8 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
     if slot in {"has_step_duration", "has_stirring_speed", "has_flow_rate", "has_pressure", "has_heat_ramp", "has_microwave_power", "has_vessel_volume", "has_minimum_particle_size", "has_maximum_particle_size"}:
         return quantity_to_text(value)
     if slot == "has_atmosphere_type":
-        if isinstance(value, list):
-            return ", ".join(str(v) for v in value if not _is_blank(v))
-        return value
+        # Build gases as list of chemical objects for new internal format
+        return build_gases(value)
     if slot == "has_physical_state":
         return physical_state_to_text(value)
     if slot == "has_intermittent_amount" and isinstance(value, dict):
@@ -718,6 +746,55 @@ def build_chemical_entity(value: Any) -> dict[str, Any] | None:
         "id": name.lower().replace(" ", "_"),
         "name": name,
     }
+
+
+def build_gases(value: Any) -> list[dict[str, Any]] | None:
+    """Build list of gas chemical objects from LinkML atmosphere list.
+    
+    Converts LinkML has_atmosphere_type (list of gas names) into internal
+    representation (list of chemical objects with minimal required fields).
+    
+    Gas names MUST be one of: 'air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen'
+    """
+    if _is_blank(value):
+        return None
+    
+    if isinstance(value, list):
+        gases = []
+        for item in value:
+            if _is_blank(item):
+                continue
+            # Skip if already a chemical object (shouldn't happen in imports, but handle it)
+            if isinstance(item, dict) and "chemical_type" in item:
+                # Ensure it has a name
+                if not item.get(KEY_NAME, "").strip():
+                    print(f"[build_gases] Warning: Gas chemical object missing {KEY_NAME}")
+                gases.append(item)
+                continue
+            # Convert gas name string to chemical object
+            gas_name = str(item).strip()
+            if gas_name:
+                gases.append({
+                    "chemical_type": "Molecules",
+                    KEY_NAME: gas_name,
+                    KEY_FORMULA: "",
+                    KEY_SMILES: "",
+                    KEY_INCHI: "",
+                })
+        return gases if gases else None
+    
+    # Handle single string value
+    gas_name = str(value).strip()
+    if gas_name:
+        return [{
+            "chemical_type": "Molecules",
+            KEY_NAME: gas_name,
+            KEY_FORMULA: "",
+            KEY_SMILES: "",
+            KEY_INCHI: "",
+        }]
+    
+    return None
 
 
 def build_duration(value: Any) -> dict[str, Any] | None:

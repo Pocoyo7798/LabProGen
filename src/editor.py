@@ -407,6 +407,55 @@ class NewEntityProcedureDialog(QDialog):
         self.accept()
 
 
+class GasSelectionDialog(QDialog):
+    """Simple dialog to select a gas from valid options."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Gas")
+        self.setMinimumWidth(380)
+        self.selected_gas = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Select Gas")
+        title.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+        layout.addWidget(title)
+
+        # Valid gas options from LinkML schema
+        self.gas_combo = QComboBox()
+        self.gas_combo.addItem("Select...", "")
+        valid_gases = ['air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen']
+        for gas in valid_gases:
+            self.gas_combo.addItem(gas.capitalize(), gas)
+        layout.addWidget(self.gas_combo)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(92, 34)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+
+        ok_btn = QPushButton("Add")
+        ok_btn.setMinimumSize(92, 34)
+        ok_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        ok_btn.clicked.connect(self._accept)
+        button_row.addWidget(ok_btn)
+
+        layout.addLayout(button_row)
+        self.adjustSize()
+
+    def _accept(self):
+        self.selected_gas = self.gas_combo.currentData()
+        if not self.selected_gas:
+            QMessageBox.warning(self, "No Gas Selected", "Please select a gas from the list.")
+            return
+        self.accept()
+
 class MixtureChemicalParametersDialog(QDialog):
     """Second step dialog that reuses the normal chemical editor."""
     def __init__(self, chemical_type, parent=None, initial_params=None):
@@ -621,6 +670,11 @@ class MixtureChemicalListDialog(QDialog):
         if dialog.exec() != QDialog.Accepted:
             return
 
+        # First Level Chemical Details (ID, Producer, Purity, Procedure)
+        details_dialog = UnifiedChemicalDetailsDialog(self)
+        if details_dialog.exec() != QDialog.Accepted:
+            return
+
         params_dlg = MixtureChemicalParametersDialog(
             dialog.selected_chemical_type,
             self,
@@ -632,8 +686,18 @@ class MixtureChemicalListDialog(QDialog):
         new_chem = {
             "chemical_type": dialog.selected_chemical_type,
             **params_dlg.chemical_params,
+            **details_dialog.first_level_fields,
             KEY_CONCENTRATION: dialog.concentration,
         }
+        if details_dialog.imported_procedure:
+            new_chem[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+        
+        # Validate that chemical has a name (required for all chemicals)
+        chem_name = new_chem.get(KEY_NAME, "").strip()
+        if not chem_name:
+            QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
+            return
+        
         self.chemical_list.append(new_chem)
         self._populate_table()
 
@@ -643,6 +707,18 @@ class MixtureChemicalListDialog(QDialog):
             chem = self.chemical_list[row]
             dialog = MixtureChemicalDialog(self, initial_type=chem.get("chemical_type", "Substance"), initial_concentration=chem.get(KEY_CONCENTRATION, ""))
             if dialog.exec() != QDialog.Accepted:
+                return
+
+            # First Level Chemical Details (ID, Producer, Purity, Procedure)
+            details_dialog = UnifiedChemicalDetailsDialog(self)
+            # Pre-fill with existing values
+            details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
+            details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
+            details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
+            if KEY_PREPARATION_PROCEDURE in chem:
+                details_dialog.imported_procedure = chem[KEY_PREPARATION_PROCEDURE]
+                details_dialog._set_status("✓ Procedure loaded", "success")
+            if details_dialog.exec() != QDialog.Accepted:
                 return
 
             params_dialog = MixtureChemicalParametersDialog(
@@ -656,8 +732,17 @@ class MixtureChemicalListDialog(QDialog):
             self.chemical_list[row] = {
                 "chemical_type": dialog.selected_chemical_type,
                 **params_dialog.chemical_params,
+                **details_dialog.first_level_fields,
                 KEY_CONCENTRATION: dialog.concentration,
             }
+            if details_dialog.imported_procedure:
+                self.chemical_list[row][KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+            
+            # Validate that chemical has a name (required for all chemicals)
+            chem_name = self.chemical_list[row].get(KEY_NAME, "").strip()
+            if not chem_name:
+                QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
+                return
             self._populate_table()
 
     def _remove_chemical(self, row):
@@ -1427,7 +1512,7 @@ class Editor(QGraphicsView):
                 "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
                 "Wait": {KEY_DURATION: "10 min"},
-                "ChangeAtmosphere": {KEY_GASES: "", KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
+                "ChangeAtmosphere": {KEY_GASES: [], KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
                 "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
                 "ChangeRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
                 "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
