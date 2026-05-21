@@ -95,6 +95,12 @@ def get_chemical_default_params(chemical_type: str) -> dict:
             KEY_LIGHT_SENSITIVITY: "",
             KEY_OXIDATION_SENSITIVITY: "",
         },
+        "Dispersion": {
+            KEY_ENTITY_TYPE: "Mixture",
+            KEY_NAME: "",
+            KEY_CHEMICAL_LIST: [],
+            KEY_SOLVENT: {},
+        },
         "BioProducts": {
             KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
@@ -175,7 +181,7 @@ class ActionSelectionDialog(QDialog):
         self.btn_support = {
             "ChangeAtmosphere": "☁ Change Atmosphere",
             "ChangeTemperature": "🌡 Change Temperature",
-            "ChangeRecipient": "🧪 Change Recipient",
+            "NewRecipient": "🧪 New Recipient",
             "ChangeAgitation": "🔄 Change Agitation",
             "Repeat": "🔁 Repeat",
             "ContinuousAddition": "➕ Continuous Addition"
@@ -224,6 +230,7 @@ class ChemicalSelectionDialog(QDialog):
             "Molecules": "Molecules",
             "Polymers": "Polymers",
             "Media": "Media",
+            "Dispersion": "Dispersion (Mixture)",
             "HeterogeneousCatalysts": "HeterogeneousCatalysts",
         }
         
@@ -249,6 +256,7 @@ class UnifiedChemicalDetailsDialog(QDialog):
     - ID (commercial or internal)
     - Producer (institution)
     - Purity
+    - CAS Number
     
     Preparation procedure is managed through import/create buttons.
     """
@@ -282,6 +290,10 @@ class UnifiedChemicalDetailsDialog(QDialog):
         self.purity_edit = QLineEdit()
         self.purity_edit.setPlaceholderText("Degree of purity...")
         first_form.addRow("Purity:", self.purity_edit)
+
+        self.cas_edit = QLineEdit()
+        self.cas_edit.setPlaceholderText("Commercial identification number...")
+        first_form.addRow("CAS Number:", self.cas_edit)
 
         layout.addLayout(first_form)
 
@@ -376,11 +388,13 @@ class UnifiedChemicalDetailsDialog(QDialog):
         id_val = self.id_edit.text().strip()
         prod_val = self.producer_edit.text().strip()
         pur_val = self.purity_edit.text().strip()
+        cas_val = self.cas_edit.text().strip()
 
         self.first_level_fields = {
             KEY_ENTITY_ID: id_val,
             KEY_PRODUCER: prod_val,
             KEY_ENTITY_PURITY: pur_val,
+            KEY_CAS_NUMBER: cas_val,
         }
         
         self.accept()
@@ -435,6 +449,66 @@ class GasSelectionDialog(QDialog):
             return
         self.accept()
 
+def pick_embedded_chemical(parent, initial=None, *, for_solvent=False):
+    """Pick one embedded chemical (e.g. mixture list item or dispersion solvent). Returns dict or None."""
+    initial = dict(initial or {})
+    parent_dialog = parent
+    initial_type = initial.get("chemical_type", "Substance" if for_solvent else "Molecules")
+    initial_concentration = "" if for_solvent else initial.get(KEY_CONCENTRATION, "")
+
+    dlg = MixtureChemicalDialog(
+        parent_dialog,
+        initial_type=initial_type,
+        initial_concentration=initial_concentration,
+        for_solvent=for_solvent,
+    )
+    if dlg.exec() != QDialog.Accepted:
+        return None
+
+    details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
+    details_dialog.id_edit.setText(initial.get(KEY_ENTITY_ID, ""))
+    details_dialog.producer_edit.setText(initial.get(KEY_PRODUCER, ""))
+    details_dialog.purity_edit.setText(initial.get(KEY_ENTITY_PURITY, ""))
+    details_dialog.cas_edit.setText(initial.get(KEY_CAS_NUMBER, ""))
+    if KEY_PREPARATION_PROCEDURE in initial:
+        details_dialog.imported_procedure = normalize_preparation_procedure(
+            initial[KEY_PREPARATION_PROCEDURE]
+        )
+        details_dialog._set_status("✓ Procedure loaded", "success")
+    if details_dialog.exec() != QDialog.Accepted:
+        return None
+
+    params_dlg = MixtureChemicalParametersDialog(
+        dlg.selected_chemical_type,
+        parent_dialog,
+        initial_params={**get_chemical_default_params(dlg.selected_chemical_type), **initial},
+    )
+    if params_dlg.exec() != QDialog.Accepted:
+        return None
+
+    result = {
+        "chemical_type": dlg.selected_chemical_type,
+        **params_dlg.chemical_params,
+        **details_dialog.first_level_fields,
+    }
+    if not for_solvent:
+        result[KEY_CONCENTRATION] = dlg.concentration
+    if details_dialog.imported_procedure:
+        result[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
+            details_dialog.imported_procedure
+        )
+
+    chem_name = result.get(KEY_NAME, "").strip()
+    if not chem_name:
+        QMessageBox.warning(
+            parent_dialog,
+            "Missing Chemical Name",
+            f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.",
+        )
+        return None
+    return result
+
+
 class MixtureChemicalParametersDialog(QDialog):
     """Second step dialog that reuses the normal chemical editor."""
     def __init__(self, chemical_type, parent=None, initial_params=None):
@@ -462,9 +536,10 @@ class MixtureChemicalDialog(QDialog):
     
     Collects only the chemical type and concentration.
     """
-    def __init__(self, parent=None, initial_type="Substance", initial_concentration=""):
+    def __init__(self, parent=None, initial_type="Substance", initial_concentration="", for_solvent=False):
         super().__init__(parent)
-        self.setWindowTitle("Edit Mixture Chemical")
+        self.for_solvent = for_solvent
+        self.setWindowTitle("Select Solvent" if for_solvent else "Edit Mixture Chemical")
         self.setMinimumWidth(420)
         self.selected_chemical_type = None
         self.concentration = ""
@@ -479,50 +554,56 @@ class MixtureChemicalDialog(QDialog):
 
         self.type_combo = QComboBox()
         self.type_combo.addItem("Select...", "")
-        self.type_combo.addItem("Molecules", "Molecules")
-        self.type_combo.addItem("BioProducts", "BioProducts")
-        self.type_combo.addItem("Polymers", "Polymers")
-        self.type_combo.addItem("Media", "Media")
-        self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
+        if for_solvent:
+            self.type_combo.addItem("Substance", "Substance")
+            self.type_combo.addItem("Mixture", "Mixture")
+        else:
+            self.type_combo.addItem("Molecules", "Molecules")
+            self.type_combo.addItem("BioProducts", "BioProducts")
+            self.type_combo.addItem("Polymers", "Polymers")
+            self.type_combo.addItem("Media", "Media")
+            self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
         idx = self.type_combo.findData(initial_type)
         if idx < 0:
-            idx = self.type_combo.findData("Molecules")
+            idx = self.type_combo.findData("Substance" if for_solvent else "Molecules")
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
         layout.addWidget(self.type_combo)
 
-        conc_label = QLabel("Concentration")
-        conc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
-        layout.addWidget(conc_label)
+        self.conc_label = None
+        self.conc_edit = None
+        self.conc_unit = None
+        if not for_solvent:
+            conc_label = QLabel("Concentration")
+            conc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
+            layout.addWidget(conc_label)
+            self.conc_label = conc_label
 
-        # Create concentration widget with value input and unit dropdown
-        conc_container = QWidget()
-        conc_layout = QHBoxLayout(conc_container)
-        conc_layout.setContentsMargins(0, 0, 0, 0)
-        conc_layout.setSpacing(8)
+            conc_container = QWidget()
+            conc_layout = QHBoxLayout(conc_container)
+            conc_layout.setContentsMargins(0, 0, 0, 0)
+            conc_layout.setSpacing(8)
 
-        self.conc_edit = QLineEdit()
-        self.conc_edit.setPlaceholderText("Enter value")
-        configure_unit_decimal_input(self.conc_edit, min_value=0.0)
-        
-        self.conc_unit = QComboBox()
-        # Unit dropdown should default to the first available unit
-        self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
-        
-        # Parse initial value (e.g., "10 g/L" or "1 M")
-        if initial_concentration:
-            parts = initial_concentration.strip().split()
-            if len(parts) == 2:
-                self.conc_edit.setText(format_decimal_for_input(parts[0]))
-                idx = self.conc_unit.findText(parts[1])
-                if idx >= 0:
-                    self.conc_unit.setCurrentIndex(idx)
-            elif len(parts) == 1 and parts[0]:
-                self.conc_edit.setText(format_decimal_for_input(parts[0]))
-        
-        conc_layout.addWidget(self.conc_edit, 2)
-        conc_layout.addWidget(self.conc_unit, 1)
-        layout.addWidget(conc_container)
+            self.conc_edit = QLineEdit()
+            self.conc_edit.setPlaceholderText("Enter value")
+            configure_unit_decimal_input(self.conc_edit, min_value=0.0)
+
+            self.conc_unit = QComboBox()
+            self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
+
+            if initial_concentration:
+                parts = initial_concentration.strip().split()
+                if len(parts) == 2:
+                    self.conc_edit.setText(format_decimal_for_input(parts[0]))
+                    cidx = self.conc_unit.findText(parts[1])
+                    if cidx >= 0:
+                        self.conc_unit.setCurrentIndex(cidx)
+                elif len(parts) == 1 and parts[0]:
+                    self.conc_edit.setText(format_decimal_for_input(parts[0]))
+
+            conc_layout.addWidget(self.conc_edit, 2)
+            conc_layout.addWidget(self.conc_unit, 1)
+            layout.addWidget(conc_container)
 
         button_row = QHBoxLayout()
         button_row.addStretch()
@@ -544,10 +625,15 @@ class MixtureChemicalDialog(QDialog):
 
     def _accept(self):
         self.selected_chemical_type = self.type_combo.currentData()
-        # Combine value and unit
-        value = self.conc_edit.text().strip()
-        unit = self.conc_unit.currentText().strip()
-        self.concentration = f"{value} {unit}" if value else ""
+        if not self.selected_chemical_type:
+            QMessageBox.warning(self, "Missing Required Field", "Please select a chemical type.")
+            return
+        if not self.for_solvent and self.conc_edit and self.conc_unit:
+            value = self.conc_edit.text().strip()
+            unit = self.conc_unit.currentText().strip()
+            self.concentration = f"{value} {unit}" if value else ""
+        else:
+            self.concentration = ""
         self.accept()
 
 
@@ -696,6 +782,7 @@ class MixtureChemicalListDialog(QDialog):
             details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
             details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
             details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
+            details_dialog.cas_edit.setText(chem.get(KEY_CAS_NUMBER, ""))
             if KEY_PREPARATION_PROCEDURE in chem:
                 details_dialog.imported_procedure = normalize_preparation_procedure(
                     chem[KEY_PREPARATION_PROCEDURE]
@@ -1484,7 +1571,7 @@ class Editor(QGraphicsView):
                 "Add": Add, "Grind": Grind, "Separate": Separate, 
                 "Sieve": Sieve, "Wait": Wait,
                 "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
-                "ChangeRecipient": ChangeRecipient, "ChangeAgitation": ChangeAgitation,
+                "NewRecipient": NewRecipient, "ChangeAgitation": ChangeAgitation,
                 "SubProductCreation": SubProductCreation, "Repeat": Repeat,
                 "ContinuousAddition": ContinuousAddition
             }
@@ -1503,7 +1590,7 @@ class Editor(QGraphicsView):
                 "Wait": {KEY_DURATION: "10 min"},
                 "ChangeAtmosphere": {KEY_GASES: [], KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
                 "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
-                "ChangeRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
+                "NewRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
                 "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
                 "SubProductCreation": {KEY_SUBSTANCE: ""},
                 "Repeat": {KEY_AMOUNT: "1"},
@@ -1640,6 +1727,7 @@ class Editor(QGraphicsView):
                 "Molecules": Molecules,
                 "Polymers": Polymers,
                 "Media": Media,
+                "Dispersion": Dispersion,
                 "BioProducts": BioProducts,
                 "HeterogeneousCatalysts": HeterogeneousCatalysts,
             }
@@ -2034,7 +2122,7 @@ class Editor(QGraphicsView):
         self.reflow_entire_cluster(moved_block)
 
         # 5. Final constraint pass to align all vertical support blocks
-        # This ensures that support actions (Change Recipient, etc.) linked to
+        # This ensures that support actions (New Recipient, etc.) linked to
         # blocks in the chain also move along when the horizontal chain reorganizes
         self._reflow_visible_actions()
 
@@ -2382,7 +2470,7 @@ class Editor(QGraphicsView):
         type_config = {
             "ChangeTemperature": ("CT", QColor(255, 20, 147)), 
             "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),  
-            "ChangeRecipient": ("CR", QColor(155, 89, 182)),
+            "NewRecipient": ("NR", QColor(155, 89, 182)),
             "ChangeAgitation": ("AG", QColor(52, 152, 219)),
             "SubProductCreation": ("SP", QColor(231, 76, 60)),
             "Repeat": ("RE", QColor(230, 126, 34)),
@@ -2399,7 +2487,7 @@ class Editor(QGraphicsView):
                 idx = type_counters[b.action]
                 b.support_id = f"{prefix}{idx}"
                 b.support_color = color
-                support_registry[b] = {"id": b.support_id, "color": color}
+                support_registry[b] = {"id": b.support_id, "color": color, "action": b.action}
                 type_counters[b.action] += 1
 
         # 3. propagate influences
@@ -2463,6 +2551,12 @@ class Editor(QGraphicsView):
         for root in roots:
             propagate(root, {}, "h")
         
+        for b in self.blocks:
+            if isinstance(b, ElementaryAction) and b.available_influences:
+                for inf in b.available_influences:
+                    if inf.get("action") in LOCKED_INFLUENCE_ACTIONS and inf.get("id"):
+                        b.disabled_influences.discard(inf["id"])
+
         # force redraw to show badges
         for b in self.blocks:
             b.update()

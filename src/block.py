@@ -13,6 +13,13 @@ from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
 
 
+class _SingleChemicalRef:
+    """Mutable holder for one embedded chemical dict (solvent, etc.)."""
+
+    def __init__(self, initial=None):
+        self.value = dict(initial) if isinstance(initial, dict) else {}
+
+
 class _UnitDecimalKeyFilter(QObject):
     """Block comma/semicolon key entry in unit numeric fields."""
 
@@ -66,6 +73,27 @@ def configure_unit_decimal_input(edit: QLineEdit, min_value: float = 0.0) -> Non
 def format_decimal_for_input(text: str) -> str:
     """Normalize stored decimals for display in dot-decimal fields."""
     return str(text).strip().replace(",", ".")
+
+
+def field_label(field_key: str, action_name: str | None = None) -> str:
+    """UI label for a param key, with optional per-action overrides."""
+    config = FIELD_CONFIG.get(str(field_key).lower(), {})
+    if action_name:
+        label = config.get("labels_by_action", {}).get(action_name)
+        if label:
+            return label
+    return config.get("label", str(field_key).capitalize())
+
+
+def embedded_chemical_filled(chem) -> bool:
+    """True when an embedded chemical dict (list item or solvent) has a type or name."""
+    if not isinstance(chem, dict) or not chem:
+        return False
+    return bool(
+        str(chem.get("chemical_type", "")).strip()
+        or str(chem.get(KEY_NAME, "")).strip()
+        or str(chem.get(KEY_FORMULA, "")).strip()
+    )
 
 
 def validate_decimal_input(text: str) -> float:
@@ -809,18 +837,26 @@ class Block(QGraphicsRectItem):
                 inf_id = influence.get("id")
                 if not inf_id:
                     continue
-                action = influences_menu.addAction(inf_id)
-                action.setCheckable(True)
-                action.setChecked(inf_id not in self.disabled_influences)
-                action.toggled.connect(
-                    lambda checked, _id=inf_id: self._toggle_influence(_id, checked)
-                )
+                inf_action = influence.get("action")
+                is_locked = inf_action in LOCKED_INFLUENCE_ACTIONS
+                menu_action = influences_menu.addAction(inf_id)
+                menu_action.setCheckable(True)
+                menu_action.setChecked(True if is_locked else inf_id not in self.disabled_influences)
+                if is_locked:
+                    menu_action.setEnabled(False)
+                else:
+                    menu_action.toggled.connect(
+                        lambda checked, _id=inf_id: self._toggle_influence(_id, checked)
+                    )
             menu.addSeparator()
         
         menu.addAction("Delete").triggered.connect(self.delete_block)
         menu.exec(event.screenPos())
 
     def _toggle_influence(self, influence_id: str, enabled: bool) -> None:
+        for influence in self.available_influences:
+            if influence.get("id") == influence_id and influence.get("action") in LOCKED_INFLUENCE_ACTIONS:
+                return
         if enabled:
             self.disabled_influences.discard(influence_id)
         else:
@@ -983,6 +1019,131 @@ class Block(QGraphicsRectItem):
                     combo.setCurrentIndex(idx)
             return combo, combo
 
+        elif f_type == "single_chemical":
+            chem_value = value if isinstance(value, dict) else {}
+            single_ref = _SingleChemicalRef(chem_value)
+
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
+
+            button_layout = QHBoxLayout()
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+            add_btn = QToolButton()
+            add_btn.setText("+ Add")
+            add_btn.setToolTip(config.get("placeholder", "Add chemical"))
+            add_btn.setAutoRaise(False)
+            add_btn.setFixedHeight(28)
+            add_btn.setMinimumWidth(60)
+            add_btn.setStyleSheet(ADD_BUTTON_STYLE)
+            add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+
+            row_container = QWidget()
+            row_layout = QVBoxLayout(row_container)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+
+            def _row_label(chem: dict) -> str:
+                chem_type = chem.get("chemical_type", "Unknown")
+                name = chem.get(KEY_NAME, "").strip()
+                formula = chem.get(KEY_FORMULA, "").strip()
+                if name:
+                    return f"{chem_type}: {name}"
+                if formula:
+                    return f"{chem_type}: {formula}"
+                return chem_type
+
+            def _update_row():
+                while row_layout.count():
+                    child = row_layout.takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+                has_chem = bool(single_ref.value)
+                add_btn.setVisible(not has_chem)
+                if not has_chem:
+                    return
+
+                chem = single_ref.value
+                row_text = _row_label(chem)
+                row_widget = QWidget()
+                row_widget.setFixedHeight(28)
+                inner = QHBoxLayout(row_widget)
+                inner.setContentsMargins(0, 0, 0, 0)
+                inner.setSpacing(6)
+
+                text_label = QLabel()
+                text_label.setToolTip(row_text)
+                text_label.setStyleSheet(
+                    "background-color: #e0e7ff; color: #3730a3; padding: 4px 8px; "
+                    "border-radius: 4px; font-size: 11px; border: 1px solid #c7d2fe;"
+                )
+                text_label.setFixedHeight(28)
+                text_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                fm = QFontMetrics(text_label.font())
+                text_label.setText(fm.elidedText(row_text, Qt.TextElideMode.ElideRight, 220))
+
+                edit_btn = QToolButton()
+                edit_btn.setText("✎")
+                edit_btn.setFixedSize(22, 22)
+                edit_btn.setStyleSheet(LIST_ICON_BUTTON_STYLE)
+
+                remove_btn = QToolButton()
+                remove_btn.setText("✕")
+                remove_btn.setFixedSize(22, 22)
+                remove_btn.setStyleSheet(
+                    LIST_ICON_BUTTON_STYLE
+                    + "QToolButton { font-weight: bold; color: #6b7280; }"
+                    + "QToolButton:hover { color: #ef4444; }"
+                )
+
+                def _remove():
+                    single_ref.value = {}
+                    _update_row()
+
+                def _edit():
+                    from .editor import pick_embedded_chemical
+
+                    parent_dialog = self.editor if self.editor else self
+                    picked = pick_embedded_chemical(
+                        parent_dialog,
+                        single_ref.value,
+                        for_solvent=config.get("for_solvent", key == KEY_SOLVENT),
+                    )
+                    if picked:
+                        single_ref.value = picked
+                        _update_row()
+
+                edit_btn.clicked.connect(_edit)
+                remove_btn.clicked.connect(_remove)
+                inner.addWidget(text_label, 1)
+                inner.addWidget(edit_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+                inner.addWidget(remove_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+                row_layout.addWidget(row_widget)
+
+            def _add():
+                from .editor import pick_embedded_chemical
+
+                parent_dialog = self.editor if self.editor else self
+                picked = pick_embedded_chemical(
+                    parent_dialog,
+                    {},
+                    for_solvent=config.get("for_solvent", key == KEY_SOLVENT),
+                )
+                if picked:
+                    single_ref.value = picked
+                    _update_row()
+
+            add_btn.clicked.connect(_add)
+            button_layout.addWidget(add_btn)
+            layout.addLayout(button_layout)
+            layout.addWidget(row_container)
+            _update_row()
+
+            return container, single_ref
+
         elif f_type == "list":
             # Create compact chemical list widget with add button and tags
             list_value = value if isinstance(value, list) else (value or [])
@@ -1139,6 +1300,7 @@ class Block(QGraphicsRectItem):
                         details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
                         details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
                         details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
+                        details_dialog.cas_edit.setText(chem.get(KEY_CAS_NUMBER, ""))
                         if KEY_PREPARATION_PROCEDURE in chem:
                             details_dialog.imported_procedure = normalize_preparation_procedure(
                                 chem[KEY_PREPARATION_PROCEDURE]
@@ -1202,12 +1364,22 @@ class Block(QGraphicsRectItem):
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
 
-        can_switch_to_mixture = self.action in {"BioProducts", "HeterogeneousCatalysts", "Molecules", "Polymers", "Media"}
+        is_fixed_mixture = self.action == "Dispersion"
+        can_switch_to_mixture = (
+            self.action in {"BioProducts", "HeterogeneousCatalysts", "Molecules", "Polymers", "Media"}
+            and not is_fixed_mixture
+        )
+        if is_fixed_mixture:
+            params_for_dialog[KEY_ENTITY_TYPE] = "Mixture"
+            params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
+            params_for_dialog.setdefault(KEY_SOLVENT, {})
         if can_switch_to_mixture:
             params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
+        if self.action == "Media":
+            params_for_dialog.setdefault(KEY_ENTITY_TYPE, "Substance")
         params_for_dialog.pop(KEY_MIXTURE_TYPE, None)
 
-        hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY]
+        hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY, KEY_CAS_NUMBER]
 
         dialog = EditDialog(self.editor if self.editor else None)
         dialog.setWindowTitle(self.action)
@@ -1233,18 +1405,25 @@ class Block(QGraphicsRectItem):
         entity_type_key = None
         if KEY_ENTITY_TYPE in ordered_keys:
             ordered_keys.remove(KEY_ENTITY_TYPE)
-            entity_type_key = KEY_ENTITY_TYPE
+            if not is_fixed_mixture:
+                entity_type_key = KEY_ENTITY_TYPE
+        if is_fixed_mixture:
+            ordered_keys = [k for k in ordered_keys if k != KEY_ENTITY_TYPE]
 
         required_keys: list[str] = []
         optional_keys: list[str] = []
         entity_type_value = params_for_dialog.get(KEY_ENTITY_TYPE, "")
         force_required_keys = set()
-        if self.action in {"Mixture", "Media"}:
+        if self.action in {"Mixture", "Dispersion"}:
             force_required_keys.update({KEY_CHEMICAL_LIST})
+        if is_fixed_mixture:
+            force_required_keys.add(KEY_SOLVENT)
 
         main_conditional_keys: list[str] = []
         if can_switch_to_mixture:
             main_conditional_keys.append(KEY_CHEMICAL_LIST)
+        if is_fixed_mixture:
+            main_conditional_keys = [KEY_SOLVENT]
         
         for key in ordered_keys:
             if key in main_conditional_keys:
@@ -1266,8 +1445,7 @@ class Block(QGraphicsRectItem):
                 
             value = params_for_dialog.get(key, "")
             # Retrieve label from config. Fallback to capitalized key string
-            config = FIELD_CONFIG.get(key.lower(), {})
-            label = config.get("label", key.capitalize())
+            label = field_label(key, self.action)
 
             widget, tracker = self._get_field_widget(key, value)
             # Explicitly create label widget to ensure proper visibility control
@@ -1348,7 +1526,7 @@ class Block(QGraphicsRectItem):
 
         def _update_conditional_fields() -> None:
             current_type = entity_type_widget.currentText() if entity_type_widget else entity_type_value
-            show_mixture_fields = current_type == "Mixture" and can_switch_to_mixture
+            show_mixture_fields = is_fixed_mixture or (current_type == "Mixture" and can_switch_to_mixture)
 
             # NAME field is always visible (Mixtures and regular entities both have names)
             # Show/hide mixture-specific fields based on entity type
@@ -1441,34 +1619,68 @@ class Block(QGraphicsRectItem):
                 elif isinstance(tracker, list):
                     # For list fields, tracker is the list itself
                     value = tracker
+                elif isinstance(tracker, _SingleChemicalRef):
+                    value = dict(tracker.value)
                 else:
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
 
-                if key == KEY_OPEN_FLAME:
+                if k == KEY_OPEN_FLAME:
                     value = normalize_boolean(value)
-                elif key in {
+                elif k in {
                     KEY_DURATION, KEY_ADD_QUANTITY, KEY_TEMPERATURE, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_SPEED,
                     KEY_FLOW_RATE, KEY_PRESSURE, KEY_RAMP, KEY_POWER, KEY_VOLUME,
                     KEY_QUANTITY, KEY_CONCENTRATION
                 }:
                     value = quantity_to_text(value)
 
-                if is_field_required(k, params=new_params, action_name=self.action) and is_empty_value(value):
-                    label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
+                field_required = (
+                    k in force_required_keys
+                    or is_field_required(k, params=new_params, action_name=self.action)
+                )
+                if field_required and is_empty_value(value):
+                    label = field_label(k, self.action)
                     QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.")
                     if isinstance(tracker, tuple):
                         tracker[0].setFocus()
+                    elif isinstance(tracker, _SingleChemicalRef):
+                        pass
+                    elif isinstance(tracker, list):
+                        pass
                     else:
                         tracker.setFocus()
                     return
 
                 new_params[k] = value
 
-            if can_switch_to_mixture:
+            for req_key in force_required_keys:
+                if req_key not in new_params:
+                    continue
+                req_value = new_params[req_key]
+                req_label = field_label(req_key, self.action)
+                if req_key == KEY_CHEMICAL_LIST:
+                    if not isinstance(req_value, list) or len(req_value) == 0:
+                        QMessageBox.warning(
+                            dialog,
+                            "Missing Required Field",
+                            f"'{req_label}' is required. Add at least one chemical.",
+                        )
+                        return
+                elif req_key == KEY_SOLVENT:
+                    if not embedded_chemical_filled(req_value):
+                        QMessageBox.warning(
+                            dialog,
+                            "Missing Required Field",
+                            f"'{req_label}' is required. Use '+ Add' to select a chemical.",
+                        )
+                        return
+
+            if is_fixed_mixture:
+                new_params[KEY_ENTITY_TYPE] = "Mixture"
+                new_params.setdefault(KEY_CHEMICAL_LIST, [])
+            elif can_switch_to_mixture:
                 if current_type == "Mixture":
                     new_params[KEY_ENTITY_TYPE] = "Mixture"
-                    new_params[KEY_NAME] = ""
                     new_params.setdefault(KEY_CHEMICAL_LIST, [])
                 else:
                     new_params[KEY_ENTITY_TYPE] = "Substance"

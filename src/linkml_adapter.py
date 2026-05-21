@@ -26,7 +26,7 @@ ACTION_TO_LINKML_STEP = {
     "Wait": "WaitingStep",
     "ChangeAtmosphere": "AtmosphereChangeStep",
     "ChangeTemperature": "TemperatureChangeStep",
-    "ChangeRecipient": "RecipientChangeStep",
+    "NewRecipient": "RecipientChangeStep",
     "ChangeAgitation": "StirringStep",
     "SubProductCreation": "SubProductCreationStep",
     "Repeat": "RepetitionBlock",
@@ -45,9 +45,7 @@ FIELD_TO_LINKML_SLOT = {
     KEY_METHOD: "uses_separation_method",
     KEY_MIN_SIZE: "has_minimum_particle_size",
     KEY_MAX_SIZE: "has_maximum_particle_size",
-    KEY_AGITATION_TYPE: "stirring_type",
     KEY_SPEED: "has_stirring_speed",
-    KEY_GASES: "has_atmosphere_type",
     KEY_FLOW_RATE: "has_flow_rate",
     KEY_PRESSURE: "has_pressure",
     KEY_PROCESS: "heating_process",
@@ -70,6 +68,7 @@ CHEMICAL_TO_LINKML_CLASS = {
     "PerfectSingleCrystalMaterial": "ChemicalEntity",
     "Polymers": "ChemicalEntity",
     "Media": "ChemicalSubstance",
+    "Dispersion": "ChemicalSubstance",
     "BioProducts": "ChemicalSubstance",
     "HeterogeneousCatalysts": "Catalyst",
     # Legacy/older protocol exports kept as fallback for migration compatibility
@@ -120,6 +119,10 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
         KEY_PURITY: "alternative_label",
         KEY_STERILITY: "alternative_label",
         KEY_SOLUBILITY: "alternative_label",
+    },
+    "Dispersion": {
+        KEY_NAME: "alternative_label",
+        KEY_CHEMICAL_LIST: "alternative_label",
     },
     "BioProducts": {
         KEY_NAME: "alternative_label",
@@ -374,7 +377,6 @@ def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
 def change_agitation_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     """Convert ChangeAgitation action parameters to StirringStep LinkML slots."""
     return {
-        "stirring_type": params.get(KEY_AGITATION_TYPE),
         "has_stirring_speed": _quantity_or_raw(params.get(KEY_SPEED)),
     }
 
@@ -388,7 +390,6 @@ def separate_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
 
 def change_atmosphere_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "has_atmosphere_type": parse_gases(params.get(KEY_GASES)),
         "has_flow_rate": _quantity_or_raw(params.get(KEY_FLOW_RATE)),
         "has_pressure": _quantity_or_raw(params.get(KEY_PRESSURE)),
     }
@@ -403,7 +404,7 @@ def change_temperature_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def change_recipient_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+def new_recipient_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "has_recipient_type": params.get(KEY_RECIPIENT),
         "has_vessel_material": params.get(KEY_MATERIAL),
@@ -437,7 +438,7 @@ ACTION_TO_ADAPTER = {
     "Separate": separate_to_linkml,
     "ChangeAtmosphere": change_atmosphere_to_linkml,
     "ChangeTemperature": change_temperature_to_linkml,
-    "ChangeRecipient": change_recipient_to_linkml,
+    "NewRecipient": new_recipient_to_linkml,
     "ChangeAgitation": change_agitation_to_linkml,
     "Sieve": sieve_to_linkml,
     "Repeat": repeat_to_linkml,
@@ -475,7 +476,7 @@ LINKML_STEP_TO_ACTION = {
     "WaitingStep": "Wait",
     "AtmosphereChangeStep": "ChangeAtmosphere",
     "TemperatureChangeStep": "ChangeTemperature",
-    "RecipientChangeStep": "ChangeRecipient",
+    "RecipientChangeStep": "NewRecipient",
     "StirringStep": "ChangeAgitation",
     "SubProductCreationStep": "SubProductCreation",
     "RepetitionBlock": "Repeat",
@@ -980,6 +981,7 @@ def action_to_linkml_dict(action_name: str, params: dict[str, Any], chemicals: l
 
 def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[str, Any]:
     slots: dict[str, Any] = {}
+    source_metadata: dict[str, Any] = {}
     for key, value in (params or {}).items():
         if _is_blank(value):
             continue
@@ -999,9 +1001,14 @@ def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[
         slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
         if slot:
             slots[slot] = value
+        else:
+            source_metadata[key] = value
 
-    return {
+    payload = {
         "source_chemical": chemical_name,
         "linkml_class": get_linkml_chemical_class(chemical_name),
         "slots": slots,
     }
+    if source_metadata:
+        payload["source_metadata"] = source_metadata
+    return payload

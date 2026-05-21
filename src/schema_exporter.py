@@ -110,7 +110,7 @@ def _convert_step(step: dict) -> dict:
     for key, value in params.items():
         if _is_blank(value):
             continue
-        if key in {"duration", "temperature", "add_type", "open_flame", "phase_to_keep", "method", "min_size", "max_size", "speed", "gases", "flow_rate", "pressure", "process", "ramp", "power", "recipient", "material", "volume", "substance_list", "continuous_add_type", "amount", "chemical"}:
+        if key in {"duration", "temperature", "add_type", "open_flame", "phase_to_keep", "method", "min_size", "max_size", "speed", "flow_rate", "pressure", "process", "ramp", "power", "recipient", "material", "volume", "substance_list", "continuous_add_type", "amount", "chemical"}:
             continue
 
         slot = get_linkml_slot(key, action_name=action_name)
@@ -249,21 +249,6 @@ def _normalize_linkml_instance(node: Any) -> Any:
     return normalized
 
 
-def _strip_atmosphere_type(node: Any) -> Any:
-    """Remove has_atmosphere_type recursively before strict LinkML validation."""
-    if isinstance(node, list):
-        return [_strip_atmosphere_type(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    stripped: dict[str, Any] = {}
-    for key, value in node.items():
-        if key == "has_atmosphere_type":
-            continue
-        stripped[key] = _strip_atmosphere_type(value)
-    return stripped
-
-
 def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, int, int]:
     """Convert the domain protocol into canonical LinkML-oriented activities.
 
@@ -330,7 +315,7 @@ def _validate_strict_mode(activities: list[dict]) -> None:
 
     schema = build_validation_schema()
     for idx, activity in enumerate(activities):
-        instance = _strip_atmosphere_type(_normalize_linkml_instance(activity))
+        instance = _normalize_linkml_instance(activity)
         report = linkml_validate(instance, schema=schema, target_class="LabSynthesisActivity", strict=True)
         results = getattr(report, "results", []) or []
         if results:

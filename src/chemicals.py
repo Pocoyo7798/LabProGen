@@ -7,14 +7,16 @@ class ChemicalEntity:
     - entity_id: Commercial or internal identifier
     - entity_producer: Institution that created the entity
     - entity_purity: Degree of purity
+    - cas_number: Commercial identification number (CAS)
     
     Preparation procedure is managed visually through import/create buttons.
     """
-    def __init__(self, entity_id="", entity_producer="", entity_purity="", **kwargs):
+    def __init__(self, entity_id="", entity_producer="", entity_purity="", cas_number="", **kwargs):
         self.params = {
             KEY_ENTITY_ID: entity_id,
             KEY_PRODUCER: entity_producer,
             KEY_ENTITY_PURITY: entity_purity,
+            KEY_CAS_NUMBER: cas_number,
             **kwargs
         }
     
@@ -118,11 +120,13 @@ class Polymers(Molecules):
             del self.params[KEY_SMILES]
         self.params[KEY_BIGSMILES] = bigsmiles
 
-class Media(Mixture):
-    """Third Level: Biological media (inherits from Mixture)."""
+class Media(ChemicalEntity):
+    """Biological media as Substance or Mixture (via entity_type)."""
     def __init__(
         self,
+        entity_type="Substance",
         name="",
+        chemical_list=None,
         quantity="",
         function="",
         state="",
@@ -135,7 +139,12 @@ class Media(Mixture):
         oxidation_sensitivity="",
         **kwargs,
     ):
-        super().__init__(name=name, **{
+        if chemical_list is None:
+            chemical_list = []
+        super().__init__(**{
+            KEY_ENTITY_TYPE: entity_type,
+            KEY_NAME: name,
+            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
             KEY_QUANTITY: quantity,
             KEY_FUNCTION: function,
             KEY_STATE: state,
@@ -149,16 +158,32 @@ class Media(Mixture):
             **kwargs
         })
 
+
+class Dispersion(ChemicalEntity):
+    """Dispersion (Mixture): solutes in chemical_list plus one solvent; always Mixture type."""
+    def __init__(self, name="", chemical_list=None, solvent=None, **kwargs):
+        if chemical_list is None:
+            chemical_list = []
+        if solvent is None:
+            solvent = {}
+        super().__init__(**{
+            KEY_ENTITY_TYPE: "Mixture",
+            KEY_NAME: name,
+            KEY_CHEMICAL_LIST: chemical_list,
+            KEY_SOLVENT: solvent,
+            **kwargs
+        })
+
 class BioProducts(ChemicalEntity):
-    """biological products with production and localization metadata.
-    
-    Has entity_type field (Substance or Mixture) to determine inheritance behavior.
-    name field only populated if entity_type=="Substance".
+    """Biological products with production and localization metadata.
+
+    Substance or Mixture (entity_type). Mixture uses name + chemical_list.
     """
     def __init__(
         self,
         entity_type="Substance",
         name="",
+        chemical_list=None,
         origin="",
         production_phase="",
         location="",
@@ -168,9 +193,12 @@ class BioProducts(ChemicalEntity):
         toxicity_to_producer="",
         **kwargs,
     ):
+        if chemical_list is None:
+            chemical_list = []
         super().__init__(**{
             KEY_ENTITY_TYPE: entity_type,
-            KEY_NAME: name if entity_type == "Substance" else "",
+            KEY_NAME: name,
+            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
             KEY_ORIGIN: origin,
             KEY_PRODUCTION_PHASE: production_phase,
             KEY_LOCATION: location,
@@ -183,11 +211,12 @@ class BioProducts(ChemicalEntity):
 
 
 class HeterogeneousCatalysts(ChemicalEntity):
-    """Third Level: Heterogeneous catalysts (inherits from Substance or Mixture via entity_type field). All params optional."""
+    """Heterogeneous catalysts as Substance or Mixture (entity_type). Mixture uses name + chemical_list."""
     def __init__(
         self,
         entity_type="Substance",
         name="",
+        chemical_list=None,
         formula="",
         structure_3d="",
         crystallinity="",
@@ -203,9 +232,12 @@ class HeterogeneousCatalysts(ChemicalEntity):
         py_l_450="",
         **kwargs,
     ):
+        if chemical_list is None:
+            chemical_list = []
         super().__init__(**{
             KEY_ENTITY_TYPE: entity_type,
-            KEY_NAME: name if entity_type == "Substance" else "",
+            KEY_NAME: name,
+            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
             KEY_FORMULA: formula,
             KEY_3D_STRUCTURE: structure_3d,
             KEY_CRYSTALLINITY: crystallinity,

@@ -73,7 +73,7 @@ class Protocol:
             "Wait": Wait,
             "ChangeAtmosphere": ChangeAtmosphere,
             "ChangeTemperature": ChangeTemperature,
-            "ChangeRecipient": ChangeRecipient,
+            "NewRecipient": NewRecipient,
             "ChangeAgitation": ChangeAgitation,
             "SubProductCreation": SubProductCreation,
             "Repeat": Repeat,
@@ -98,6 +98,7 @@ class Protocol:
             "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
             "Polymers": Polymers,
             "Media": Media,
+            "Dispersion": Dispersion,
             "BioProducts": BioProducts,
         }
         chemical_class = chemical_classes.get(chemical_name, Chemical)

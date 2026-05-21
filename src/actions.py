@@ -100,8 +100,8 @@ class ChangeTemperature(Action):
             KEY_POWER: power
         })
 
-class ChangeRecipient(Action):
-    """Modification of the mixture recipient."""
+class NewRecipient(Action):
+    """Set or replace the reaction vessel (recipient)."""
     def __init__(self, recipient="", material="", volume="250 mL", **kwargs):
         super().__init__(**{
             KEY_RECIPIENT: recipient,
