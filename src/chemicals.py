@@ -64,13 +64,12 @@ class Material(ChemicalEntity):
         })
 
 class Mixture(ChemicalEntity):
-    """Mixture entity with optional mixture type and chemical list."""
-    def __init__(self, name="", mixture_type="", chemical_list=None, **kwargs):
+    """Mixture entity composed of other chemicals in a chemical list."""
+    def __init__(self, name="", chemical_list=None, **kwargs):
         if chemical_list is None:
             chemical_list = []
         super().__init__(**{
             KEY_NAME: name,
-            KEY_MIXTURE_TYPE: mixture_type,
             KEY_CHEMICAL_LIST: chemical_list,
             **kwargs
         })

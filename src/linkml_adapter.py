@@ -28,7 +28,6 @@ ACTION_TO_LINKML_STEP = {
     "ChangeTemperature": "TemperatureChangeStep",
     "ChangeRecipient": "RecipientChangeStep",
     "ChangeAgitation": "StirringStep",
-    "NewMixture": "SolutionPreparationStep",
     "SubProductCreation": "SubProductCreationStep",
     "Repeat": "RepetitionBlock",
     "ContinuousAddition": "ContinuousAdditionStep",
@@ -57,7 +56,6 @@ FIELD_TO_LINKML_SLOT = {
     KEY_RECIPIENT: "has_recipient_type",
     KEY_MATERIAL: "has_vessel_material",
     KEY_VOLUME: "has_vessel_volume",
-    KEY_MIXTURE_NAME: "name",
     KEY_SUBSTANCE: "has_subproduct",
     KEY_SUBSTANCE_LIST: "has_added_material",
     KEY_CONTINUOUS_ADD_TYPE: "continuous_addition_type",
@@ -96,7 +94,6 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
     },
     "Mixture": {
         KEY_NAME: "alternative_label",
-        KEY_MIXTURE_TYPE: "alternative_label",
         KEY_QUANTITY: "has_volume",
         KEY_CHEMICAL_LIST: "alternative_label",
     },
@@ -459,10 +456,6 @@ def get_linkml_slot(field_key: str, action_name: str | None = None) -> str | Non
         if action_name == "Repeat":
             return "repetition_count"
 
-    if field_key == KEY_MIXTURE_NAME and action_name == "NewMixture":
-        # SolutionPreparationStep does not expose a name slot in the schema.
-        return None
-
     return FIELD_TO_LINKML_SLOT.get(field_key)
 
 
@@ -484,7 +477,6 @@ LINKML_STEP_TO_ACTION = {
     "TemperatureChangeStep": "ChangeTemperature",
     "RecipientChangeStep": "ChangeRecipient",
     "StirringStep": "ChangeAgitation",
-    "SolutionPreparationStep": "NewMixture",
     "SubProductCreationStep": "SubProductCreation",
     "RepetitionBlock": "Repeat",
     "ContinuousAdditionStep": "ContinuousAddition",
@@ -547,7 +539,17 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
         return value.get("id")
     if slot in {"has_open_flame"}:
         return boolean_to_text(value)
-    if slot in {"has_step_duration", "has_stirring_speed", "has_flow_rate", "has_pressure", "has_heat_ramp", "has_microwave_power", "has_vessel_volume", "has_minimum_particle_size", "has_maximum_particle_size"}:
+    if slot in {
+        "has_step_duration",
+        "has_stirring_speed",
+        "has_flow_rate",
+        "has_pressure",
+        "has_heat_ramp",
+        "has_microwave_power",
+        "has_vessel_volume",
+        "has_minimum_particle_size",
+        "has_maximum_particle_size",
+    }:
         return quantity_to_text(value)
     if slot == "has_atmosphere_type":
         # Build gases as list of chemical objects for new internal format

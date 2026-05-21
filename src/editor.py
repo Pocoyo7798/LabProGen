@@ -7,8 +7,14 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Qt, QPointF
-from PySide6.QtGui import QCursor, QFont, QPainter, QColor, QDoubleValidator
-from .block import ElementaryAction, SupportAction, ChemicalBlock
+from PySide6.QtGui import QCursor, QFont, QPainter, QColor
+from .block import (
+    ElementaryAction,
+    SupportAction,
+    ChemicalBlock,
+    configure_unit_decimal_input,
+    format_decimal_for_input,
+)
 from .config import *
 from .actions import *
 from .chemicals import *
@@ -33,13 +39,32 @@ STATUS_BADGE_STYLE = {
 }
 
 
+def normalize_preparation_procedure(procedure):
+    """Canonicalize an embedded preparation procedure for storage in chemical params.
+
+    ``preview_flows`` is only used on canvas-owned procedures where it may be a
+    subset of ``flows`` (hidden flows linked via chemical_block_id). For chemicals
+    inside a mixture list, storing a duplicate copy is redundant.
+    """
+    if not isinstance(procedure, dict):
+        return procedure
+
+    normalized = copy.deepcopy(procedure)
+    flows = normalized.get("flows", [])
+    preview = normalized.get("preview_flows")
+    if preview is not None and preview == flows:
+        normalized.pop("preview_flows", None)
+    normalized["total_flows"] = len(flows)
+    return normalized
+
+
 def get_chemical_default_params(chemical_type: str) -> dict:
     """Return the default parameter dictionary for a chemical type."""
     defaults = {
         "Substance": {KEY_NAME: ""},
         "MixtureChemical": {"chemical_type": "Substance", KEY_FORMULA: "", KEY_CONCENTRATION: ""},
         "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
-        "Mixture": {KEY_NAME: "", KEY_MIXTURE_TYPE: "", KEY_CHEMICAL_LIST: []},
+        "Mixture": {KEY_NAME: "", KEY_CHEMICAL_LIST: []},
         "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
         "Molecules": {
             KEY_ENTITY_TYPE: "Substance",
@@ -58,7 +83,6 @@ def get_chemical_default_params(chemical_type: str) -> dict:
         "Media": {
             KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
-            KEY_MIXTURE_TYPE: "",
             KEY_CHEMICAL_LIST: [],
             KEY_QUANTITY: "",
             KEY_FUNCTION: "",
@@ -153,7 +177,6 @@ class ActionSelectionDialog(QDialog):
             "ChangeTemperature": "🌡 Change Temperature",
             "ChangeRecipient": "🧪 Change Recipient",
             "ChangeAgitation": "🔄 Change Agitation",
-            "NewMixture": "🥣 New Mixture",
             "Repeat": "🔁 Repeat",
             "ContinuousAddition": "➕ Continuous Addition"
         }
@@ -329,17 +352,24 @@ class UnifiedChemicalDetailsDialog(QDialog):
             if not isinstance(data, dict) or "flows" not in data:
                 QMessageBox.warning(self, "Invalid File", "The selected file does not contain a valid protocol.")
                 return
-            self.imported_procedure = data
+            self.imported_procedure = normalize_preparation_procedure(data)
             self._set_status(f"✓ Imported: {filename.split('/')[-1]}", "success")
         except Exception as e:
             QMessageBox.warning(self, "Import Error", f"Could not import procedure: {e}")
 
     def _new_procedure(self):
-        dialog = NewEntityProcedureDialog(self)
+        # Top-level modal: nested exec() on the details dialog breaks on Linux.
+        dialog = EntityProcedureEditorDialog(
+            None,
+            initial_procedure=self.imported_procedure,
+        )
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.raise_()
+        dialog.activateWindow()
         if dialog.exec() == QDialog.Accepted and dialog.procedure_data:
-            self.imported_procedure = dialog.procedure_data
-            flow_count = len(dialog.procedure_data.get("flows", []))
-            self._set_status(f"✓ Created new procedure ({flow_count} flow(s))", "success")
+            self.imported_procedure = normalize_preparation_procedure(dialog.procedure_data)
+            flow_count = len(self.imported_procedure.get("flows", []))
+            self._set_status(f"✓ Procedure saved ({flow_count} flow(s))", "success")
 
     def _accept(self):
         # Collect First Level fields
@@ -353,57 +383,6 @@ class UnifiedChemicalDetailsDialog(QDialog):
             KEY_ENTITY_PURITY: pur_val,
         }
         
-        self.accept()
-
-
-class NewEntityProcedureDialog(QDialog):
-    """Minimal dialog to create an empty preparation procedure."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Create New Procedure")
-        self.setMinimumWidth(420)
-        self.procedure_data = None
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        title = QLabel("Create a new empty procedure")
-        title.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
-        layout.addWidget(title)
-
-        form = QFormLayout()
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Procedure name...")
-        form.addRow("Name:", self.name_edit)
-        layout.addLayout(form)
-
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setMinimumSize(92, 34)
-        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        cancel_btn.clicked.connect(self.reject)
-        button_row.addWidget(cancel_btn)
-
-        create_btn = QPushButton("Create")
-        create_btn.setMinimumSize(92, 34)
-        create_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        create_btn.clicked.connect(self._accept)
-        button_row.addWidget(create_btn)
-
-        layout.addLayout(button_row)
-        self.adjustSize()
-
-    def _accept(self):
-        name = self.name_edit.text().strip() or DEFAULT_PROTOCOL_NAME
-        self.procedure_data = {
-            "protocol_name": name,
-            "total_flows": 0,
-            "preview_flows": [],
-            "flows": [],
-        }
         self.accept()
 
 
@@ -503,7 +482,7 @@ class MixtureChemicalDialog(QDialog):
         self.type_combo.addItem("Molecules", "Molecules")
         self.type_combo.addItem("BioProducts", "BioProducts")
         self.type_combo.addItem("Polymers", "Polymers")
-        self.type_combo.addItem("Media (Mixture)", "Media")
+        self.type_combo.addItem("Media", "Media")
         self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
         idx = self.type_combo.findData(initial_type)
         if idx < 0:
@@ -524,7 +503,7 @@ class MixtureChemicalDialog(QDialog):
 
         self.conc_edit = QLineEdit()
         self.conc_edit.setPlaceholderText("Enter value")
-        self.conc_edit.setValidator(QDoubleValidator(0.0, 999999.0, 2))
+        configure_unit_decimal_input(self.conc_edit, min_value=0.0)
         
         self.conc_unit = QComboBox()
         # Unit dropdown should default to the first available unit
@@ -534,12 +513,12 @@ class MixtureChemicalDialog(QDialog):
         if initial_concentration:
             parts = initial_concentration.strip().split()
             if len(parts) == 2:
-                self.conc_edit.setText(parts[0])
+                self.conc_edit.setText(format_decimal_for_input(parts[0]))
                 idx = self.conc_unit.findText(parts[1])
                 if idx >= 0:
                     self.conc_unit.setCurrentIndex(idx)
             elif len(parts) == 1 and parts[0]:
-                self.conc_edit.setText(parts[0])
+                self.conc_edit.setText(format_decimal_for_input(parts[0]))
         
         conc_layout.addWidget(self.conc_edit, 2)
         conc_layout.addWidget(self.conc_unit, 1)
@@ -690,7 +669,9 @@ class MixtureChemicalListDialog(QDialog):
             KEY_CONCENTRATION: dialog.concentration,
         }
         if details_dialog.imported_procedure:
-            new_chem[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+            new_chem[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
+                details_dialog.imported_procedure
+            )
         
         # Validate that chemical has a name (required for all chemicals)
         chem_name = new_chem.get(KEY_NAME, "").strip()
@@ -716,7 +697,9 @@ class MixtureChemicalListDialog(QDialog):
             details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
             details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
             if KEY_PREPARATION_PROCEDURE in chem:
-                details_dialog.imported_procedure = chem[KEY_PREPARATION_PROCEDURE]
+                details_dialog.imported_procedure = normalize_preparation_procedure(
+                    chem[KEY_PREPARATION_PROCEDURE]
+                )
                 details_dialog._set_status("✓ Procedure loaded", "success")
             if details_dialog.exec() != QDialog.Accepted:
                 return
@@ -736,7 +719,9 @@ class MixtureChemicalListDialog(QDialog):
                 KEY_CONCENTRATION: dialog.concentration,
             }
             if details_dialog.imported_procedure:
-                self.chemical_list[row][KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+                self.chemical_list[row][KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
+                    details_dialog.imported_procedure
+                )
             
             # Validate that chemical has a name (required for all chemicals)
             chem_name = self.chemical_list[row].get(KEY_NAME, "").strip()
@@ -1306,7 +1291,6 @@ class Editor(QGraphicsView):
                     return {
                         "protocol_name": self.protocol_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
                         "total_flows": 1,
-                        "preview_flows": [copy.deepcopy(flow)],
                         "flows": [copy.deepcopy(flow)],
                     }
 
@@ -1500,14 +1484,19 @@ class Editor(QGraphicsView):
                 "Add": Add, "Grind": Grind, "Separate": Separate, 
                 "Sieve": Sieve, "Wait": Wait,
                 "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
-                "ChangeRecipient": ChangeRecipient, "ChangeAgitation": ChangeAgitation, "NewMixture": NewMixture,
+                "ChangeRecipient": ChangeRecipient, "ChangeAgitation": ChangeAgitation,
                 "SubProductCreation": SubProductCreation, "Repeat": Repeat,
                 "ContinuousAddition": ContinuousAddition
             }
             
             # Numeric values should be strings with units for the reflow parser
             default_params = {
-                "Add": {KEY_DURATION: "0 s", KEY_ADD_TYPE: "", KEY_OPEN_FLAME: ""},
+                "Add": {
+                    KEY_DURATION: "0 s",
+                    KEY_ADD_QUANTITY: "0 g",
+                    KEY_ADD_TYPE: "",
+                    KEY_OPEN_FLAME: "",
+                },
                 "Grind": {},
                 "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
                 "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
@@ -1516,7 +1505,6 @@ class Editor(QGraphicsView):
                 "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
                 "ChangeRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
                 "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
-                "NewMixture": {KEY_MIXTURE_NAME: ""},
                 "SubProductCreation": {KEY_SUBSTANCE: ""},
                 "Repeat": {KEY_AMOUNT: "1"},
                 "ContinuousAddition": {KEY_SUBSTANCE_LIST: "", KEY_CONTINUOUS_ADD_TYPE: "", KEY_AMOUNT: "1"}
@@ -1636,7 +1624,11 @@ class Editor(QGraphicsView):
             if details_dialog.exec() != QDialog.Accepted:
                 return
 
-            imported_procedure = details_dialog.imported_procedure
+            imported_procedure = (
+                normalize_preparation_procedure(details_dialog.imported_procedure)
+                if details_dialog.imported_procedure
+                else None
+            )
             entity_params = details_dialog.first_level_fields.copy()
 
             # mapping keys to classes from chemicals.py
@@ -2391,9 +2383,8 @@ class Editor(QGraphicsView):
             "ChangeTemperature": ("CT", QColor(255, 20, 147)), 
             "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),  
             "ChangeRecipient": ("CR", QColor(155, 89, 182)),
-            "ChangeAgitation": ("AG", QColor(52, 152, 219)),   
-            "NewMixture": ("NM", QColor(241, 196, 15)),        
-            "SubProductCreation": ("SP", QColor(231, 76, 60)), 
+            "ChangeAgitation": ("AG", QColor(52, 152, 219)),
+            "SubProductCreation": ("SP", QColor(231, 76, 60)),
             "Repeat": ("RE", QColor(230, 126, 34)),
             "ContinuousAddition": ("CD", QColor(26, 188, 156))
         }
@@ -3143,4 +3134,55 @@ class Editor(QGraphicsView):
         if value is None:
             return "null"
         return str(value)
-    
+
+
+class EntityProcedureEditorDialog(QDialog):
+    """Full protocol builder window for a chemical's preparation procedure."""
+
+    def __init__(self, parent=None, initial_procedure=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preparation Procedure Editor")
+        self.resize(1200, 820)
+        self.procedure_data = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.procedure_editor = Editor()
+        if hasattr(self.procedure_editor, "title_label"):
+            self.procedure_editor.title_label.setText("Preparation Procedure Editor")
+
+        if initial_procedure:
+            self.procedure_editor.load_protocol_data(
+                normalize_preparation_procedure(initial_procedure),
+                include_hidden=True,
+            )
+
+        layout.addWidget(self.procedure_editor.container, 1)
+
+        button_bar = QWidget()
+        button_layout = QHBoxLayout(button_bar)
+        button_layout.setContentsMargins(16, 8, 16, 12)
+        button_layout.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setMinimumSize(120, 36)
+        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        save_btn = QPushButton("Save Procedure")
+        save_btn.setMinimumSize(140, 36)
+        save_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
+        save_btn.clicked.connect(self._save_procedure)
+        button_layout.addWidget(save_btn)
+
+        layout.addWidget(button_bar)
+
+    def _save_procedure(self):
+        data = self.procedure_editor.generate_protocol_output(show_feedback=True)
+        if data is None:
+            data = Protocol.build_protocol_envelope([])
+        self.procedure_data = normalize_preparation_procedure(data)
+        self.accept()

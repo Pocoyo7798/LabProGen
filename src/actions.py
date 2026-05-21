@@ -40,11 +40,13 @@ class Action:
 
 class Add(Action):
     """Addition of a chemical entity."""
-    def __init__(self, duration="0 s", type="", open_flame="", **kwargs):
+    def __init__(self, duration="0 s", type="", open_flame="", add_quantity="0 g", **kwargs):
         super().__init__(**{
             KEY_DURATION: duration,
+            KEY_ADD_QUANTITY: add_quantity,
             KEY_ADD_TYPE: type,
-            KEY_OPEN_FLAME: open_flame
+            KEY_OPEN_FLAME: open_flame,
+            **kwargs,
         })
 
 class Grind(Action):
@@ -113,13 +115,6 @@ class ChangeAgitation(Action):
         super().__init__(**{
             KEY_AGITATION_TYPE: type,
             KEY_SPEED: speed
-        })
-
-class NewMixture(Action):
-    """Indication of starting a new mixture."""
-    def __init__(self, mixture_name="", **kwargs):
-        super().__init__(**{
-            KEY_MIXTURE_NAME: mixture_name
         })
 
 class SubProductCreation(Action):

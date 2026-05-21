@@ -16,6 +16,7 @@ KEY_SMILES = "smile"
 KEY_STRUCTURE = "structure"
 KEY_CHEMICAL = "chemical"
 KEY_ADD_TYPE = "add_type"
+KEY_ADD_QUANTITY = "add_quantity"
 KEY_OPEN_FLAME = "open_flame"
 KEY_PHASE = "phase_to_keep"
 KEY_METHOD = "method"
@@ -32,7 +33,6 @@ KEY_POWER = "power"
 KEY_RECIPIENT = "recipient"
 KEY_MATERIAL = "material"
 KEY_VOLUME = "volume"
-KEY_MIXTURE_NAME = "mixture_name"
 KEY_SUBSTANCE = "substance"
 KEY_SUBSTANCE_LIST = "substance_list"
 KEY_AMOUNT = "amount"
@@ -91,6 +91,14 @@ KEY_ENTITY_PURITY = "entity_purity"
 FIELD_CONFIG = {
     # unit fields
     KEY_DURATION: {"label": "Duration", "type": "unit", "units": ["s", "min", "h"], "defaults": ["0", "10", "30"], "placeholder": "Time", "required": True},
+    KEY_ADD_QUANTITY: {
+        "label": "Quantity",
+        "type": "unit",
+        "units": ["g", "ml", "L", "uL", "mg"],
+        "defaults": ["0"],
+        "placeholder": "Amount",
+        "required": True,
+    },
     KEY_TEMPERATURE: {"label": "Temperature", "type": "unit", "units": ["°C", "°F"], "defaults": ["50"], "placeholder": "Value", "required": True},
     KEY_MIN_SIZE: {"label": "Min Size", "type": "unit", "units": ["μm", "mm", "m"], "defaults": ["0"], "placeholder": "Size", "required": True},
     KEY_MAX_SIZE: {"label": "Max Size", "type": "unit", "units": ["μm", "mm", "m"], "defaults": ["0"], "placeholder": "Size", "required": True},
@@ -175,7 +183,6 @@ FIELD_CONFIG = {
     KEY_PY_L_450: {"label": "Py-L (450°C)", "type": "text", "placeholder": "Pyridine Lewis 450°C...", "required": False},
 
     # SECOND LEVEL: Mixture
-    KEY_MIXTURE_TYPE: {"label": "Mixture Type", "type": "dropdown", "options": ["Composite", "Solutions", "Physical Mixture"], "required": False, "required_if": [{"action": "Mixture"}, {"action": "Media"}, {"action": "BioProducts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}, {"action": "HeterogeneousCatalysts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}]},
     KEY_ENTITY_TYPE: {"label": "Type", "type": "dropdown", "options": ["Substance", "Mixture"], "required": True},
     KEY_CHEMICAL_LIST: {"label": "Chemical List", "type": "list", "placeholder": "Manage chemicals...", "required": False, "required_if": [{"action": "Mixture"}, {"action": "Media"}, {"action": "BioProducts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}, {"action": "HeterogeneousCatalysts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"}]},
 
@@ -204,7 +211,6 @@ FIELD_CONFIG = {
     KEY_GASES: {"label": "Gases", "type": "list", "placeholder": "Manage gases...", "required": True},
     KEY_SOLUBILITY: {"label": "Solubility", "type": "text", "placeholder": "Solubility details...", "required": False},
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity...", "required": True},
-    KEY_MIXTURE_NAME: {"label": "Mixture Name", "type": "text", "placeholder": "Name of the mixture...", "required": True},
 }
 
 

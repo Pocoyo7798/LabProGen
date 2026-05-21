@@ -75,7 +75,6 @@ class Protocol:
             "ChangeTemperature": ChangeTemperature,
             "ChangeRecipient": ChangeRecipient,
             "ChangeAgitation": ChangeAgitation,
-            "NewMixture": NewMixture,
             "SubProductCreation": SubProductCreation,
             "Repeat": Repeat,
             "ContinuousAddition": ContinuousAddition,

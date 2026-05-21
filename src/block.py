@@ -6,11 +6,76 @@ from PySide6.QtWidgets import (
     QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox,
     QToolButton, QSizePolicy, QFrame
 )
-from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF
-from PySide6.QtGui import QPen, QColor, QFont, QDoubleValidator, QPainter, QFontMetrics
+from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF, QObject, QEvent
+from PySide6.QtGui import QPen, QColor, QFont, QPainter, QFontMetrics
 from .config import *
 from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
+
+
+class _UnitDecimalKeyFilter(QObject):
+    """Block comma/semicolon key entry in unit numeric fields."""
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress:
+            if event.text() in {",", ";"}:
+                return True
+            if event.key() in (Qt.Key.Key_Comma, Qt.Key.Key_Semicolon):
+                return True
+        return super().eventFilter(obj, event)
+
+
+def sanitize_unit_decimal_text(text: str, *, allow_negative: bool = False) -> str:
+    """Keep only an optional leading minus, digits, and at most one '.'."""
+    result = []
+    has_dot = False
+    for ch in text:
+        if ch == "-" and allow_negative and not result:
+            result.append(ch)
+        elif ch == "." and not has_dot:
+            result.append(ch)
+            has_dot = True
+        elif ch.isdigit():
+            result.append(ch)
+    return "".join(result)
+
+
+def configure_unit_decimal_input(edit: QLineEdit, min_value: float = 0.0) -> None:
+    """Unit field numeric input: '.' decimal separator only, unlimited precision."""
+    allow_negative = min_value < 0
+
+    def _on_text_changed(text: str) -> None:
+        cleaned = sanitize_unit_decimal_text(text, allow_negative=allow_negative)
+        if cleaned == text:
+            return
+        cursor = len(sanitize_unit_decimal_text(text[: edit.cursorPosition()], allow_negative=allow_negative))
+        edit.blockSignals(True)
+        edit.setText(cleaned)
+        edit.setCursorPosition(min(cursor, len(cleaned)))
+        edit.blockSignals(False)
+
+    if getattr(edit, "_unit_decimal_configured", False):
+        return
+
+    edit.textChanged.connect(_on_text_changed)
+    edit._unit_decimal_key_filter = _UnitDecimalKeyFilter(edit)
+    edit.installEventFilter(edit._unit_decimal_key_filter)
+    edit._unit_decimal_configured = True
+
+
+def format_decimal_for_input(text: str) -> str:
+    """Normalize stored decimals for display in dot-decimal fields."""
+    return str(text).strip().replace(",", ".")
+
+
+def validate_decimal_input(text: str) -> float:
+    """Parse the numeric part of a unit field; requires '.' as the decimal separator."""
+    cleaned = text.strip()
+    if not cleaned:
+        raise ValueError("empty")
+    if "," in cleaned:
+        raise ValueError("comma separator")
+    return float(cleaned)
 # Style for small primary action buttons (used for compact add buttons)
 ADD_BUTTON_STYLE = (
     "QToolButton {"
@@ -113,11 +178,12 @@ class ProcedurePreviewDialog(QDialog):
 
         self.preview_editor = Editor()
         preview_data = procedure_data or {}
-        if isinstance(preview_data, dict) and preview_data.get("preview_flows"):
+        if isinstance(preview_data, dict):
+            flows = preview_data.get("preview_flows") or preview_data.get("flows", [])
             preview_data = {
                 "protocol_name": preview_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
-                "total_flows": len(preview_data.get("preview_flows", [])),
-                "flows": preview_data.get("preview_flows", []),
+                "total_flows": len(flows),
+                "flows": flows,
             }
         self.preview_editor.load_protocol_data(preview_data, include_hidden=True)
         self.preview_editor.set_preview_mode(True)
@@ -883,9 +949,7 @@ class Block(QGraphicsRectItem):
             edit.setPlaceholderText(config.get("placeholder", "Value"))
             
             v_min = -273.15 if key.lower() == KEY_TEMPERATURE else 0.0
-            val = QDoubleValidator(v_min, 999999.0, 2)
-            val.setNotation(QDoubleValidator.Notation.StandardNotation)
-            edit.setValidator(val)
+            configure_unit_decimal_input(edit, min_value=v_min)
 
             combo = QComboBox()
             # Unit fields should always have a concrete default unit selected
@@ -894,11 +958,11 @@ class Block(QGraphicsRectItem):
             str_val = str(value).strip()
             if " " in str_val:
                 parts = str_val.split(" ")
-                edit.setText(parts[0])
+                edit.setText(format_decimal_for_input(parts[0]))
                 idx = combo.findText(parts[1])
                 if idx >= 0: combo.setCurrentIndex(idx)
             elif str_val and str_val not in config.get("defaults", []):
-                edit.setText(str_val)
+                edit.setText(format_decimal_for_input(str_val))
             else:
                 edit.setText("")
 
@@ -945,7 +1009,13 @@ class Block(QGraphicsRectItem):
             add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             
             def _add_chemical():
-                from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, UnifiedChemicalDetailsDialog, get_chemical_default_params
+                from .editor import (
+                    MixtureChemicalDialog,
+                    MixtureChemicalParametersDialog,
+                    UnifiedChemicalDetailsDialog,
+                    get_chemical_default_params,
+                    normalize_preparation_procedure,
+                )
 
                 parent_dialog = self.editor if self.editor else self
 
@@ -969,7 +1039,9 @@ class Block(QGraphicsRectItem):
                     KEY_CONCENTRATION: dlg.concentration,
                 }
                 if details_dialog.imported_procedure:
-                    new_chem[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+                    new_chem[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
+                        details_dialog.imported_procedure
+                    )
                 
                 # Validate that chemical has a name (required for all chemicals)
                 chem_name = new_chem.get(KEY_NAME, "").strip()
@@ -1047,7 +1119,13 @@ class Block(QGraphicsRectItem):
                             _update_tags()
 
                     def _edit(check=False, i=idx):
-                        from .editor import MixtureChemicalDialog, MixtureChemicalParametersDialog, UnifiedChemicalDetailsDialog, get_chemical_default_params
+                        from .editor import (
+                            MixtureChemicalDialog,
+                            MixtureChemicalParametersDialog,
+                            UnifiedChemicalDetailsDialog,
+                            get_chemical_default_params,
+                            normalize_preparation_procedure,
+                        )
                         parent_dialog = self.editor if self.editor else self
 
                         chem = list_value[i]
@@ -1062,7 +1140,9 @@ class Block(QGraphicsRectItem):
                         details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
                         details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
                         if KEY_PREPARATION_PROCEDURE in chem:
-                            details_dialog.imported_procedure = chem[KEY_PREPARATION_PROCEDURE]
+                            details_dialog.imported_procedure = normalize_preparation_procedure(
+                                chem[KEY_PREPARATION_PROCEDURE]
+                            )
                             details_dialog._set_status("✓ Procedure loaded", "success")
                         if details_dialog.exec() != QDialog.Accepted:
                             return
@@ -1077,7 +1157,9 @@ class Block(QGraphicsRectItem):
 
                         updated = {"chemical_type": dlg.selected_chemical_type, **params_dlg.chemical_params, **details_dialog.first_level_fields, KEY_CONCENTRATION: dlg.concentration}
                         if details_dialog.imported_procedure:
-                            updated[KEY_PREPARATION_PROCEDURE] = details_dialog.imported_procedure
+                            updated[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
+                                details_dialog.imported_procedure
+                            )
                         
                         # Validate that chemical has a name (required for all chemicals)
                         chem_name = updated.get(KEY_NAME, "").strip()
@@ -1122,8 +1204,8 @@ class Block(QGraphicsRectItem):
 
         can_switch_to_mixture = self.action in {"BioProducts", "HeterogeneousCatalysts", "Molecules", "Polymers", "Media"}
         if can_switch_to_mixture:
-            params_for_dialog.setdefault(KEY_MIXTURE_TYPE, "")
             params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
+        params_for_dialog.pop(KEY_MIXTURE_TYPE, None)
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY]
 
@@ -1158,17 +1240,19 @@ class Block(QGraphicsRectItem):
         entity_type_value = params_for_dialog.get(KEY_ENTITY_TYPE, "")
         force_required_keys = set()
         if self.action in {"Mixture", "Media"}:
-            force_required_keys.update({KEY_MIXTURE_TYPE, KEY_CHEMICAL_LIST})
+            force_required_keys.update({KEY_CHEMICAL_LIST})
 
         main_conditional_keys: list[str] = []
         if can_switch_to_mixture:
-            main_conditional_keys.extend([KEY_MIXTURE_TYPE, KEY_CHEMICAL_LIST])
+            main_conditional_keys.append(KEY_CHEMICAL_LIST)
         
         for key in ordered_keys:
             if key in main_conditional_keys:
                 continue
-            # When entity_type is Mixture, chemical_list and mixture_type are required
-            if key in force_required_keys or (entity_type_value == "Mixture" and key in [KEY_CHEMICAL_LIST, KEY_MIXTURE_TYPE]):
+            if key == KEY_MIXTURE_TYPE:
+                continue
+            # When entity_type is Mixture, chemical_list is required
+            if key in force_required_keys or (entity_type_value == "Mixture" and key == KEY_CHEMICAL_LIST):
                 required_keys.append(key)
             elif is_field_required(key, params=params_for_dialog, action_name=self.action):
                 required_keys.append(key)
@@ -1337,10 +1421,14 @@ class Block(QGraphicsRectItem):
                     # enforce numeric-only values for unit fields
                     if raw_value:
                         try:
-                            float(raw_value)
-                        except Exception:
+                            validate_decimal_input(raw_value)
+                        except ValueError:
                             label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
-                            QMessageBox.warning(dialog, "Invalid Value", f"'{label}' must be a numeric value (no letters).")
+                            QMessageBox.warning(
+                                dialog,
+                                "Invalid Value",
+                                f"'{label}' must be a number using '.' as decimal separator (e.g. 12.5).",
+                            )
                             edit_field.setFocus()
                             return
                     value = f"{raw_value} {unit_text}" if raw_value else ""
@@ -1360,7 +1448,7 @@ class Block(QGraphicsRectItem):
                 if key == KEY_OPEN_FLAME:
                     value = normalize_boolean(value)
                 elif key in {
-                    KEY_DURATION, KEY_TEMPERATURE, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_SPEED,
+                    KEY_DURATION, KEY_ADD_QUANTITY, KEY_TEMPERATURE, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_SPEED,
                     KEY_FLOW_RATE, KEY_PRESSURE, KEY_RAMP, KEY_POWER, KEY_VOLUME,
                     KEY_QUANTITY, KEY_CONCENTRATION
                 }:
@@ -1381,12 +1469,11 @@ class Block(QGraphicsRectItem):
                 if current_type == "Mixture":
                     new_params[KEY_ENTITY_TYPE] = "Mixture"
                     new_params[KEY_NAME] = ""
-                    new_params.setdefault(KEY_MIXTURE_TYPE, "")
                     new_params.setdefault(KEY_CHEMICAL_LIST, [])
                 else:
                     new_params[KEY_ENTITY_TYPE] = "Substance"
-                    new_params.pop(KEY_MIXTURE_TYPE, None)
                     new_params.pop(KEY_CHEMICAL_LIST, None)
+            new_params.pop(KEY_MIXTURE_TYPE, None)
 
             self.params.update(new_params)
             self._editor_accepted = True
