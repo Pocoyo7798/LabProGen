@@ -1,22 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+
+
+datas = [('schema', 'schema')]
+datas += collect_data_files('prefixcommons')
+datas += collect_data_files('prefixmaps')
+datas += collect_data_files('linkml_runtime')
+datas += collect_data_files('linkml')
+datas += copy_metadata('prefixcommons')
+datas += copy_metadata('prefixmaps')
+datas += copy_metadata('linkml_runtime')
+datas += copy_metadata('linkml')
+
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[], # since you use resources_rc.py, you don't need to add images here
-    hiddenimports=[
-        'actions', 
-        'chemicals', 
-        'config', 
-        'block', 
-        'editor', 
-        'protocol',
-        'debug_flag'
-    ],
+    datas=datas,
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['rth_fix_metadata.py'],
     excludes=[],
     noarchive=False,
     optimize=0,
@@ -29,18 +34,17 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='LabProtocolBuilder', # name of the .exe
+    name='main',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False, # set to False to hide terminal
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None # if you have a .ico file, put the path here
 )

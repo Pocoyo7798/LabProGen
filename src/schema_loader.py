@@ -9,11 +9,71 @@ summaries for export metadata.
 from functools import lru_cache
 import importlib
 import copy
+import sys
 from pathlib import Path
 
 
 def get_schema_directory() -> Path:
+    """Resolve the schema directory in source and frozen runtimes."""
+
+    candidates: list[Path] = []
+
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            meipass_path = Path(meipass)
+            candidates.extend(
+                [
+                    meipass_path / "schema",
+                    meipass_path / "src" / "schema",
+                ]
+            )
+
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.extend(
+            [
+                exe_dir / "schema",
+                exe_dir.parent / "schema",
+            ]
+        )
+
+    # Source checkout / editable install fallback
+    candidates.extend(
+        [
+            Path(__file__).resolve().parent.parent / "schema",
+            Path.cwd() / "schema",
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Keep previous behavior as final fallback for clearer error messages.
     return Path(__file__).resolve().parent.parent / "schema"
+
+
+def ensure_six_meta_path_importer_compatibility() -> None:
+    """Patch the six meta-path importer for runtimes that expect `_path`.
+
+    PyInstaller/frozen Windows runtimes can expose `_SixMetaPathImporter`
+    without the `_path` attribute that LinkML's import-time package discovery
+    expects. Setting it to the six package path keeps the validator importable
+    without affecting normal Python execution.
+    """
+
+    try:
+        import six
+    except Exception:
+        return
+
+    six_path = list(getattr(six, "__path__", []) or [])
+    for importer in sys.meta_path:
+        if type(importer).__name__ == "_SixMetaPathImporter" and not hasattr(importer, "_path"):
+            try:
+                importer._path = six_path  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
 
 def list_schema_files() -> list[str]:

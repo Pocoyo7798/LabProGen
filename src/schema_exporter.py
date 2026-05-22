@@ -24,7 +24,7 @@ from .linkml_adapter import (
     get_linkml_slot,
     get_linkml_step_class,
 )
-from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary
+from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary, ensure_six_meta_path_importer_compatibility
 
 
 @dataclass
@@ -309,6 +309,7 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
 def _validate_strict_mode(activities: list[dict]) -> None:
     """Enforce strict schema constraints against the canonical export data."""
     try:
+        ensure_six_meta_path_importer_compatibility()
         from linkml.validator import validate as linkml_validate
     except Exception as exc:  # pragma: no cover - dependency error surface
         raise RuntimeError(f"LinkML validator is unavailable: {exc}") from exc

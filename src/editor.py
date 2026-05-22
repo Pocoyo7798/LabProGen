@@ -3231,7 +3231,16 @@ class Editor(QGraphicsView):
                 def _format_validation_notice(msg, label, protocol=None):
                     """Format validation errors in a user-friendly way with context about the block."""
                     ctx = msg.context or {}
+                    code = getattr(msg, "code", "") or ""
                     message_text = msg.message.strip()
+
+                    if code in {"linkml.unavailable", "linkml.validation_prep_failed", "schema.unavailable"}:
+                        return (
+                            f"{label}\n\n"
+                            f"📍 Global validation\n\n"
+                            f"{message_text}\n\n"
+                            f"This is an environment or dependency issue, not a protocol field problem."
+                        )
 
                     def _humanize_name(name: str | None) -> str | None:
                         if not name:
@@ -3311,6 +3320,8 @@ class Editor(QGraphicsView):
                     # 3. Extract allowed values for enum errors
                     def extract_allowed_values():
                         """Extract the list of allowed values."""
+                        if "is not one of" not in message_text and "allowed values" not in message_text.lower():
+                            return []
                         list_match = re.search(r"\[([^\]]+)\]", message_text)
                         if list_match:
                             allowed_raw = list_match.group(1)
@@ -3339,7 +3350,7 @@ class Editor(QGraphicsView):
                     if activity_num > 1:
                         location_parts.append(f"Activity {activity_num}")
                     
-                    location = " | ".join(location_parts) if location_parts else "Unknown location"
+                    location = " | ".join(location_parts) if location_parts else "Global validation"
                     
                     # 5. Build hint about what's wrong and what's allowed
                     hint_parts = []

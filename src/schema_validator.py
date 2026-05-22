@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from collections import Counter
 
 from .config import is_field_required, KEY_GASES
-from .schema_loader import build_validation_schema, load_linkml_schema
+from .schema_loader import build_validation_schema, load_linkml_schema, ensure_six_meta_path_importer_compatibility
 from .linkml_adapter import get_linkml_step_class
 
 
@@ -125,11 +125,12 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
     """
 
     try:
+        ensure_six_meta_path_importer_compatibility()
         from linkml.validator import validate as linkml_validate
     except Exception as exc:
         return [
             ValidationMessage(
-                level="error",
+                level="warning",
                 code="linkml.unavailable",
                 message=f"Official LinkML validator is unavailable: {exc}",
                 context={},

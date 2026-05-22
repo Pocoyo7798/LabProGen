@@ -368,6 +368,7 @@ def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
 
 def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
+        "has_added_material": params.get(KEY_CHEMICAL),
         "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
         "addition_type": params.get(KEY_ADD_TYPE),
         "has_open_flame": normalize_boolean(params.get(KEY_OPEN_FLAME)),
