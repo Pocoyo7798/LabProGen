@@ -4,9 +4,9 @@ import re
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView,
 )
-from PySide6.QtCore import Qt, QPointF
+from PySide6.QtCore import Qt, QPointF, QTimer, QObject, QEvent
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
 from .block import (
     ElementaryAction,
@@ -22,6 +22,7 @@ from .protocol import Protocol
 from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM, CHEMICAL_SLOT_TO_PARAM
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
 from .schema_validator import validate_linkml_protocol, summarize_validation_messages
+from .procedure_text import build_procedure_text
 
 PRIMARY_BUTTON_STYLE = (
     "QPushButton {"
@@ -399,55 +400,6 @@ class UnifiedChemicalDetailsDialog(QDialog):
         
         self.accept()
 
-
-class GasSelectionDialog(QDialog):
-    """Simple dialog to select a gas from valid options."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Add Gas")
-        self.setMinimumWidth(380)
-        self.selected_gas = None
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        title = QLabel("Select Gas")
-        title.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
-        layout.addWidget(title)
-
-        # Valid gas options from LinkML schema
-        self.gas_combo = QComboBox()
-        self.gas_combo.addItem("Select...", "")
-        valid_gases = ['air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen']
-        for gas in valid_gases:
-            self.gas_combo.addItem(gas.capitalize(), gas)
-        layout.addWidget(self.gas_combo)
-
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setMinimumSize(92, 34)
-        cancel_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        cancel_btn.clicked.connect(self.reject)
-        button_row.addWidget(cancel_btn)
-
-        ok_btn = QPushButton("Add")
-        ok_btn.setMinimumSize(92, 34)
-        ok_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
-        ok_btn.clicked.connect(self._accept)
-        button_row.addWidget(ok_btn)
-
-        layout.addLayout(button_row)
-        self.adjustSize()
-
-    def _accept(self):
-        self.selected_gas = self.gas_combo.currentData()
-        if not self.selected_gas:
-            QMessageBox.warning(self, "No Gas Selected", "Please select a gas from the list.")
-            return
-        self.accept()
 
 def pick_embedded_chemical(parent, initial=None, *, for_solvent=False):
     """Pick one embedded chemical (e.g. mixture list item or dispersion solvent). Returns dict or None."""
@@ -828,6 +780,24 @@ class MixtureChemicalListDialog(QDialog):
         return self.chemical_list
 
 
+class _ProcedureGuidePopupFilter(QObject):
+    """Keep the guide popup open while the pointer is over the button or popup."""
+
+    def __init__(self, editor: "Editor"):
+        super().__init__(editor)
+        self._editor = editor
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Enter:
+            self._editor._cancel_procedure_guide_hide()
+            self._editor._show_procedure_guide_popup()
+            return False
+        if event.type() == QEvent.Type.Leave:
+            self._editor._schedule_procedure_guide_hide()
+            return False
+        return False
+
+
 class ExportProtocolDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -849,6 +819,7 @@ class ExportProtocolDialog(QDialog):
         self.kind_combo = QComboBox()
         self.kind_combo.addItem("Internal protocol", "protocol")
         self.kind_combo.addItem("LinkML (strict)", "linkml")
+        self.kind_combo.addItem("Procedure guide (text)", "procedure_text")
         layout.addWidget(self.kind_combo)
 
         format_label = QLabel("File format")
@@ -856,7 +827,10 @@ class ExportProtocolDialog(QDialog):
         self.format_combo = QComboBox()
         self.format_combo.addItem("JSON", "json")
         self.format_combo.addItem("YAML", "yaml")
+        self.format_combo.addItem("Plain text", "txt")
         layout.addWidget(self.format_combo)
+        self.kind_combo.currentIndexChanged.connect(self._sync_export_format_options)
+        self._sync_export_format_options()
 
         button_row = QHBoxLayout()
         button_row.addStretch()
@@ -875,9 +849,19 @@ class ExportProtocolDialog(QDialog):
 
         layout.addLayout(button_row)
 
+    def _sync_export_format_options(self) -> None:
+        is_text_guide = self.kind_combo.currentData() == "procedure_text"
+        self.format_combo.setEnabled(not is_text_guide)
+        if is_text_guide:
+            idx = self.format_combo.findData("txt")
+            if idx >= 0:
+                self.format_combo.setCurrentIndex(idx)
+
     def _accept(self):
         self.export_kind = self.kind_combo.currentData() or "protocol"
         self.export_format = self.format_combo.currentData() or "json"
+        if self.export_kind == "procedure_text":
+            self.export_format = "txt"
         self.accept()
 
 
@@ -901,11 +885,15 @@ class Editor(QGraphicsView):
         self._support_hidden_positions = {}
         self._support_hidden_visibility = {}
         
-        # Create a container widget and layout for the editor + button
         container = QWidget()
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(container)
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)
+        self._procedure_guide_pinned = False
+        self._procedure_guide_hide_timer = QTimer(self)
+        self._procedure_guide_hide_timer.setSingleShot(True)
+        self._procedure_guide_hide_timer.setInterval(200)
+        self._procedure_guide_hide_timer.timeout.connect(self._hide_procedure_guide_popup)
 
         # configure navigation behavior and rendering quality
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -918,7 +906,7 @@ class Editor(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # setup floating zoom controls
+        # setup floating zoom, support toggle, and procedure guide
         self.setup_zoom_buttons()
         
         # Title bar
@@ -959,19 +947,20 @@ class Editor(QGraphicsView):
             }
         """)
         
-        main_layout.addWidget(self)
-        
+        main_layout.addWidget(self, 1)
+
         container.setLayout(main_layout)
-        
-        # Store reference to container for use in main window
         self.container = container
+        self.refresh_procedure_guide()
 
     def set_preview_mode(self, enabled=True):
         self.preview_mode = enabled
         widgets = [
             getattr(self, "title_label", None),
             getattr(self, "button_bar_widget", None),
-            getattr(self, "zoom_widget", None),
+            getattr(self, "overlay_widget", None),
+            getattr(self, "zoom_controls_widget", None),
+            getattr(self, "procedure_guide_popup", None),
         ]
         for widget in widgets:
             if widget:
@@ -1522,8 +1511,8 @@ class Editor(QGraphicsView):
 
         self._reflow_import_layout()
 
-        self.adapt_scene_rect()
         self.update_linked_sequence()
+        self.update_support_logic()
 
         if include_hidden:
             for b in self.blocks:
@@ -1606,24 +1595,53 @@ class Editor(QGraphicsView):
                 self.protocol.add_action(action)
                 self.add_block(dialog.selected_action, params)
 
+    def _procedure_guide_btn_style(self, pinned: bool = False) -> str:
+        if pinned:
+            return (
+                "QToolButton {"
+                "  background-color: #ddd6fe;"
+                "  color: #5b21b6;"
+                "  border-radius: 12px;"
+                "  padding: 4px 12px;"
+                "  font-weight: 600;"
+                "  border: 2px solid #a78bfa;"
+                "}"
+                "QToolButton:hover { background-color: #c4b5fd; }"
+            )
+        return (
+            "QToolButton {"
+            "  background-color: #ede9fe;"
+            "  color: #6d28d9;"
+            "  border-radius: 12px;"
+            "  padding: 4px 12px;"
+            "  font-weight: 600;"
+            "  border: 1px solid #c4b5fd;"
+            "}"
+            "QToolButton:hover { background-color: #ddd6fe; }"
+        )
+
     def setup_zoom_buttons(self):
-        """creates small fixed zoom buttons side by side in the top right corner."""
-        self.zoom_widget = QWidget(self)
-        zoom_layout = QHBoxLayout(self.zoom_widget)
-        zoom_layout.setSpacing(2)
-        zoom_layout.setContentsMargins(0, 0, 0, 0)
+        """Top-right: support + procedure guide; bottom-right: zoom controls."""
+        self.zoom_controls_widget = QWidget(self)
+        zoom_only_layout = QHBoxLayout(self.zoom_controls_widget)
+        zoom_only_layout.setSpacing(2)
+        zoom_only_layout.setContentsMargins(0, 0, 0, 0)
 
         self.btn_in = QPushButton("+")
         self.btn_out = QPushButton("-")
-        
         self.btn_in.setObjectName("zoom_in")
         self.btn_out.setObjectName("zoom_out")
-
         self.btn_in.clicked.connect(self.zoom_in)
         self.btn_out.clicked.connect(self.zoom_out)
+        zoom_only_layout.addWidget(self.btn_in)
+        zoom_only_layout.addWidget(self.btn_out)
+        self.zoom_controls_widget.adjustSize()
 
-        zoom_layout.addWidget(self.btn_in)
-        zoom_layout.addWidget(self.btn_out)
+        self.overlay_widget = QWidget(self)
+        overlay_layout = QVBoxLayout(self.overlay_widget)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_layout.setSpacing(6)
+        overlay_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.support_toggle_btn = QToolButton()
         self.support_toggle_btn.setText("Support actions visible")
@@ -1640,29 +1658,130 @@ class Editor(QGraphicsView):
             "}"
             "QToolButton:hover { background-color: #e2e8f0; }"
             "QToolButton:checked {"
-            "  background-color: #dbeafe;"
-            "  border: 1px solid #93c5fd;"
-            "  color: #1d4ed8;"
+            "  background-color: #dcfce7;"
+            "  border: 1px solid #86efac;"
+            "  color: #166534;"
             "}"
+            "QToolButton:checked:hover { background-color: #bbf7d0; }"
         )
         self.support_toggle_btn.toggled.connect(self._toggle_support_visibility)
-        zoom_layout.addSpacing(6)
-        zoom_layout.addWidget(self.support_toggle_btn)
-        
-        self.zoom_widget.adjustSize()
-        self.update_zoom_widget_pos()
-    
-    def update_zoom_widget_pos(self):
-        """positions the zoom widget in the top right corner."""
-        if hasattr(self, 'zoom_widget'):
-            padding = 15
-            x = self.viewport().width() - self.zoom_widget.width() - padding
-            self.zoom_widget.move(x, padding)
+        overlay_layout.addWidget(self.support_toggle_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.procedure_guide_btn = QToolButton(self.overlay_widget)
+        self.procedure_guide_btn.setText("Procedure guide")
+        self.procedure_guide_btn.setCheckable(False)
+        self.procedure_guide_btn.setToolTip("Hover or click to preview the procedure text")
+        self._apply_procedure_guide_btn_style(False)
+        self.procedure_guide_btn.clicked.connect(self._on_procedure_guide_click)
+        overlay_layout.addWidget(self.procedure_guide_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.procedure_guide_popup = QFrame(self)
+        self.procedure_guide_popup.setObjectName("procedureGuidePopup")
+        self.procedure_guide_popup.hide()
+        self.procedure_guide_popup.setStyleSheet(
+            "#procedureGuidePopup {"
+            "  background-color: #ffffff;"
+            "  border: 1px solid #cbd5e1;"
+            "  border-radius: 8px;"
+            "}"
+        )
+
+        popup_layout = QVBoxLayout(self.procedure_guide_popup)
+        popup_layout.setContentsMargins(10, 8, 10, 8)
+        popup_layout.setSpacing(0)
+
+        self.procedure_guide_label = QLabel()
+        self.procedure_guide_label.setWordWrap(True)
+        self.procedure_guide_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.procedure_guide_label.setStyleSheet(
+            "color: #1f2937; font-size: 12px; background: transparent; border: none;"
+        )
+        popup_layout.addWidget(self.procedure_guide_label)
+
+        self._procedure_guide_hover_filter = _ProcedureGuidePopupFilter(self)
+        self.procedure_guide_btn.installEventFilter(self._procedure_guide_hover_filter)
+        self.procedure_guide_popup.installEventFilter(self._procedure_guide_hover_filter)
+
+        self.overlay_widget.adjustSize()
+        self.update_overlay_widget_positions()
+
+    def _apply_procedure_guide_btn_style(self, pinned: bool) -> None:
+        if hasattr(self, "procedure_guide_btn"):
+            self.procedure_guide_btn.setStyleSheet(self._procedure_guide_btn_style(pinned))
+
+    def update_overlay_widget_positions(self) -> None:
+        """Reposition floating controls over the canvas viewport."""
+        padding = 15
+        viewport_w = self.viewport().width()
+        viewport_h = self.viewport().height()
+
+        if hasattr(self, "overlay_widget"):
+            self.overlay_widget.adjustSize()
+            self.overlay_widget.move(viewport_w - self.overlay_widget.width() - padding, padding)
+            if self.procedure_guide_popup.isVisible():
+                self._position_procedure_guide_popup()
+
+        if hasattr(self, "zoom_controls_widget"):
+            self.zoom_controls_widget.adjustSize()
+            zoom_x = viewport_w - self.zoom_controls_widget.width() - padding
+            zoom_y = viewport_h - self.zoom_controls_widget.height() - padding
+            self.zoom_controls_widget.move(zoom_x, zoom_y)
+
+    def _fit_procedure_guide_popup(self) -> None:
+        max_width = min(420, max(220, self.viewport().width() - 40))
+        text = self.procedure_guide_label.text() or "No procedure steps yet."
+        self.procedure_guide_label.setMaximumWidth(max_width)
+        self.procedure_guide_label.setText(text)
+        hint = self.procedure_guide_label.sizeHint()
+        self.procedure_guide_popup.setFixedSize(hint.width() + 20, hint.height() + 16)
+
+    def _position_procedure_guide_popup(self) -> None:
+        padding = 15
+        btn = self.procedure_guide_btn
+        popup = self.procedure_guide_popup
+        anchor = btn.mapTo(self, btn.rect().topLeft())
+        x = anchor.x()
+        y = anchor.y() - popup.height() - 8
+        if y < padding:
+            y = anchor.y() + btn.height() + 8
+        max_x = max(padding, self.viewport().width() - popup.width() - padding)
+        x = min(x, max_x)
+        popup.move(x, y)
+
+    def _show_procedure_guide_popup(self) -> None:
+        self.refresh_procedure_guide()
+        self._fit_procedure_guide_popup()
+        self.procedure_guide_popup.show()
+        self.procedure_guide_popup.raise_()
+        self._position_procedure_guide_popup()
+
+    def _hide_procedure_guide_popup(self) -> None:
+        if self._procedure_guide_pinned:
+            return
+        self.procedure_guide_popup.hide()
+        self._apply_procedure_guide_btn_style(False)
+
+    def _schedule_procedure_guide_hide(self) -> None:
+        if self._procedure_guide_pinned:
+            return
+        self._procedure_guide_hide_timer.start()
+
+    def _cancel_procedure_guide_hide(self) -> None:
+        self._procedure_guide_hide_timer.stop()
+
+    def _on_procedure_guide_click(self) -> None:
+        self._procedure_guide_pinned = not self._procedure_guide_pinned
+        self._apply_procedure_guide_btn_style(self._procedure_guide_pinned)
+        if self._procedure_guide_pinned:
+            self._cancel_procedure_guide_hide()
+            self._show_procedure_guide_popup()
+        else:
+            self.procedure_guide_popup.hide()
 
     def resizeEvent(self, event):
-        """reposition zoom buttons when window is resized."""
+        """Reposition floating controls when the view is resized."""
         super().resizeEvent(event)
-        self.update_zoom_widget_pos()
+        self.update_overlay_widget_positions()
 
     def zoom_in(self):
         """increases the view scale."""
@@ -1833,11 +1952,7 @@ class Editor(QGraphicsView):
             a, b = self.preview_pair
             for item in [a, b]:
                 if item:
-                    # Check if the block is actually connected to something else
-                    is_conn = bool(item.prev_block or item.next_block or 
-                                   item.above_block or item.below_block or 
-                                   (hasattr(item, 'chem_below') and item.chem_below))
-                    item.set_connected(is_conn)
+                    item.set_connected(self._is_block_connected(item))
             self.preview_pair = None
 
         moved_rect = moved_block.sceneBoundingRect()
@@ -1853,10 +1968,18 @@ class Editor(QGraphicsView):
                 return
         
         # If no intersection, current moved block follows its logical state
-        is_conn = bool(moved_block.prev_block or moved_block.next_block or 
-                       moved_block.above_block or moved_block.below_block or 
-                       (hasattr(moved_block, 'chem_below') and moved_block.chem_below))
-        moved_block.set_connected(is_conn)
+        moved_block.set_connected(self._is_block_connected(moved_block))
+
+    def _is_block_connected(self, block) -> bool:
+        """Return whether block has at least one structural connection."""
+        return bool(
+            block.prev_block
+            or block.next_block
+            or block.above_block
+            or block.below_block
+            or (hasattr(block, "chem_below") and block.chem_below)
+            or (hasattr(block, "subproduct_below") and block.subproduct_below)
+        )
     
     def update_chemical_chain_below(self, chemical_block, parent_x, parent_y):
         """Recursively update positions of chemical blocks below a chemical block."""
@@ -1977,6 +2100,11 @@ class Editor(QGraphicsView):
         # Establish links
         old_child = target_above.below_block
         if old_child and not isinstance(old_child, ChemicalBlock):
+            # Insertion case: open vertical space under the stable target.
+            shift_y = moved_block.rect().height() - overlap
+            if shift_y > 0:
+                self._move_branch(old_child, 0, shift_y)
+        if old_child and not isinstance(old_child, ChemicalBlock):
             moved_block.below_block = old_child
             old_child.above_block = moved_block
             
@@ -2007,21 +2135,46 @@ class Editor(QGraphicsView):
 
     def _link_chemical_to_parent(self, chem, target):
         """Links chemical and positions it correctly based on target orientation."""
-        border_overlap = 3
+        border_overlap = 6
 
         if isinstance(target, (ElementaryAction, SupportAction)):
             old_stack = target.chem_below
             target.chem_below = chem
             chem.above_block = target
             if old_stack:
+                if target.orientation == "vertical":
+                    shift_x = -(chem.rect().width() - border_overlap)
+                    self._move_branch(old_stack, shift_x, 0)
+                else:
+                    shift_y = chem.rect().height() - border_overlap
+                    self._move_branch(old_stack, 0, shift_y)
                 chem.below_block = old_stack
                 old_stack.above_block = chem
+
+            # Snap the incoming chemical to the stable action target
+            if target.orientation == "vertical":
+                body_h = target.rect().height() - 18
+                snap_x = target.pos().x() - chem.rect().width() + border_overlap
+                snap_y = target.pos().y() + (body_h - chem.rect().height()) / 2
+            else:
+                body_w = target.rect().width() - 18
+                snap_x = target.pos().x() + (body_w - chem.rect().width()) / 2
+                snap_y = target.pos().y() + target.rect().height() - 4
+            chem.setPos(snap_x, snap_y)
+            self.reflow_chemicals(chem, target.orientation)
+
         elif isinstance(target, ChemicalBlock):
             # Target is another Chemical
             old_child = target.below_block
             target.below_block = chem
             chem.above_block = target
             if old_child:
+                if target.orientation == "vertical":
+                    shift_x = -(chem.rect().width() - border_overlap)
+                    self._move_branch(old_child, shift_x, 0)
+                else:
+                    shift_y = chem.rect().height() - border_overlap
+                    self._move_branch(old_child, 0, shift_y)
                 chem.below_block = old_child
                 old_child.above_block = chem
             
@@ -2030,12 +2183,7 @@ class Editor(QGraphicsView):
                 chem.setPos(target.pos().x() - chem.rect().width() + border_overlap, target.pos().y())
             else:
                 chem.setPos(target.pos().x(), target.pos().y() + target.rect().height() - border_overlap)
-
-        # Trigger full reflow from the top action anchor
-        curr = target
-        while isinstance(curr, ChemicalBlock) and curr.above_block:
-            curr = curr.above_block
-        self.reflow_chain(curr)
+            self.reflow_chemicals(chem, target.orientation)
 
     def _get_target_and_zone(self, moved_block):
         """
@@ -2084,50 +2232,75 @@ class Editor(QGraphicsView):
             return target, "BOTTOM" if dy > 0 else "TOP"
     
     def check_and_link_horizontal_blocks(self, moved_block):
-        """Handles horizontal linking based on the drop quadrant."""
+        """Handle horizontal linking while keeping stationary blocks anchored."""
         if moved_block.orientation == "vertical":
-            self.reflow_entire_cluster(moved_block)
+            self.update_support_logic()
             return
 
-        # 1. Sever old links
+        overlap = 20
+
+        # 1. Sever old links (positions stay unchanged)
         old_p, old_n = self._pluck_horizontal(moved_block)
 
         # 2. Find target and drop zone
         target, zone = self._get_target_and_zone(moved_block)
 
-        # 3. Only process horizontal targets
+        # 2.1 If the block came from the middle of a chain, close that gap.
+        self._close_horizontal_gap(old_p, old_n, overlap)
+
+        linked = False
+
+        # 3. Only process horizontal targets (target stays fixed)
         if target and not isinstance(target, ChemicalBlock) and target.orientation == "horizontal":
             if zone == "LEFT":
                 if not target.is_first:
-                    # Insert before target
                     p = target.prev_block
+                    # Insertion case: open space by pushing forward chain.
+                    if p:
+                        shift = moved_block.rect().width() - overlap
+                        if shift > 0:
+                            self.push_chain(target, shift)
+
+                    snap_x = target.pos().x() - moved_block.rect().width() + overlap
+                    snap_y = target.pos().y()
+                    dx = snap_x - moved_block.pos().x()
+                    dy = snap_y - moved_block.pos().y()
+                    self._move_branch(moved_block, dx, dy)
+
                     moved_block.next_block = target
                     target.prev_block = moved_block
                     if p:
                         p.next_block = moved_block
                         moved_block.prev_block = p
+                    linked = True
             elif zone == "RIGHT":
                 if not moved_block.is_first:
-                    # Insert after target
                     n = target.next_block
+                    # Insertion case: open space by pushing forward chain.
+                    if n:
+                        shift = moved_block.rect().width() - overlap
+                        if shift > 0:
+                            self.push_chain(n, shift)
+
+                    snap_x = target.pos().x() + target.rect().width() - overlap
+                    snap_y = target.pos().y()
+                    dx = snap_x - moved_block.pos().x()
+                    dy = snap_y - moved_block.pos().y()
+                    self._move_branch(moved_block, dx, dy)
+
                     target.next_block = moved_block
                     moved_block.prev_block = target
                     if n:
                         moved_block.next_block = n
                         n.prev_block = moved_block
+                    linked = True
 
-        # 4. Sync positions
-        if old_p: self.reflow_entire_cluster(old_p)
-        elif old_n: self.reflow_entire_cluster(old_n)
-        self.reflow_entire_cluster(moved_block)
+        if not linked:
+            moved_block.set_connected(bool(moved_block.prev_block or moved_block.next_block or moved_block.chem_below))
+        self._realign_attached_branches(moved_block)
 
-        # 5. Final constraint pass to align all vertical support blocks
-        # This ensures that support actions (New Recipient, etc.) linked to
-        # blocks in the chain also move along when the horizontal chain reorganizes
-        self._reflow_visible_actions()
-
-        self.adapt_scene_rect()
         self.update_linked_sequence()
+        self.update_support_logic()
 
     def _move_branch(self, block, dx, dy, visited=None):
         """Recursively moves a block and all its downstream connections (Right, Down, and Chemicals)."""
@@ -2145,6 +2318,59 @@ class Editor(QGraphicsView):
             self._move_branch(block.below_block, dx, dy, visited)
         if hasattr(block, 'chem_below') and block.chem_below:
             self._move_branch(block.chem_below, dx, dy, visited)
+        if hasattr(block, 'subproduct_below') and block.subproduct_below:
+            self._move_branch(block.subproduct_below, dx, dy, visited)
+
+    def _close_horizontal_gap(self, old_prev, old_next, overlap):
+        """When removing from chain middle, move the forward side to fill the gap."""
+        if not old_prev or not old_next:
+            return
+        target_x = old_prev.pos().x() + old_prev.rect().width() - overlap
+        target_y = old_prev.pos().y()
+        dx = target_x - old_next.pos().x()
+        dy = target_y - old_next.pos().y()
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+        self._move_branch(old_next, dx, dy, visited=set())
+
+    def _realign_attached_branches(self, block):
+        """Realign only branches attached to one block (chemicals/subproduct)."""
+        if not block:
+            return
+        overlap = 20
+        border_overlap = 6
+        precision = 0.01
+
+        # Keep subproduct anchor attached to the moved block.
+        if hasattr(block, "subproduct_below") and block.subproduct_below:
+            sb = block.subproduct_below
+            new_x = block.pos().x() + (block.rect().width() - sb.rect().width()) / 2
+            new_y = block.pos().y() + block.rect().height() - 8
+            sb.setPos(new_x, new_y)
+
+        # Keep first attached chemical anchored to this action block.
+        if hasattr(block, "chem_below") and block.chem_below:
+            cb = block.chem_below
+            cb.toggle_orientation(block.orientation)
+            a_rect, c_rect = block.rect(), cb.rect()
+
+            if block.action == "SubProductCreation":
+                new_x = block.pos().x() - c_rect.width() + border_overlap
+                body_start_y = block.pos().y() + 18
+                body_h = a_rect.height() - 18
+                new_y = body_start_y + (body_h - c_rect.height()) / 2
+            elif block.orientation == "vertical":
+                new_x = block.pos().x() - c_rect.width() + border_overlap
+                body_h = a_rect.height() - 18
+                new_y = block.pos().y() + (body_h - c_rect.height()) / 2
+            else:
+                body_w = a_rect.width() - 18
+                new_x = block.pos().x() + (body_w - c_rect.width()) / 2
+                new_y = block.pos().y() + a_rect.height() - 4
+
+            if abs(cb.pos().x() - new_x) > precision or abs(cb.pos().y() - new_y) > precision:
+                cb.setPos(new_x, new_y)
+            self.reflow_chemicals(cb, block.orientation)
     
     def _link_action_as_parent_vertical(self, moved_block, target_below):
         """links moved_block on top of target_below, moving only the incoming block."""
@@ -2165,6 +2391,11 @@ class Editor(QGraphicsView):
         # Establish links
         old_parent = target_below.above_block
         if old_parent and not isinstance(old_parent, ChemicalBlock):
+            # Insertion case: open vertical space under the stable old parent.
+            shift_y = moved_block.rect().height() - overlap
+            if shift_y > 0:
+                self._move_branch(target_below, 0, shift_y)
+        if old_parent and not isinstance(old_parent, ChemicalBlock):
             old_parent.below_block = moved_block
             moved_block.above_block = old_parent
             
@@ -2176,10 +2407,11 @@ class Editor(QGraphicsView):
         target_below.update()
     
     def check_and_link_vertical_blocks(self, moved_block):
-        """Handle vertical linking and ensure chemicals always act as children."""
+        """Handle vertical linking; keep stationary targets fixed unless inserting."""
         if hasattr(self, 'preview_pair') and self.preview_pair:
             for item in self.preview_pair:
-                if item: item.set_connected(False)
+                if item:
+                    item.set_connected(self._is_block_connected(item))
             self.preview_pair = None
 
         old_parent = moved_block.above_block
@@ -2200,9 +2432,6 @@ class Editor(QGraphicsView):
             else:
                 # action dropped on bottom half area
                 self._link_action_as_child_vertical(moved_block, target)
-            
-            # anchor the cluster to the target
-            self.reflow_entire_cluster(target)
         else:
             # handle standalone state
             if isinstance(moved_block, ChemicalBlock):
@@ -2212,17 +2441,9 @@ class Editor(QGraphicsView):
                 moved_block.below_block = None
                 is_connected = bool(moved_block.prev_block or moved_block.next_block or moved_block.chem_below)
                 moved_block.set_connected(is_connected)
-            
-            self.reflow_entire_cluster(moved_block)
-
-        # fix gaps in the old chain
-        if old_parent: self.reflow_entire_cluster(old_parent)
-        elif old_child: self.reflow_entire_cluster(old_child)
-
-        # Final constraint pass to ensure all vertical blocks are properly positioned
-        self._reflow_visible_actions()
 
         self.update_linked_sequence()
+        self.update_support_logic()
     
     def _pluck_horizontal(self, block):
         """Sever horizontal links and stitch the old neighbors."""
@@ -2282,29 +2503,15 @@ class Editor(QGraphicsView):
         return left, right
     
     def push_chain(self, start_block, shift_x: float):
-        """Move start_block and all following blocks (via next_block)
-        horizontally by shift_x (positive -> right).
-        Also moves any chemical blocks attached below action blocks, preserving vertical alignment.
+        """Push a horizontal tail and everything attached to it.
+
+        This moves the chain starting at start_block to the right (or left)
+        and keeps all attached branches (chemicals, vertical children, subproducts)
+        traveling together.
         """
-        b = start_block
-        while b:
-            old_pos = b.pos()
-            new_pos = QPointF(old_pos.x() + shift_x, old_pos.y())
-            b.setPos(new_pos)
-            # Also move any chemical block below this action block, keeping it below
-            if isinstance(b, (ElementaryAction, SupportAction)) and b.below_block:
-                # Reposition chemical to stay directly below the action block at its new position
-                action_rect = b.rect()
-                chem_rect = b.below_block.rect()
-                snap_x = new_pos.x() + (action_rect.width() - chem_rect.width()) * 0.25
-                snap_y = new_pos.y() + action_rect.height()
-                b.below_block.setPos(snap_x, snap_y)
-                # Update the full chemical chain below this chemical
-                try:
-                    self.update_chemical_chain_below(b.below_block, snap_x, snap_y)
-                except Exception:
-                    pass
-            b = b.next_block
+        if not start_block or shift_x == 0:
+            return
+        self._move_branch(start_block, shift_x, 0, visited=set())
 
     def get_full_cluster(self, start_block):
         """Finds all blocks connected in the same graph using BFS."""
@@ -2560,7 +2767,68 @@ class Editor(QGraphicsView):
         # force redraw to show badges
         for b in self.blocks:
             b.update()
-    
+
+        self.refresh_procedure_guide()
+
+    def collect_procedure_guide_steps(self) -> list[dict]:
+        """Build guide steps from the main horizontal action chain (no imported flows)."""
+        heads = [
+            b
+            for b in self.blocks
+            if not isinstance(b, ChemicalBlock)
+            and b.action != "SubProductCreation"
+            and b.prev_block is None
+            and (b.next_block is not None or b.is_first)
+        ]
+        if not heads:
+            return []
+
+        start = next((b for b in heads if b.is_first), heads[0])
+        steps: list[dict] = []
+        visited: set[int] = set()
+        curr = start
+        while curr and id(curr) not in visited:
+            if isinstance(curr, ChemicalBlock):
+                break
+            visited.add(id(curr))
+            steps.append(self._block_to_procedure_guide_step(curr))
+            subproduct = getattr(curr, "subproduct_below", None)
+            if subproduct is not None and id(subproduct) not in visited:
+                steps.append(self._block_to_procedure_guide_step(subproduct))
+            curr = curr.next_block
+        return steps
+
+    def _block_to_procedure_guide_step(self, block) -> dict:
+        chemicals = []
+        chem = getattr(block, "chem_below", None)
+        while chem:
+            chemicals.append(
+                {
+                    "chemical": chem.action,
+                    "params": chem.params.copy(),
+                }
+            )
+            chem = getattr(chem, "below_block", None)
+
+        step = {
+            "action": block.action,
+            "params": block.params.copy(),
+        }
+        if block.action == "SubProductCreation":
+            step["params"][KEY_SUBSTANCE] = chemicals
+        elif chemicals:
+            step["chemicals"] = chemicals
+        return step
+
+    def refresh_procedure_guide(self) -> None:
+        if not hasattr(self, "procedure_guide_label"):
+            return
+        text = build_procedure_text(self.collect_procedure_guide_steps())
+        self.procedure_guide_label.setText(text)
+        if self.procedure_guide_popup.isVisible():
+            self._fit_procedure_guide_popup()
+            self._position_procedure_guide_popup()
+
     def keyPressEvent(self, event):
         """Handle key press events for the editor"""
         if event.key() == Qt.Key_Delete:
@@ -2899,6 +3167,27 @@ class Editor(QGraphicsView):
 
         export_kind = dialog.export_kind
         export_format = dialog.export_format
+
+        if export_kind == "procedure_text":
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Procedure Guide",
+                "procedure_guide.txt",
+                "Text Files (*.txt)",
+            )
+            if not filename:
+                return
+            if not filename.lower().endswith(".txt"):
+                filename += ".txt"
+            try:
+                text = build_procedure_text(self.collect_procedure_guide_steps())
+                with open(filename, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                print(f"procedure guide exported to {filename}")
+            except OSError as exc:
+                QMessageBox.critical(self, "Export Error", f"Failed to export procedure guide:\n{exc}")
+            return
+
         default_name = "protocol.linkml" if export_kind == "linkml" else "protocol"
         default_name = f"{default_name}.{export_format}"
 

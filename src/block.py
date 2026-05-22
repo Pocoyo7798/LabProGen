@@ -7,10 +7,11 @@ from PySide6.QtWidgets import (
     QToolButton, QSizePolicy, QFrame
 )
 from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF, QObject, QEvent
-from PySide6.QtGui import QPen, QColor, QFont, QPainter, QFontMetrics
+from PySide6.QtGui import QPen, QColor, QFont, QPainter, QFontMetrics, QIntValidator
 from .config import *
 from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
+from .procedure_text import format_gas_entry_label
 
 
 class _SingleChemicalRef:
@@ -94,6 +95,21 @@ def embedded_chemical_filled(chem) -> bool:
         or str(chem.get(KEY_NAME, "")).strip()
         or str(chem.get(KEY_FORMULA, "")).strip()
     )
+
+
+def validate_repeat_amount(text: str) -> int:
+    """Repeat count: integer only, at least 1."""
+    cleaned = str(text).strip()
+    if not cleaned:
+        raise ValueError("empty")
+    if "." in cleaned or "," in cleaned:
+        raise ValueError("decimal")
+    if not cleaned.isdigit():
+        raise ValueError("not_integer")
+    amount = int(cleaned)
+    if amount < 1:
+        raise ValueError("too_small")
+    return amount
 
 
 def validate_decimal_input(text: str) -> float:
@@ -1147,7 +1163,8 @@ class Block(QGraphicsRectItem):
         elif f_type == "list":
             # Create compact chemical list widget with add button and tags
             list_value = value if isinstance(value, list) else (value or [])
-            
+            is_gas_list = key == KEY_GASES
+
             container = QWidget()
             layout = QVBoxLayout(container)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -1184,12 +1201,15 @@ class Block(QGraphicsRectItem):
                 if dlg.exec() != QDialog.Accepted:
                     return
 
-                # First Level Chemical Details (ID, Producer, Purity, Procedure)
                 details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
                 if details_dialog.exec() != QDialog.Accepted:
                     return
 
-                params_dlg = MixtureChemicalParametersDialog(dlg.selected_chemical_type, parent_dialog, initial_params=get_chemical_default_params(dlg.selected_chemical_type))
+                params_dlg = MixtureChemicalParametersDialog(
+                    dlg.selected_chemical_type,
+                    parent_dialog,
+                    initial_params=get_chemical_default_params(dlg.selected_chemical_type),
+                )
                 if params_dlg.exec() != QDialog.Accepted:
                     return
 
@@ -1203,13 +1223,16 @@ class Block(QGraphicsRectItem):
                     new_chem[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
                         details_dialog.imported_procedure
                     )
-                
-                # Validate that chemical has a name (required for all chemicals)
+
                 chem_name = new_chem.get(KEY_NAME, "").strip()
                 if not chem_name:
-                    QMessageBox.warning(parent_dialog, "Missing Chemical Name", f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.")
+                    QMessageBox.warning(
+                        parent_dialog,
+                        "Missing Chemical Name",
+                        f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.",
+                    )
                     return
-                
+
                 list_value.append(new_chem)
                 _update_tags()
             
@@ -1232,14 +1255,15 @@ class Block(QGraphicsRectItem):
                 
                 # Add one compact row per chemical
                 for idx, chem in enumerate(list_value):
-                    chem_type = chem.get("chemical_type", "Unknown")
-                    formula = chem.get(KEY_FORMULA, "—")
-                    conc = chem.get(KEY_CONCENTRATION, "")
-                    
-                    # Create row label
-                    row_text = f"{chem_type}: {formula}"
-                    if conc:
-                        row_text += f" ({conc})"
+                    if is_gas_list:
+                        row_text = format_gas_entry_label(chem)
+                    else:
+                        chem_type = chem.get("chemical_type", "Unknown")
+                        formula = chem.get(KEY_FORMULA, "—")
+                        conc = chem.get(KEY_CONCENTRATION, "")
+                        row_text = f"{chem_type}: {formula}"
+                        if conc:
+                            row_text += f" ({conc})"
 
                     row_widget = QWidget()
                     row_widget.setFixedHeight(28)
@@ -1288,9 +1312,13 @@ class Block(QGraphicsRectItem):
                             normalize_preparation_procedure,
                         )
                         parent_dialog = self.editor if self.editor else self
-
                         chem = list_value[i]
-                        dlg = MixtureChemicalDialog(parent_dialog, initial_type=chem.get("chemical_type", "Substance"), initial_concentration=chem.get(KEY_CONCENTRATION, ""))
+
+                        dlg = MixtureChemicalDialog(
+                            parent_dialog,
+                            initial_type=chem.get("chemical_type", "Substance"),
+                            initial_concentration=chem.get(KEY_CONCENTRATION, ""),
+                        )
                         if dlg.exec() != QDialog.Accepted:
                             return
 
@@ -1352,6 +1380,8 @@ class Block(QGraphicsRectItem):
         else:
             edit = QLineEdit(str(value))
             edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
+            if self.action == "Repeat" and key == KEY_AMOUNT:
+                edit.setValidator(QIntValidator(1, 999_999, edit))
             return edit, edit
 
     def open_editor(self):
@@ -1625,6 +1655,18 @@ class Block(QGraphicsRectItem):
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
 
+                if k == KEY_AMOUNT and self.action == "Repeat" and value:
+                    try:
+                        value = str(validate_repeat_amount(value))
+                    except ValueError:
+                        QMessageBox.warning(
+                            dialog,
+                            "Invalid Value",
+                            "'Amount' must be a whole number greater than or equal to 1 (no decimals).",
+                        )
+                        tracker.setFocus()
+                        return
+
                 if k == KEY_OPEN_FLAME:
                     value = normalize_boolean(value)
                 elif k in {
@@ -1691,6 +1733,8 @@ class Block(QGraphicsRectItem):
             self._editor_accepted = True
 
             self.update_text()
+            if self.editor:
+                self.editor.refresh_procedure_guide()
             dialog.set_accepted()
             dialog.accept()
 

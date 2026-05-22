@@ -45,3 +45,4 @@ protocol*.yaml
 ENTITY_*.md
 EXPORT_*.md
 IMPLEMENTATION_*.md
+procedure_guide.txt
