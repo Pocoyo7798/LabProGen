@@ -12,6 +12,8 @@ from .config import *
 from .debug_flag import DEBUG_MODE
 from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
 from .procedure_text import format_gas_entry_label
+from .pubchem_autocomplete import attach_pubchem_compound_autocomplete
+from .pubchem_chemical_search import PubChemChemicalSearchController, PubChemResultNavigator
 
 
 class _SingleChemicalRef:
@@ -1579,6 +1581,15 @@ class Block(QGraphicsRectItem):
 
         _update_conditional_fields()
 
+        pubchem_autocomplete = None
+        pubchem_navigator = None
+        if is_chemical and KEY_NAME in input_map:
+            name_tracker = input_map[KEY_NAME]
+            if isinstance(name_tracker, QLineEdit):
+                pubchem_autocomplete = attach_pubchem_compound_autocomplete(name_tracker)
+                pubchem_navigator = PubChemResultNavigator(dialog)
+                pubchem_navigator.hide()
+
         preview_btn = None
         # Check if chemical has imported procedure (visually indicated)
         if is_chemical and self.imported_procedure:
@@ -1599,6 +1610,9 @@ class Block(QGraphicsRectItem):
 
             preview_btn.clicked.connect(show_preview)
 
+        if pubchem_navigator is not None:
+            main_layout.addWidget(pubchem_navigator)
+
         save_btn = QPushButton("Save Changes")
         button_row = QHBoxLayout()
         if preview_btn:
@@ -1606,6 +1620,25 @@ class Block(QGraphicsRectItem):
         button_row.addStretch()
         button_row.addWidget(save_btn)
         main_layout.addLayout(button_row)
+
+        if pubchem_autocomplete is not None and pubchem_navigator is not None:
+
+            def _on_pubchem_fields_applied(mapped: dict) -> None:
+                if not advanced_toggle or not optional_keys:
+                    return
+                if any(key in mapped for key in optional_keys):
+                    advanced_toggle.setChecked(True)
+                    QTimer.singleShot(0, dialog.adjustSize)
+
+            pubchem_search = PubChemChemicalSearchController(
+                field_trackers=input_map,
+                visible_field_keys=set(input_map.keys()),
+                chemical_type=self.action,
+                navigator=pubchem_navigator,
+                on_fields_applied=_on_pubchem_fields_applied,
+                parent=dialog,
+            )
+            pubchem_autocomplete.compound_selected.connect(pubchem_search.start_search)
 
         def apply_changes():
             new_params = self.params.copy()
