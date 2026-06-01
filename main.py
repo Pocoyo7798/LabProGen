@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "linkml>=1.11.1",
+#     "pyside6==6.10.2",
+#     "pyyaml>=6.0.3",
+# ]
+# ///
+
 import sys
 from src import resources_rc # this imports the compiled resources from resources.qrc
 from PySide6.QtWidgets import QApplication
