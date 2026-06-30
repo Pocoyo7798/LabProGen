@@ -2400,6 +2400,9 @@ class Editor(QGraphicsView):
         is_parent_action = isinstance(parent_block, (ElementaryAction, SupportAction))
         is_parent_chemical = isinstance(parent_block, ChemicalBlock)
         is_child_chemical = isinstance(child_block, ChemicalBlock)
+
+        if is_child_chemical and is_parent_action and not self._can_attach_chemical_to(parent_block):
+            return True
         
         # Child must always be a chemical block
         if not is_child_chemical:
@@ -2407,6 +2410,29 @@ class Editor(QGraphicsView):
         
         # Parent can be either an action block or a chemical block
         return not (is_parent_action or is_parent_chemical)
+
+    def _can_attach_chemical_to(self, target) -> bool:
+        """Chemicals may only attach to standalone actions, not complex-action members."""
+        if target is None:
+            return False
+        if getattr(target, "part_of_complex_action", False):
+            return False
+        if getattr(target, "is_complex_surrogate", False):
+            return False
+        if isinstance(target, ComplexActionBlock):
+            return False
+        return True
+
+    def _chemical_attach_rejection_message(self, target) -> str | None:
+        """Return a user-facing reason when a chemical cannot attach to target."""
+        if not self._can_attach_chemical_to(target):
+            if getattr(target, "is_complex_surrogate", False):
+                return f"Chemicals cannot be linked to complex action {target.action!r}"
+            return "Chemicals cannot be linked to complex actions"
+        allowed_for_chemicals = ["Add", "ChangeAtmosphere", "SubProductCreation"]
+        if getattr(target, "action", None) not in allowed_for_chemicals:
+            return f"Chemicals cannot be linked to {target.action}"
+        return None
 
     def preview_link(self, moved_block):
         """Visual feedback for both horizontal and vertical snapping."""
@@ -2486,13 +2512,21 @@ class Editor(QGraphicsView):
         potential_target = None
         potential_role = None
         best_score = float('inf')
-
-        # actions permitted to have chemicals attached
-        allowed_for_chemicals = ["Add", "ChangeAtmosphere", "SubProductCreation"]
+        rejected_complex_target = None
+        rejected_complex_score = float('inf')
 
         for other in self.blocks:
             if other is moved_block: continue
             if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock): continue
+            if isinstance(moved_block, ChemicalBlock) and not isinstance(other, ChemicalBlock):
+                if not self._can_attach_chemical_to(other):
+                    other_rect = other.sceneBoundingRect()
+                    if moved_rect.intersects(other_rect):
+                        score = abs(moved_center.x() - other_rect.center().x())
+                        if score < rejected_complex_score:
+                            rejected_complex_score = score
+                            rejected_complex_target = other
+                    continue
             
             other_rect = other.sceneBoundingRect()
             other_center = other_rect.center()
@@ -2532,16 +2566,25 @@ class Editor(QGraphicsView):
         if potential_target:
             # check chemical attachment rules
             if isinstance(moved_block, ChemicalBlock) and not isinstance(potential_target, ChemicalBlock):
-                # chemicals can only attach to specific action types
-                if potential_target.action not in allowed_for_chemicals:
-                    QToolTip.showText(QCursor.pos(), f"Chemicals cannot be linked to {potential_target.action}", self)
-                    return None, None # reject link
+                rejection = self._chemical_attach_rejection_message(potential_target)
+                if rejection:
+                    QToolTip.showText(QCursor.pos(), rejection, self)
+                    return None, None
 
             # check action flow rules (no actions below subproduct)
             if not isinstance(moved_block, ChemicalBlock) and potential_target.action == "SubProductCreation":
                 if potential_role == "child":
                     QToolTip.showText(QCursor.pos(), "Only Chemicals can be linked here", self)
                     return None, None # reject link
+
+        if (
+            isinstance(moved_block, ChemicalBlock)
+            and potential_target is None
+            and rejected_complex_target is not None
+        ):
+            rejection = self._chemical_attach_rejection_message(rejected_complex_target)
+            if rejection:
+                QToolTip.showText(QCursor.pos(), rejection, self)
 
         return potential_target, potential_role
     
@@ -2598,6 +2641,9 @@ class Editor(QGraphicsView):
 
     def _link_chemical_to_parent(self, chem, target):
         """Links chemical and positions it correctly based on target orientation."""
+        if not self._can_attach_chemical_to(target):
+            return
+
         border_overlap = 6
 
         if isinstance(target, (ElementaryAction, SupportAction)):
@@ -2658,16 +2704,30 @@ class Editor(QGraphicsView):
         
         target = None
         best_overlap = 0
+        rejected_complex_target = None
+        rejected_complex_overlap = 0
 
         for other in self.blocks:
             if other is moved_block:
                 continue
             if not other.isVisible():
                 continue
+
+            other_rect = other.sceneBoundingRect()
+
+            if isinstance(moved_block, ChemicalBlock) and not isinstance(other, ChemicalBlock):
+                if not self._can_attach_chemical_to(other):
+                    if moved_rect.intersects(other_rect):
+                        overlap = (
+                            moved_rect.intersected(other_rect).width()
+                            * moved_rect.intersected(other_rect).height()
+                        )
+                        if overlap > rejected_complex_overlap:
+                            rejected_complex_overlap = overlap
+                            rejected_complex_target = other
+                    continue
             if not self._is_complex_linkable_endpoint(other):
                 continue
-            
-            other_rect = other.sceneBoundingRect()
             
             # Check for intersection
             if moved_rect.intersects(other_rect):
@@ -2678,6 +2738,13 @@ class Editor(QGraphicsView):
                     target = other
 
         if not target:
+            if (
+                isinstance(moved_block, ChemicalBlock)
+                and rejected_complex_target is not None
+            ):
+                rejection = self._chemical_attach_rejection_message(rejected_complex_target)
+                if rejection:
+                    QToolTip.showText(QCursor.pos(), rejection, self)
             return None, None
 
         # Determine zone based on relative center position

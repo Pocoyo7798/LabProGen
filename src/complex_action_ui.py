@@ -31,7 +31,9 @@ from .complex_actions import (
     copy_instance_parameters,
     dictionary_filename,
     get_complex_action_registry,
+    is_complex_action_step,
     parameters_to_block_params,
+    step_display_name,
     validate_definition,
     validate_instance_parameters,
 )
@@ -80,8 +82,8 @@ def _add_action_section(
     return form
 
 
-def _add_empty_step_note(form: QFormLayout) -> None:
-    note = QLabel("No configurable parameters for this step.")
+def _add_empty_step_note(form: QFormLayout, *, text: str | None = None) -> None:
+    note = QLabel(text or "No configurable parameters for this step.")
     note.setStyleSheet(_EMPTY_STEP_NOTE_STYLE)
     form.addRow(note)
 
@@ -135,7 +137,7 @@ class ComplexActionFinalizeDialog(QDialog):
 
         for position, step_index in enumerate(range(len(self._steps))):
             step = self._steps[step_index]
-            action_name = str(step.get("action", ""))
+            action_name = step_display_name(step)
             items = grouped.get(step_index, [])
             form = _add_action_section(
                 scroll_layout,
@@ -144,7 +146,13 @@ class ComplexActionFinalizeDialog(QDialog):
                 show_separator=position > 0,
             )
             if not items:
-                _add_empty_step_note(form)
+                if is_complex_action_step(step):
+                    _add_empty_step_note(
+                        form,
+                        text="Parameters are defined by the nested complex action.",
+                    )
+                else:
+                    _add_empty_step_note(form)
                 continue
             for binding_index, binding in items:
                 self._display_edits[binding_index] = QLineEdit(binding.display_name)
@@ -370,7 +378,7 @@ class ComplexActionUseDialog(QDialog):
 
         for position, step_index in enumerate(range(len(definition.steps))):
             step = definition.steps[step_index]
-            action_name = str(step.get("action", ""))
+            action_name = step_display_name(step)
             items = grouped.get(step_index, [])
             form = _add_action_section(
                 scroll_layout,
@@ -379,7 +387,13 @@ class ComplexActionUseDialog(QDialog):
                 show_separator=position > 0,
             )
             if not items:
-                _add_empty_step_note(form)
+                if is_complex_action_step(step):
+                    _add_empty_step_note(
+                        form,
+                        text="Parameters are defined by the nested complex action.",
+                    )
+                else:
+                    _add_empty_step_note(form)
                 continue
             for binding_index, binding in items:
                 editor = ParameterValueEditor(binding, read_only=not binding.editable)

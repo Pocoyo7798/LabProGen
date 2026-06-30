@@ -3,17 +3,24 @@ import json
 import pytest
 
 from src.complex_actions import (
+    COMPLEX_ACTION_MARKER,
     ComplexActionDefinition,
     ComplexActionGroup,
     ComplexActionParameter,
     ComplexActionRegistry,
+    KEY_COMPLEX_ACTION_NAME,
     apply_parameter_values,
     build_parameter_bindings,
+    collect_flow_steps_from_editor,
+    complex_action_step_from_group,
     copy_instance_parameters,
     dictionary_filename,
+    expand_definition_steps,
     expand_complex_action,
     get_complex_action_registry,
+    parameters_to_block_params,
     sequence_signature,
+    step_action_signature,
     validate_definition,
     validate_instance_parameters,
 )
@@ -666,3 +673,196 @@ def test_position_complex_group_preserves_relative_layout():
     m0.next_block = m1
     _position_complex_group(_TargetEditor(), [m0, m1], source_editor=_SourceEditor())
     assert m1.pos().x() - m0.pos().x() == 120
+
+
+def test_nested_complex_step_signature():
+    inner = parameters_to_block_params(
+        "InnerAdds",
+        [
+            ComplexActionParameter(
+                step_index=0,
+                action="Add",
+                param_key="duration",
+                display_name="Duration",
+                value="1 min",
+            )
+        ],
+    )
+    step = {"action": COMPLEX_ACTION_MARKER, "params": inner}
+    assert step_action_signature(step) == f"{COMPLEX_ACTION_MARKER}:InnerAdds"
+
+
+def test_build_parameter_bindings_skips_nested_complex_step():
+    inner = parameters_to_block_params("InnerAdds", [])
+    steps = [
+        {"action": "Wait", "params": {"duration": "5 min"}},
+        {"action": COMPLEX_ACTION_MARKER, "params": inner},
+    ]
+    bindings = build_parameter_bindings(steps)
+    assert len(bindings) == 1
+    assert bindings[0].param_key == "duration"
+
+
+def test_expand_definition_steps_flattens_nested_complex():
+    registry = get_complex_action_registry()
+    inner = ComplexActionDefinition(
+        name="InnerAddsNestedExpand",
+        steps=[
+            {"action": "Add", "params": {"duration": "1 min", "add_quantity": "2 g", "add_type": "", "open_flame": ""}},
+            {"action": "Add", "params": {"duration": "3 min", "add_quantity": "4 g", "add_type": "", "open_flame": ""}},
+        ],
+        parameters=[
+            ComplexActionParameter(
+                step_index=0,
+                action="Add",
+                param_key="duration",
+                display_name="Duration",
+                value="1 min",
+            ),
+            ComplexActionParameter(
+                step_index=1,
+                action="Add",
+                param_key="add_quantity",
+                display_name="Quantity",
+                value="4 g",
+            ),
+        ],
+    )
+    registry.register(inner)
+
+    nested_step = {
+        "action": COMPLEX_ACTION_MARKER,
+        "params": parameters_to_block_params("InnerAddsNestedExpand", inner.parameters),
+    }
+    outer_steps = [{"action": "Wait", "params": {"duration": "10 min"}}, nested_step]
+    expanded = expand_definition_steps(outer_steps, [])
+    assert [step["action"] for step in expanded] == ["Wait", "Add", "Add"]
+    assert expanded[1]["params"]["duration"] == "1 min"
+    assert expanded[2]["params"]["add_quantity"] == "4 g"
+
+
+def test_collect_flow_steps_groups_nested_complex_on_canvas():
+    class _Block:
+        def __init__(self, action, *, group_id=None, part=False, params=None, prev=None, next_block=None):
+            self.action = action
+            self.params = params or {}
+            self.complex_group_id = group_id
+            self.part_of_complex_action = part
+            self.prev_block = prev
+            self.next_block = next_block
+            self.is_first = prev is None
+
+    add1 = _Block(
+        "Add",
+        group_id="g1",
+        part=True,
+        params={"duration": "1 min", "add_quantity": "2 g"},
+    )
+    add1.is_first = True
+    add2 = _Block(
+        "Add",
+        group_id="g1",
+        part=True,
+        params={"duration": "3 min", "add_quantity": "4 g"},
+        prev=add1,
+    )
+    add1.next_block = add2
+    wait = _Block("Wait", params={"duration": "5 min"}, prev=add2)
+    add2.next_block = wait
+
+    group = ComplexActionGroup(
+        group_id="g1",
+        definition_name="InnerAdds",
+        parameters=[
+            ComplexActionParameter(
+                step_index=0,
+                action="Add",
+                param_key="duration",
+                display_name="Duration",
+                value="1 min",
+            ),
+            ComplexActionParameter(
+                step_index=1,
+                action="Add",
+                param_key="add_quantity",
+                display_name="Quantity",
+                value="4 g",
+            ),
+        ],
+        member_blocks=[add1, add2],
+    )
+
+    class _Editor:
+        complex_action_groups = {"g1": group}
+        blocks = [add1, add2, wait]
+
+    steps = collect_flow_steps_from_editor(_Editor())
+    assert len(steps) == 2
+    assert steps[0]["action"] == COMPLEX_ACTION_MARKER
+    assert steps[0]["params"][KEY_COMPLEX_ACTION_NAME] == "InnerAdds"
+    assert steps[1]["action"] == "Wait"
+    bindings = build_parameter_bindings(steps)
+    assert len(bindings) == 1
+    assert bindings[0].step_index == 1
+    assert bindings[0].param_key == "duration"
+
+
+def test_complex_action_step_from_group_syncs_member_params():
+    class _Block:
+        def __init__(self, params):
+            self.params = params
+
+    members = [
+        _Block({"duration": "1 min", "add_quantity": "2 g"}),
+        _Block({"duration": "3 min", "add_quantity": "4 g"}),
+    ]
+    group = ComplexActionGroup(
+        group_id="g1",
+        definition_name="InnerAdds",
+        parameters=[
+            ComplexActionParameter(
+                step_index=0,
+                action="Add",
+                param_key="duration",
+                display_name="Duration",
+                value="0 min",
+            ),
+            ComplexActionParameter(
+                step_index=1,
+                action="Add",
+                param_key="add_quantity",
+                display_name="Quantity",
+                value="0 g",
+            ),
+        ],
+        member_blocks=members,
+    )
+    step = complex_action_step_from_group(group)
+    assert step["action"] == COMPLEX_ACTION_MARKER
+    assert step["params"][KEY_COMPLEX_ACTION_NAME] == "InnerAdds"
+    assert group.parameters[0].value == "1 min"
+    assert group.parameters[1].value == "4 g"
+
+
+def test_chemical_cannot_attach_to_complex_action_member():
+    from src.editor import Editor
+
+    editor = Editor.__new__(Editor)
+
+    class _Member:
+        part_of_complex_action = True
+        is_complex_surrogate = False
+
+    class _Surrogate:
+        part_of_complex_action = False
+        is_complex_surrogate = True
+
+    assert editor._can_attach_chemical_to(_Member()) is False
+    assert editor._can_attach_chemical_to(_Surrogate()) is False
+
+    class _Standalone:
+        part_of_complex_action = False
+        is_complex_surrogate = False
+        action = "Add"
+
+    assert editor._can_attach_chemical_to(_Standalone()) is True

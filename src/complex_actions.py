@@ -20,6 +20,10 @@ SUPPORT_ACTIONS = frozenset({
 })
 FLOW_ACTIONS = ELEMENTARY_ACTIONS | SUPPORT_ACTIONS | frozenset({"SubProductCreation"})
 
+COMPLEX_ACTION_MARKER = "ComplexAction"
+KEY_COMPLEX_ACTION_NAME = "complex_action_name"
+KEY_COMPLEX_PARAMETERS = "parameters"
+
 DEFAULT_ACTION_PARAMS: dict[str, dict[str, Any]] = {
     "Add": {
         "duration": "0 s",
@@ -57,7 +61,25 @@ def default_action_params(action_name: str) -> dict[str, Any]:
 
 def sequence_signature(steps: list[dict[str, Any]]) -> tuple[str, ...]:
     """Canonical action-type sequence used for uniqueness checks."""
-    return tuple(step.get("action", "") for step in steps)
+    return tuple(step_action_signature(step) for step in steps)
+
+
+def is_complex_action_step(step: dict[str, Any]) -> bool:
+    return str(step.get("action", "")) == COMPLEX_ACTION_MARKER
+
+
+def step_action_signature(step: dict[str, Any]) -> str:
+    action = str(step.get("action", ""))
+    if action == COMPLEX_ACTION_MARKER:
+        name = str((step.get("params") or {}).get(KEY_COMPLEX_ACTION_NAME, ""))
+        return f"{COMPLEX_ACTION_MARKER}:{name}"
+    return action
+
+
+def step_display_name(step: dict[str, Any]) -> str:
+    if is_complex_action_step(step):
+        return str((step.get("params") or {}).get(KEY_COMPLEX_ACTION_NAME, "Complex action"))
+    return str(step.get("action", ""))
 
 
 def _parse_unit_from_value(value: Any, param_key: str) -> str:
@@ -158,6 +180,8 @@ def build_parameter_bindings(steps: list[dict[str, Any]]) -> list[ComplexActionP
     bindings: list[ComplexActionParameter] = []
     for step_index, step in enumerate(steps):
         action = str(step.get("action", ""))
+        if is_complex_action_step(step):
+            continue
         params = dict(step.get("params") or default_action_params(action))
         for param_key, default_value in params.items():
             bindings.append(
@@ -177,44 +201,39 @@ def build_parameter_bindings(steps: list[dict[str, Any]]) -> list[ComplexActionP
 
 def collect_flow_steps_from_editor(editor) -> list[dict[str, Any]]:
     """Collect the main horizontal action chain from an editor (no chemicals)."""
-    from .block import ChemicalBlock
+    from .complex_action_protocol import _horizontal_chain_from_editor
 
-    heads = [
-        b
-        for b in editor.blocks
-        if not isinstance(b, ChemicalBlock)
-        and b.action != "SubProductCreation"
-        and b.prev_block is None
-        and (b.next_block is not None or b.is_first)
-    ]
-    if not heads:
-        heads = [
-            b
-            for b in editor.blocks
-            if not isinstance(b, ChemicalBlock) and b.prev_block is None
-        ]
-    if not heads:
+    chain = _horizontal_chain_from_editor(editor)
+    if not chain:
         return []
 
-    start = next((b for b in heads if b.is_first), heads[0])
     steps: list[dict[str, Any]] = []
-    visited: set[int] = set()
-    current = start
-    while current and id(current) not in visited:
-        if isinstance(current, ChemicalBlock):
-            break
-        visited.add(id(current))
+    visited_groups: set[str] = set()
+    index = 0
+    while index < len(chain):
+        block = chain[index]
+        group_id = getattr(block, "complex_group_id", None)
+        if getattr(block, "part_of_complex_action", False) and group_id:
+            if group_id not in visited_groups:
+                visited_groups.add(group_id)
+                group = getattr(editor, "complex_action_groups", {}).get(group_id)
+                if group is not None:
+                    steps.append(complex_action_step_from_group(group))
+            while index < len(chain) and getattr(chain[index], "complex_group_id", None) == group_id:
+                index += 1
+            continue
+
         steps.append({
-            "action": current.action,
-            "params": default_action_params(current.action),
+            "action": block.action,
+            "params": dict(block.params or default_action_params(block.action)),
         })
-        subproduct = getattr(current, "subproduct_below", None)
-        if subproduct is not None and id(subproduct) not in visited:
+        subproduct = getattr(block, "subproduct_below", None)
+        if subproduct is not None:
             steps.append({
                 "action": subproduct.action,
-                "params": default_action_params(subproduct.action),
+                "params": dict(subproduct.params or default_action_params(subproduct.action)),
             })
-        current = current.next_block
+        index += 1
     return steps
 
 
@@ -233,6 +252,18 @@ def validate_definition(
         errors.append("The complex action must contain at least one action.")
     for step in definition.steps:
         action = step.get("action")
+        if is_complex_action_step(step):
+            nested_name = str((step.get("params") or {}).get(KEY_COMPLEX_ACTION_NAME, "")).strip()
+            if not nested_name:
+                errors.append("Nested complex action step is missing a name.")
+            elif registry is not None and registry.get(nested_name) is None:
+                errors.append(f"Unknown nested complex action: {nested_name!r}.")
+            elif registry is not None:
+                nested_definition = registry.get(nested_name)
+                if nested_definition is not None:
+                    nested_params = parameters_from_block_params(step.get("params") or {})
+                    errors.extend(validate_instance_parameters(nested_params, nested_definition))
+            continue
         if action not in FLOW_ACTIONS:
             errors.append(f"Unsupported action in flow: {action!r}.")
 
@@ -250,7 +281,10 @@ def validate_definition(
     for param in definition.parameters:
         action = ""
         if 0 <= param.step_index < len(definition.steps):
-            action = str(definition.steps[param.step_index].get("action", ""))
+            step = definition.steps[param.step_index]
+            if is_complex_action_step(step):
+                continue
+            action = str(step.get("action", ""))
         params = step_params.get(param.step_index, {})
         if not is_field_required(param.param_key, params=params, action_name=action):
             continue
@@ -266,28 +300,48 @@ def validate_definition(
     return errors
 
 
-def apply_parameter_values(
+def expand_definition_steps(
     steps: list[dict[str, Any]],
-    parameters: list[ComplexActionParameter],
+    parameters: list[ComplexActionParameter] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return steps with parameter values applied from bindings."""
-    result = []
+    """Expand a step list to elementary/support actions, resolving nested complex actions."""
+    registry = get_complex_action_registry()
     value_map: dict[tuple[int, str], Any] = {
-        (param.step_index, param.param_key): param.value for param in parameters
+        (param.step_index, param.param_key): param.value for param in (parameters or [])
     }
+    result: list[dict[str, Any]] = []
+
     for step_index, step in enumerate(steps):
-        action = step.get("action", "")
-        params = dict(default_action_params(action))
-        for key in params:
+        action = str(step.get("action", ""))
+        if is_complex_action_step(step):
+            params_dict = dict(step.get("params") or {})
+            nested_name = str(params_dict.get(KEY_COMPLEX_ACTION_NAME, "")).strip()
+            nested_definition = registry.get(nested_name)
+            if nested_definition is None:
+                continue
+            nested_params = parameters_from_block_params(params_dict)
+            result.extend(expand_definition_steps(nested_definition.steps, nested_params))
+            continue
+
+        params = dict(step.get("params") or default_action_params(action))
+        for key in list(params.keys()):
             if (step_index, key) in value_map:
                 params[key] = value_map[(step_index, key)]
         result.append({"action": action, "params": params})
     return result
 
 
+def apply_parameter_values(
+    steps: list[dict[str, Any]],
+    parameters: list[ComplexActionParameter],
+) -> list[dict[str, Any]]:
+    """Return steps with parameter values applied from bindings."""
+    return expand_definition_steps(steps, parameters)
+
+
 def expand_complex_action(definition: ComplexActionDefinition) -> list[dict[str, Any]]:
     """Expand a complex action to elementary/support steps for protocol export."""
-    return apply_parameter_values(definition.steps, definition.parameters)
+    return expand_definition_steps(definition.steps, definition.parameters)
 
 
 class ComplexActionRegistry:
@@ -339,11 +393,6 @@ def get_complex_action_registry() -> ComplexActionRegistry:
     return _GLOBAL_REGISTRY
 
 
-COMPLEX_ACTION_MARKER = "ComplexAction"
-KEY_COMPLEX_ACTION_NAME = "complex_action_name"
-KEY_COMPLEX_PARAMETERS = "parameters"
-
-
 @dataclass
 class ComplexActionGroup:
     """One complex-action usage in a protocol (expanded members + optional surrogate)."""
@@ -363,9 +412,8 @@ class ComplexActionGroup:
             self.collapsed_tail_shift = 0.0
 
     def expanded_steps(self) -> list[dict[str, Any]]:
-        return apply_parameter_values(
-            [{"action": step.get("action", ""), "params": step.get("params") or {}}
-             for step in _definition_steps(self.definition_name)],
+        return expand_definition_steps(
+            _definition_steps(self.definition_name),
             self.parameters,
         )
 
@@ -416,7 +464,7 @@ def steps_match_definition(steps: list[dict[str, Any]], definition: ComplexActio
     if len(steps) != len(definition.steps):
         return False
     for step, expected in zip(steps, definition.steps):
-        if step.get("action") != expected.get("action"):
+        if step_action_signature(step) != step_action_signature(expected):
             return False
     return True
 
@@ -426,13 +474,16 @@ def find_sequence_ranges(
     definition: ComplexActionDefinition,
 ) -> list[tuple[int, int]]:
     """Return [start, end) index ranges where step_actions matches definition sequence."""
-    signature = sequence_signature(definition.steps)
-    size = len(signature)
+    expanded_signature = [
+        str(step.get("action", ""))
+        for step in expand_definition_steps(definition.steps, definition.parameters)
+    ]
+    size = len(expanded_signature)
     if size == 0:
         return []
     ranges: list[tuple[int, int]] = []
     for start in range(0, len(step_actions) - size + 1):
-        if tuple(step_actions[start : start + size]) == signature:
+        if step_actions[start : start + size] == expanded_signature:
             ranges.append((start, start + size))
     return ranges
 
@@ -458,6 +509,14 @@ def sync_group_parameters_from_members(group: ComplexActionGroup) -> None:
         key = (param.step_index, param.param_key)
         if key in value_map:
             param.value = value_map[key]
+
+
+def complex_action_step_from_group(group: ComplexActionGroup) -> dict[str, Any]:
+    sync_group_parameters_from_members(group)
+    return {
+        "action": COMPLEX_ACTION_MARKER,
+        "params": parameters_to_block_params(group.definition_name, group.parameters),
+    }
 
 
 def dictionary_filename(name: str) -> str:

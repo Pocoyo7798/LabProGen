@@ -1425,7 +1425,7 @@ class Block(QGraphicsRectItem):
             return edit, edit
 
     def _complex_locked_param_keys(self) -> set[str]:
-        if self.complex_group_id is None or self.complex_step_index is None:
+        if getattr(self, "complex_group_id", None) is None or getattr(self, "complex_step_index", None) is None:
             return set()
         editor = self.editor
         if editor is None:
@@ -1822,7 +1822,7 @@ class Block(QGraphicsRectItem):
             self.params.update(new_params)
             self._editor_accepted = True
 
-            if self.complex_group_id and self.editor:
+            if getattr(self, "complex_group_id", None) and self.editor:
                 group = getattr(self.editor, "complex_action_groups", {}).get(self.complex_group_id)
                 if group is not None:
                     from .complex_actions import parameters_to_block_params, sync_group_parameters_from_members
@@ -1935,6 +1935,9 @@ class ChemicalBlock(Block):
         self.is_first = False
         self.connected = False
         self.chain_drag_mode = False
+        self.complex_group_id = None
+        self.complex_step_index = None
+        self.part_of_complex_action = False
         
         # Hover tooltip support
         self.hover_timer = QTimer()
