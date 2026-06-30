@@ -138,7 +138,7 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         ]
 
     try:
-        from .schema_exporter import _normalize_linkml_instance, convert_protocol_to_linkml
+        from .schema_exporter import _activity_without_complex_steps, _normalize_linkml_instance, convert_protocol_to_linkml
 
         payload = convert_protocol_to_linkml(protocol_data)
         schema = build_validation_schema()
@@ -253,10 +253,13 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
             )
 
     for activity_index, activity in enumerate(activities):
-        activity_instance = _normalize_linkml_instance(activity)
+        activity_instance = _normalize_linkml_instance(_activity_without_complex_steps(activity))
         _validate_instance(activity_instance, target_class, activity_index)
 
         for step_index, step in enumerate(activity.get("has_synthesis_step", []) or []):
+            if step.get("part_of_complex_action"):
+                continue
+
             source_action = step.get("source_action")
             linkml_class = step.get("linkml_class")
             

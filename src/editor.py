@@ -4,7 +4,7 @@ import re
 from PySide6.QtWidgets import (
     QFileDialog, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QDialog, QMessageBox, QPushButton, QToolTip,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
 )
 from PySide6.QtCore import Qt, QPointF, QTimer, QObject, QEvent
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
@@ -12,6 +12,7 @@ from .block import (
     ElementaryAction,
     SupportAction,
     ChemicalBlock,
+    ComplexActionBlock,
     configure_unit_decimal_input,
     format_decimal_for_input,
 )
@@ -21,7 +22,7 @@ from .chemicals import *
 from .protocol import Protocol
 from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM, CHEMICAL_SLOT_TO_PARAM
 from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
-from .schema_validator import validate_linkml_protocol, summarize_validation_messages
+from .schema_validator import validate_linkml_protocol
 from .procedure_text import build_procedure_text
 
 PRIMARY_BUTTON_STYLE = (
@@ -133,12 +134,16 @@ def get_chemical_default_params(chemical_type: str) -> dict:
     }
     return copy.deepcopy(defaults.get(chemical_type, {}))
 
+NEW_COMPLEX_ACTION = "__new_complex_action__"
+
+
 class ActionSelectionDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, complex_action_names: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Add Action")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(680)
         self.selected_action = None
+        self._complex_action_names = list(complex_action_names or [])
         
         main_layout = QVBoxLayout()
         main_layout.setSpacing(15)
@@ -196,9 +201,31 @@ class ActionSelectionDialog(QDialog):
         
         # push all support buttons to the top
         supp_layout.addStretch()
+
+        complex_layout = QVBoxLayout()
+        complex_label = QLabel("Complex Actions")
+        complex_label.setStyleSheet("color: #0f766e; font-weight: bold;")
+        complex_layout.addWidget(complex_label)
+
+        for action_name in self._complex_action_names:
+            btn = QPushButton(action_name)
+            btn.setStyleSheet("background-color: #14b8a6; color: white;")
+            btn.clicked.connect(
+                lambda checked=False, name=action_name: self.select_action(name)
+            )
+            complex_layout.addWidget(btn)
+
+        new_complex_btn = QPushButton("Add New Complex Action")
+        new_complex_btn.setStyleSheet("background-color: #0d9488; color: white;")
+        new_complex_btn.clicked.connect(
+            lambda checked=False: self.select_action(NEW_COMPLEX_ACTION)
+        )
+        complex_layout.addWidget(new_complex_btn)
+        complex_layout.addStretch()
             
         grid.addLayout(elem_layout)
         grid.addLayout(supp_layout)
+        grid.addLayout(complex_layout)
         main_layout.addLayout(grid)
         
         self.adjustSize()
@@ -657,8 +684,8 @@ class MixtureChemicalListDialog(QDialog):
         self.table.setRowCount(len(self.chemical_list))
         for row, chem in enumerate(self.chemical_list):
             chem_type = chem.get("chemical_type", "Unknown")
-            formula = chem.get(KEY_FORMULA, chem.get("name", "—"))
-            concentration = chem.get(KEY_CONCENTRATION, "—")
+            formula = chem.get(KEY_FORMULA, chem.get("name", "n/a"))
+            concentration = chem.get(KEY_CONCENTRATION, "n/a")
 
             self.table.setItem(row, 0, QTableWidgetItem(chem_type))
             self.table.setItem(row, 1, QTableWidgetItem(formula))
@@ -881,6 +908,10 @@ class Editor(QGraphicsView):
         self.open_entity_procedures = {}
         self.chemical_procedure_index = {}
         self.preview_mode = False
+        self.complex_action_builder_mode = False
+        self.complex_action_groups = {}
+        self.show_complex_actions_collapsed = False
+        self._complex_group_counter = 0
         self.show_support_actions = True
         self._support_hidden_positions = {}
         self._support_hidden_visibility = {}
@@ -926,16 +957,27 @@ class Editor(QGraphicsView):
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
         self.import_btn = QPushButton("📂 Import Protocol")
+        self.import_complex_dict_btn = QPushButton("📖 Import Complex Dict")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
         self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
         self.import_btn.clicked.connect(self.import_protocol)
+        self.import_complex_dict_btn.clicked.connect(self.import_complex_action_dictionary)
         
-        button_layout.addWidget(self.add_action_btn)
-        button_layout.addWidget(self.add_chemical_btn)
-        button_layout.addWidget(self.export_btn)
-        button_layout.addWidget(self.import_btn)
+        self._button_bar_layout = button_layout
+        self._main_toolbar_buttons = [
+            self.add_action_btn,
+            self.add_chemical_btn,
+            self.export_btn,
+            self.import_btn,
+            self.import_complex_dict_btn,
+        ]
+        self._button_bar_has_trailing_stretch = False
+        self._button_bar_builder_pad = False
+        for btn in self._main_toolbar_buttons:
+            button_layout.addWidget(btn, 1)
+        self._sync_button_bar_layout()
         main_layout.addWidget(self.button_bar_widget)
         
         # Canvas
@@ -968,6 +1010,318 @@ class Editor(QGraphicsView):
 
         self.setInteractive(not enabled)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def set_complex_action_builder_mode(self, enabled: bool = True) -> None:
+        """Restrict editor to building a complex-action skeleton (no chemicals / param dialogs)."""
+        self.complex_action_builder_mode = enabled
+        if hasattr(self, "add_chemical_btn"):
+            self.add_chemical_btn.setVisible(not enabled)
+        if hasattr(self, "export_btn"):
+            self.export_btn.setVisible(not enabled)
+        if hasattr(self, "import_btn"):
+            self.import_btn.setVisible(not enabled)
+        if hasattr(self, "import_complex_dict_btn"):
+            self.import_complex_dict_btn.setVisible(not enabled)
+        if hasattr(self, "overlay_widget"):
+            self.overlay_widget.setVisible(not enabled)
+        if hasattr(self, "title_label"):
+            self.title_label.setVisible(not enabled)
+        self._sync_button_bar_layout()
+
+    def _sync_button_bar_layout(self) -> None:
+        """Main window: toolbar buttons share full width. Builder: Add Action matches one main-toolbar slot."""
+        layout = getattr(self, "_button_bar_layout", None)
+        buttons = getattr(self, "_main_toolbar_buttons", None)
+        if layout is None or buttons is None:
+            return
+
+        builder = getattr(self, "complex_action_builder_mode", False)
+
+        if self._button_bar_builder_pad:
+            item = layout.takeAt(layout.count() - 1)
+            if item is not None:
+                del item
+            self._button_bar_builder_pad = False
+
+        if self._button_bar_has_trailing_stretch:
+            item = layout.takeAt(layout.count() - 1)
+            if item is not None:
+                del item
+            self._button_bar_has_trailing_stretch = False
+
+        if builder:
+            for btn in buttons:
+                idx = layout.indexOf(btn)
+                if idx >= 0:
+                    layout.setStretch(idx, 1 if btn is self.add_action_btn else 0)
+            self.add_action_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.add_action_btn.setMinimumHeight(40)
+            layout.addStretch(4)
+            self._button_bar_builder_pad = True
+            return
+
+        for btn in buttons:
+            idx = layout.indexOf(btn)
+            if idx >= 0:
+                layout.setStretch(idx, 1)
+        self.add_action_btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.add_action_btn.setMinimumHeight(0)
+
+    def blocks_share_complex_group(self, block_a, block_b) -> bool:
+        group_id = getattr(block_a, "complex_group_id", None)
+        return bool(group_id and group_id == getattr(block_b, "complex_group_id", None))
+
+    def get_complex_action_group(self, block):
+        group_id = getattr(block, "complex_group_id", None)
+        if not group_id:
+            return None
+        return self.complex_action_groups.get(group_id)
+
+    def move_complex_group(self, anchor_block, dx: float, dy: float) -> None:
+        """Move every block in a complex-action group together."""
+        group = self.get_complex_action_group(anchor_block)
+        if group is None:
+            anchor_block.setPos(anchor_block.pos().x() + dx, anchor_block.pos().y() + dy)
+            return
+
+        targets = list(group.member_blocks)
+        if group.surrogate_block is not None:
+            targets.append(group.surrogate_block)
+
+        moved: set = set()
+        for block in targets:
+            if block in moved:
+                continue
+            moved.add(block)
+            block.setPos(block.pos().x() + dx, block.pos().y() + dy)
+            if block in group.member_blocks and block.chem_below:
+                self._move_branch(block.chem_below, dx, dy, moved)
+
+    def _group_is_collapsed_display(self, group) -> bool:
+        surrogate = group.surrogate_block
+        return bool(
+            getattr(self, "show_complex_actions_collapsed", False)
+            and surrogate is not None
+            and surrogate.isVisible()
+        )
+
+    def _groups_share_block(self, group, block) -> bool:
+        if block is None:
+            return False
+        block_group = self.get_complex_action_group(block)
+        if block_group is None or group is None:
+            return False
+        return block_group.group_id == group.group_id
+
+    def _complex_group_connector(self, group, *, collapsed: bool):
+        if collapsed and group.surrogate_block is not None:
+            return group.surrogate_block
+        return group.member_blocks[0]
+
+    def _complex_group_tail_connector(self, group, *, collapsed: bool):
+        if collapsed and group.surrogate_block is not None:
+            return group.surrogate_block
+        return group.member_blocks[-1]
+
+    def _complex_group_link_width(self, group, *, collapsed: bool) -> float:
+        if collapsed and group.surrogate_block is not None:
+            return float(group.surrogate_block.rect().width())
+        from .complex_action_protocol import _complex_group_horizontal_span
+
+        return _complex_group_horizontal_span(group.member_blocks)
+
+    def _can_be_left_neighbor_of_group(self, target, group) -> bool:
+        if self._groups_share_block(group, target):
+            return False
+        if getattr(target, "is_complex_surrogate", False) and target.isVisible():
+            return True
+        if getattr(target, "part_of_complex_action", False):
+            other = self.get_complex_action_group(target)
+            if other is None or not other.member_blocks:
+                return False
+            return target is other.member_blocks[-1]
+        return True
+
+    def _can_be_right_neighbor_of_group(self, target, group) -> bool:
+        if self._groups_share_block(group, target):
+            return False
+        if getattr(target, "is_complex_surrogate", False) and target.isVisible():
+            return True
+        if getattr(target, "part_of_complex_action", False):
+            other = self.get_complex_action_group(target)
+            if other is None or not other.member_blocks:
+                return False
+            return target is other.member_blocks[0]
+        return True
+
+    def _pluck_complex_group_externals(self, group, *, collapsed: bool):
+        first = group.member_blocks[0]
+        last = group.member_blocks[-1]
+        head = self._complex_group_connector(group, collapsed=collapsed)
+        tail = self._complex_group_tail_connector(group, collapsed=collapsed)
+
+        old_left = head.prev_block
+        old_right = tail.next_block
+
+        if old_left is not None and not self.blocks_share_complex_group(head, old_left):
+            old_left.next_block = None
+            head.prev_block = None
+            if not collapsed:
+                first.prev_block = None
+
+        if old_right is not None and not self.blocks_share_complex_group(tail, old_right):
+            old_right.prev_block = None
+            tail.next_block = None
+            if not collapsed:
+                last.next_block = None
+
+        return old_left, old_right
+
+    def _restore_complex_group_externals(self, group, old_left, old_right, *, collapsed: bool) -> None:
+        head = self._complex_group_connector(group, collapsed=collapsed)
+        tail = self._complex_group_tail_connector(group, collapsed=collapsed)
+        first = group.member_blocks[0]
+        last = group.member_blocks[-1]
+
+        if old_left is not None and not self.blocks_share_complex_group(head, old_left):
+            old_left.next_block = head
+            head.prev_block = old_left
+            if not collapsed:
+                first.prev_block = old_left
+
+        if old_right is not None and not self.blocks_share_complex_group(tail, old_right):
+            old_right.prev_block = tail
+            tail.next_block = old_right
+            if not collapsed:
+                last.next_block = old_right
+
+    def _snap_complex_group_after(self, group, target, *, collapsed: bool, overlap: float) -> None:
+        head = self._complex_group_connector(group, collapsed=collapsed)
+        snap_x = target.pos().x() + target.rect().width() - overlap
+        snap_y = target.pos().y()
+        dx = snap_x - head.pos().x()
+        dy = snap_y - head.pos().y()
+        if abs(dx) > 0.01 or abs(dy) > 0.01:
+            self.move_complex_group(head, dx, dy)
+
+    def _snap_complex_group_before(self, group, target, *, collapsed: bool, overlap: float) -> None:
+        tail = self._complex_group_tail_connector(group, collapsed=collapsed)
+        snap_x = target.pos().x() - tail.rect().width() + overlap
+        snap_y = target.pos().y()
+        dx = snap_x - tail.pos().x()
+        dy = snap_y - tail.pos().y()
+        if abs(dx) > 0.01 or abs(dy) > 0.01:
+            self.move_complex_group(tail, dx, dy)
+
+    def _attach_complex_group_after(self, group, target, *, collapsed: bool, overlap: float) -> None:
+        head = self._complex_group_connector(group, collapsed=collapsed)
+        first = group.member_blocks[0]
+        tail = target.next_block
+        if tail is not None and not self.blocks_share_complex_group(head, tail):
+            shift = self._complex_group_link_width(group, collapsed=collapsed) - overlap
+            if shift > 0:
+                self.push_chain(tail, shift)
+
+        self._snap_complex_group_after(group, target, collapsed=collapsed, overlap=overlap)
+        target.next_block = head
+        head.prev_block = target
+        if not collapsed:
+            first.prev_block = target
+
+        head.set_connected(True)
+        target.set_connected(True)
+        head.update()
+        target.update()
+
+    def _attach_complex_group_before(self, group, target, *, collapsed: bool, overlap: float) -> None:
+        tail = self._complex_group_tail_connector(group, collapsed=collapsed)
+        last = group.member_blocks[-1]
+        head = self._complex_group_connector(group, collapsed=collapsed)
+
+        self._snap_complex_group_before(group, target, collapsed=collapsed, overlap=overlap)
+        tail.next_block = target
+        target.prev_block = tail
+        if not collapsed:
+            last.next_block = target
+
+        tail.set_connected(True)
+        target.set_connected(True)
+        tail.update()
+        target.update()
+
+    def finalize_complex_group_links(self, anchor_block) -> None:
+        """Try to connect a dragged complex-action group to external neighbors."""
+        group = self.get_complex_action_group(anchor_block)
+        if group is None or not group.member_blocks:
+            return
+
+        collapsed = self._group_is_collapsed_display(group)
+        head = self._complex_group_connector(group, collapsed=collapsed)
+        tail = self._complex_group_tail_connector(group, collapsed=collapsed)
+        overlap = 20
+
+        old_left, old_right = self._pluck_complex_group_externals(group, collapsed=collapsed)
+        linked = False
+
+        target, zone = self._get_target_and_zone(head)
+        if (
+            target
+            and zone == "RIGHT"
+            and not isinstance(target, ChemicalBlock)
+            and target.orientation == "horizontal"
+            and self._can_be_left_neighbor_of_group(target, group)
+        ):
+            self._attach_complex_group_after(group, target, collapsed=collapsed, overlap=overlap)
+            linked = True
+
+        if not linked:
+            target, zone = self._get_target_and_zone(tail)
+            if (
+                target
+                and zone == "LEFT"
+                and not isinstance(target, ChemicalBlock)
+                and target.orientation == "horizontal"
+                and self._can_be_right_neighbor_of_group(target, group)
+            ):
+                self._attach_complex_group_before(group, target, collapsed=collapsed, overlap=overlap)
+                linked = True
+
+        if not linked:
+            self._restore_complex_group_externals(group, old_left, old_right, collapsed=collapsed)
+        elif collapsed:
+            from .complex_action_protocol import refresh_collapsed_group_layout
+
+            refresh_collapsed_group_layout(self, group)
+
+        self.reflow_entire_cluster(head)
+
+    def _is_export_horizontal_flow_head(self, block) -> bool:
+        """Find chain heads for export, independent of collapsed surrogate wiring."""
+        if isinstance(block, ComplexActionBlock) or getattr(block, "is_complex_surrogate", False):
+            return False
+        prev = block.prev_block
+        if prev is None:
+            return self._is_horizontal_flow_head(block)
+        if isinstance(prev, ComplexActionBlock):
+            return False
+        if getattr(prev, "part_of_complex_action", False):
+            group = self.get_complex_action_group(prev)
+            if group and prev is group.member_blocks[-1]:
+                return False
+        return False
+
+    def _is_horizontal_flow_head(self, block) -> bool:
+        if block.prev_block is not None:
+            return False
+        if block.next_block is not None:
+            return True
+        if block.is_first and block.orientation == "horizontal":
+            return True
+        if getattr(block, "part_of_complex_action", False):
+            group = self.get_complex_action_group(block)
+            if group and block is group.member_blocks[0]:
+                return True
+        return False
 
     def _toggle_support_visibility(self, checked: bool) -> None:
         self.show_support_actions = checked
@@ -1394,6 +1748,8 @@ class Editor(QGraphicsView):
         self.protocol_data = copy.deepcopy(data) if isinstance(data, dict) else {}
         self.open_entity_procedures = {}
         self.chemical_procedure_index = {}
+        self.complex_action_groups = {}
+        self._complex_group_counter = 0
 
         if not isinstance(data, dict):
             return
@@ -1554,46 +1910,159 @@ class Editor(QGraphicsView):
         painter.fillRect(rect, QColor(241, 245, 249))
     
     def show_action_dialog(self):
-        dialog = ActionSelectionDialog(self)
-        if dialog.exec() == QDialog.Accepted and dialog.selected_action:
-            action_map = {
-                "Add": Add, "Grind": Grind, "Separate": Separate, 
-                "Sieve": Sieve, "Wait": Wait,
-                "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
-                "NewRecipient": NewRecipient, "ChangeAgitation": ChangeAgitation,
-                "SubProductCreation": SubProductCreation, "Repeat": Repeat,
-                "ContinuousAddition": ContinuousAddition
-            }
-            
-            # Numeric values should be strings with units for the reflow parser
-            default_params = {
-                "Add": {
-                    KEY_DURATION: "0 s",
-                    KEY_ADD_QUANTITY: "0 g",
-                    KEY_ADD_TYPE: "",
-                    KEY_OPEN_FLAME: "",
-                },
-                "Grind": {},
-                "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
-                "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
-                "Wait": {KEY_DURATION: "10 min"},
-                "ChangeAtmosphere": {KEY_GASES: [], KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
-                "ChangeTemperature": {KEY_TEMPERATURE: "50 °C", KEY_PROCESS: "", KEY_RAMP: "0 °C/min", KEY_POWER: "0 W"},
-                "NewRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
-                "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
-                "SubProductCreation": {KEY_SUBSTANCE: ""},
-                "Repeat": {KEY_AMOUNT: "1"},
-                "ContinuousAddition": {KEY_SUBSTANCE_LIST: "", KEY_CONTINUOUS_ADD_TYPE: "", KEY_AMOUNT: "1"}
-            }
-            
-            params = default_params.get(dialog.selected_action, {})
-            action_class = action_map.get(dialog.selected_action)
-            
-            if action_class:
-                # instantiate action data and add to scene
-                action = action_class(**params)
-                self.protocol.add_action(action)
-                self.add_block(dialog.selected_action, params)
+        from .complex_actions import get_complex_action_registry
+
+        registry = get_complex_action_registry()
+        dialog = ActionSelectionDialog(
+            self,
+            complex_action_names=registry.list_names(),
+        )
+        if dialog.exec() != QDialog.Accepted or not dialog.selected_action:
+            return
+
+        if dialog.selected_action == NEW_COMPLEX_ACTION:
+            from .complex_action_ui import start_new_complex_action_wizard
+
+            start_new_complex_action_wizard(self)
+            return
+
+        registry = get_complex_action_registry()
+        if registry.get(dialog.selected_action):
+            from .complex_action_protocol import insert_complex_action
+
+            insert_complex_action(self, dialog.selected_action)
+            return
+
+        action_map = {
+            "Add": Add, "Grind": Grind, "Separate": Separate,
+            "Sieve": Sieve, "Wait": Wait,
+            "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
+            "NewRecipient": NewRecipient, "ChangeAgitation": ChangeAgitation,
+            "SubProductCreation": SubProductCreation, "Repeat": Repeat,
+            "ContinuousAddition": ContinuousAddition,
+        }
+
+        default_params = {
+            "Add": {
+                KEY_DURATION: "0 s",
+                KEY_ADD_QUANTITY: "0 g",
+                KEY_ADD_TYPE: "",
+                KEY_OPEN_FLAME: "",
+            },
+            "Grind": {},
+            "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
+            "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
+            "Wait": {KEY_DURATION: "10 min"},
+            "ChangeAtmosphere": {KEY_GASES: [], KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
+            "ChangeTemperature": {
+                KEY_TEMPERATURE: "50 °C",
+                KEY_PROCESS: "",
+                KEY_RAMP: "0 °C/min",
+                KEY_POWER: "0 W",
+            },
+            "NewRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
+            "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
+            "SubProductCreation": {KEY_SUBSTANCE: ""},
+            "Repeat": {KEY_AMOUNT: "1"},
+            "ContinuousAddition": {
+                KEY_SUBSTANCE_LIST: "",
+                KEY_CONTINUOUS_ADD_TYPE: "",
+                KEY_AMOUNT: "1",
+            },
+        }
+
+        params = default_params.get(dialog.selected_action, {})
+        action_class = action_map.get(dialog.selected_action)
+
+        if action_class:
+            action = action_class(**params)
+            self.protocol.add_action(action)
+            self.add_block(dialog.selected_action, params)
+
+    def import_complex_action_dictionary(self):
+        from .complex_action_protocol import import_complex_action_dictionary
+
+        import_complex_action_dictionary(self)
+
+    def _toggle_complex_visibility(self, collapsed: bool) -> None:
+        from .complex_action_protocol import apply_complex_visibility
+
+        apply_complex_visibility(self, collapsed)
+
+    def _collect_horizontal_flow_steps(self, start_block, get_step_data, local_path):
+        """Walk a horizontal chain, expanding complex-action groups for export."""
+        content = []
+        current = start_block
+        visited: set[int] = set()
+        while current:
+            block_id = id(current)
+            if block_id in visited:
+                break
+            visited.add(block_id)
+
+            if isinstance(current, ComplexActionBlock) or getattr(current, "is_complex_surrogate", False):
+                group = self.complex_action_groups.get(getattr(current, "complex_group_id", None))
+                if group and group.member_blocks:
+                    for member in group.member_blocks:
+                        content.extend(get_step_data(member, local_path))
+                    current = current.next_block
+                    if current is None and group.member_blocks:
+                        current = group.member_blocks[-1].next_block
+                    continue
+                current = current.next_block
+                continue
+
+            group_id = getattr(current, "complex_group_id", None)
+            if group_id:
+                group = self.complex_action_groups.get(group_id)
+                if group and current in group.member_blocks:
+                    if current is group.member_blocks[0]:
+                        for member in group.member_blocks:
+                            content.extend(get_step_data(member, local_path))
+                    current = group.member_blocks[-1].next_block
+                    continue
+
+            content.extend(get_step_data(current, local_path))
+            current = current.next_block
+        return content
+
+    def _support_toggle_btn_style(self) -> str:
+        return (
+            "QToolButton {"
+            "  background-color: #d6eaf8;"
+            "  color: #2980b9;"
+            "  border-radius: 12px;"
+            "  padding: 4px 12px;"
+            "  font-weight: 600;"
+            "  border: 1px solid #85c1e9;"
+            "}"
+            "QToolButton:hover { background-color: #aed6f1; }"
+            "QToolButton:checked {"
+            "  background-color: #3498db;"
+            "  color: #ffffff;"
+            "  border: 1px solid #2980b9;"
+            "}"
+            "QToolButton:checked:hover { background-color: #2980b9; }"
+        )
+
+    def _complex_toggle_btn_style(self) -> str:
+        return (
+            "QToolButton {"
+            "  background-color: #ccfbf1;"
+            "  color: #0f766e;"
+            "  border-radius: 12px;"
+            "  padding: 4px 12px;"
+            "  font-weight: 600;"
+            "  border: 1px solid #99f6e4;"
+            "}"
+            "QToolButton:hover { background-color: #99f6e4; }"
+            "QToolButton:checked {"
+            "  background-color: #14b8a6;"
+            "  color: #ffffff;"
+            "  border: 1px solid #0f766e;"
+            "}"
+            "QToolButton:checked:hover { background-color: #0d9488; }"
+        )
 
     def _procedure_guide_btn_style(self, pinned: bool = False) -> str:
         if pinned:
@@ -1647,25 +2116,17 @@ class Editor(QGraphicsView):
         self.support_toggle_btn.setText("Support actions visible")
         self.support_toggle_btn.setCheckable(True)
         self.support_toggle_btn.setChecked(True)
-        self.support_toggle_btn.setStyleSheet(
-            "QToolButton {"
-            "  background-color: #f1f5f9;"
-            "  color: #334155;"
-            "  border-radius: 12px;"
-            "  padding: 4px 12px;"
-            "  font-weight: 600;"
-            "  border: 1px solid #e2e8f0;"
-            "}"
-            "QToolButton:hover { background-color: #e2e8f0; }"
-            "QToolButton:checked {"
-            "  background-color: #dcfce7;"
-            "  border: 1px solid #86efac;"
-            "  color: #166534;"
-            "}"
-            "QToolButton:checked:hover { background-color: #bbf7d0; }"
-        )
+        self.support_toggle_btn.setStyleSheet(self._support_toggle_btn_style())
         self.support_toggle_btn.toggled.connect(self._toggle_support_visibility)
         overlay_layout.addWidget(self.support_toggle_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.complex_toggle_btn = QToolButton()
+        self.complex_toggle_btn.setText("Complex actions expanded")
+        self.complex_toggle_btn.setCheckable(True)
+        self.complex_toggle_btn.setChecked(False)
+        self.complex_toggle_btn.setStyleSheet(self._complex_toggle_btn_style())
+        self.complex_toggle_btn.toggled.connect(self._toggle_complex_visibility)
+        overlay_layout.addWidget(self.complex_toggle_btn, 0, Qt.AlignmentFlag.AlignRight)
 
         self.procedure_guide_btn = QToolButton(self.overlay_widget)
         self.procedure_guide_btn.setText("Procedure guide")
@@ -1812,7 +2273,7 @@ class Editor(QGraphicsView):
         # update support ids and influences right after creation
         self.update_support_logic()
         
-        if params:
+        if params and not getattr(self, "complex_action_builder_mode", False):
             block.open_editor()
             # If the editor was rejected (e.g., ESC pressed), remove the block
             if not block.get_editor_accepted():
@@ -1824,6 +2285,8 @@ class Editor(QGraphicsView):
 
     def add_chemical_block(self):
         """show dialog and add the specific chemical entity to the scene."""
+        if getattr(self, "complex_action_builder_mode", False):
+            return
         dialog = ChemicalSelectionDialog(self)
         if dialog.exec() == QDialog.Accepted and dialog.selected_chemical:
             details_dialog = UnifiedChemicalDetailsDialog(self)
@@ -2199,6 +2662,10 @@ class Editor(QGraphicsView):
         for other in self.blocks:
             if other is moved_block:
                 continue
+            if not other.isVisible():
+                continue
+            if not self._is_complex_linkable_endpoint(other):
+                continue
             
             other_rect = other.sceneBoundingRect()
             
@@ -2233,6 +2700,8 @@ class Editor(QGraphicsView):
     
     def check_and_link_horizontal_blocks(self, moved_block):
         """Handle horizontal linking while keeping stationary blocks anchored."""
+        if getattr(moved_block, "part_of_complex_action", False):
+            return
         if moved_block.orientation == "vertical":
             self.update_support_logic()
             return
@@ -2250,8 +2719,20 @@ class Editor(QGraphicsView):
 
         linked = False
 
+        if target and self._would_split_complex_group(moved_block, target, zone):
+            QToolTip.showText(
+                QCursor.pos(),
+                "Cannot insert actions inside a complex action",
+                self,
+            )
+
         # 3. Only process horizontal targets (target stays fixed)
-        if target and not isinstance(target, ChemicalBlock) and target.orientation == "horizontal":
+        if (
+            target
+            and not isinstance(target, ChemicalBlock)
+            and target.orientation == "horizontal"
+            and not self._would_split_complex_group(moved_block, target, zone)
+        ):
             if zone == "LEFT":
                 if not target.is_first:
                     p = target.prev_block
@@ -2408,6 +2889,8 @@ class Editor(QGraphicsView):
     
     def check_and_link_vertical_blocks(self, moved_block):
         """Handle vertical linking; keep stationary targets fixed unless inserting."""
+        if getattr(moved_block, "part_of_complex_action", False):
+            return
         if hasattr(self, 'preview_pair') and self.preview_pair:
             for item in self.preview_pair:
                 if item:
@@ -2447,9 +2930,14 @@ class Editor(QGraphicsView):
     
     def _pluck_horizontal(self, block):
         """Sever horizontal links and stitch the old neighbors."""
+        if getattr(block, "part_of_complex_action", False):
+            return block.prev_block, block.next_block
+
         p, n = block.prev_block, block.next_block
-        if p: p.next_block = n
-        if n: n.prev_block = p
+        if p:
+            p.next_block = n
+        if n:
+            n.prev_block = p
         block.prev_block = None
         block.next_block = None
         return p, n
@@ -2474,6 +2962,50 @@ class Editor(QGraphicsView):
         block.below_block = None
         return p, c
     
+    def _is_complex_linkable_endpoint(self, block) -> bool:
+        if getattr(block, "is_complex_surrogate", False):
+            return block.isVisible()
+        if not getattr(block, "part_of_complex_action", False):
+            return True
+        group = self.get_complex_action_group(block)
+        if group is None or not group.member_blocks:
+            return False
+        return block is group.member_blocks[0] or block is group.member_blocks[-1]
+
+    def _allowed_complex_link_zone(self, target, zone: str | None) -> bool:
+        """Only allow external links before the first or after the last complex step."""
+        if zone not in {"LEFT", "RIGHT"}:
+            return True
+        if not getattr(target, "part_of_complex_action", False):
+            return True
+        group = self.get_complex_action_group(target)
+        if group is None or not group.member_blocks:
+            return False
+        first = group.member_blocks[0]
+        last = group.member_blocks[-1]
+        if first is last:
+            return True
+        if zone == "LEFT":
+            return target is first
+        if zone == "RIGHT":
+            return target is last
+        return False
+
+    def _would_split_complex_group(self, moved_block, target, zone: str | None) -> bool:
+        if not self._allowed_complex_link_zone(target, zone):
+            return True
+        if getattr(moved_block, "part_of_complex_action", False):
+            return True
+        group = self.get_complex_action_group(target)
+        if group is None:
+            return False
+        members = group.member_blocks
+        if zone == "LEFT" and target in members and target is not members[0]:
+            return True
+        if zone == "RIGHT" and target in members and target is not members[-1]:
+            return True
+        return False
+
     def _find_horizontal_neighbors(self, moved_block):
         """Finds the closest left and right action blocks that intersect with moved_block."""
         moved_rect = moved_block.sceneBoundingRect()
@@ -2484,6 +3016,8 @@ class Editor(QGraphicsView):
 
         for other in self.blocks:
             if other is moved_block or isinstance(other, ChemicalBlock):
+                continue
+            if not self._is_complex_linkable_endpoint(other):
                 continue
             
             # Skip if the other block is vertical
@@ -2999,8 +3533,17 @@ class Editor(QGraphicsView):
             base_data = {
                 "block_id": block_to_id[block],
                 "action": block.action,
-                "params": block.params.copy()
+                "params": block.params.copy(),
             }
+            if getattr(block, "part_of_complex_action", False):
+                base_data["part_of_complex_action"] = True
+                if getattr(block, "complex_group_id", None):
+                    base_data["complex_group_id"] = block.complex_group_id
+                if getattr(block, "complex_step_index", None) is not None:
+                    base_data["complex_step_index"] = block.complex_step_index
+                group = self.complex_action_groups.get(block.complex_group_id)
+                if group is not None:
+                    base_data["complex_action_name"] = group.definition_name
 
             # collect chemicals
             chemicals = []
@@ -3088,16 +3631,17 @@ class Editor(QGraphicsView):
 
         # --- 1. export horizontal flows ---
         for b in self.blocks:
-            if isinstance(b, ChemicalBlock) or b.action == "SubProductCreation": continue
-            if b.prev_block is None:
-                if b.next_block is not None or (b.is_first and b.orientation == "horizontal"):
-                    content = []
-                    curr = b
-                    local_path = set() # unique for this flow
-                    while curr:
-                        content.extend(get_step_data(curr, local_path))
-                        curr = curr.next_block
-                    append_flow({"type": "horizontal", "is_explicit_first": b.is_first, "steps": content})
+            if isinstance(b, (ChemicalBlock, ComplexActionBlock)) or b.action == "SubProductCreation":
+                continue
+            group_id = getattr(b, "complex_group_id", None)
+            if group_id:
+                group = self.complex_action_groups.get(group_id)
+                if group and b is not group.member_blocks[0]:
+                    continue
+            if self._is_export_horizontal_flow_head(b):
+                local_path = set()
+                content = self._collect_horizontal_flow_steps(b, get_step_data, local_path)
+                append_flow({"type": "horizontal", "is_explicit_first": b.is_first, "steps": content})
 
         # --- 2. export vertical flows ---
         for b in self.blocks:
@@ -3159,6 +3703,20 @@ class Editor(QGraphicsView):
 
         return Protocol.build_protocol_envelope(flows_list)
     
+    def _ensure_exportable_flows(self, protocol_data) -> bool:
+        if protocol_data.get("flows"):
+            return True
+        QMessageBox.warning(
+            self,
+            "Export Error",
+            (
+                "No exportable action flows were found.\n\n"
+                "Connect actions in a horizontal chain, or ensure complex-action "
+                "steps remain linked together."
+            ),
+        )
+        return False
+
     def export_protocol(self):
         """Export either the internal protocol or the LinkML payload."""
         dialog = ExportProtocolDialog(self)
@@ -3207,22 +3765,25 @@ class Editor(QGraphicsView):
         final_output = self.generate_protocol_output(show_feedback=True)
         if not final_output:
             return
+        if not self._ensure_exportable_flows(final_output):
+            return
 
         try:
             payload = final_output
             
             # Validate against LinkML schema for both export kinds
             validation_msgs = validate_linkml_protocol(final_output)
-            validation_summary = summarize_validation_messages(validation_msgs)
+            user_visible_msgs = [m for m in validation_msgs if m.level in {"error", "warning"}]
             
             # Report validation results
-            if validation_msgs:
-                msg_count = validation_summary.get("total", 0)
-                error_count = validation_summary.get("by_level", {}).get("error", 0)
-                print(f"[linkml-validation] total_messages={msg_count}, errors={error_count}")
+            if user_visible_msgs:
+                msg_count = len(user_visible_msgs)
+                error_count = sum(1 for m in user_visible_msgs if m.level == "error")
+                warning_count = sum(1 for m in user_visible_msgs if m.level == "warning")
+                print(f"[linkml-validation] errors={error_count}, warnings={warning_count}")
                 
                 # Show first few messages for context
-                for i, msg in enumerate(validation_msgs[:5]):
+                for i, msg in enumerate(user_visible_msgs[:5]):
                     print(f"  - [{msg.level}] {msg.code}: {msg.message}")
                 if msg_count > 5:
                     print(f"  ... ({msg_count - 5} more messages)")
@@ -3234,12 +3795,26 @@ class Editor(QGraphicsView):
                     code = getattr(msg, "code", "") or ""
                     message_text = msg.message.strip()
 
-                    if code in {"linkml.unavailable", "linkml.validation_prep_failed", "schema.unavailable"}:
+                    if code in {"linkml.unavailable", "schema.unavailable"}:
                         return (
                             f"{label}\n\n"
                             f"📍 Global validation\n\n"
                             f"{message_text}\n\n"
                             f"This is an environment or dependency issue, not a protocol field problem."
+                        )
+                    if code == "linkml.validation_prep_failed" and "Strict LinkML validation failed" not in message_text:
+                        return (
+                            f"{label}\n\n"
+                            f"📍 Global validation\n\n"
+                            f"{message_text}\n\n"
+                            f"This is an environment or dependency issue, not a protocol field problem."
+                        )
+                    if code == "linkml.no_activities":
+                        return (
+                            f"{label}\n\n"
+                            f"📍 Global validation\n\n"
+                            f"{message_text}\n\n"
+                            f"Ensure actions are connected in at least one horizontal flow."
                         )
 
                     def _humanize_name(name: str | None) -> str | None:
@@ -3380,7 +3955,7 @@ class Editor(QGraphicsView):
 
 
                 if error_count > 0:
-                    first_error = validation_msgs[0]
+                    first_error = next(m for m in user_visible_msgs if m.level == "error")
                     box = QMessageBox(self)
                     box.setIcon(QMessageBox.Icon.Critical)
                     box.setWindowTitle("Validation Failed")
@@ -3393,16 +3968,15 @@ class Editor(QGraphicsView):
                     )
                     box.exec()
                     return
-                else:
-                    # Show warnings but allow export
-                    first_warning = validation_msgs[0]
+                elif warning_count > 0:
+                    first_warning = next(m for m in user_visible_msgs if m.level == "warning")
                     box = QMessageBox(self)
                     box.setIcon(QMessageBox.Icon.Warning)
                     box.setWindowTitle("Validation Warnings")
                     box.setText(
                         _format_validation_notice(
                             first_warning,
-                            f"Protocol has {msg_count} validation warning(s).",
+                            f"Protocol has {warning_count} validation warning(s).",
                             protocol=final_output
                         )
                     )

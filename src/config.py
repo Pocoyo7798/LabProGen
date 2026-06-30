@@ -11,51 +11,51 @@ LOCKED_INFLUENCE_ACTIONS = frozenset({"NewRecipient"})
 
 # --- PARAM KEYS ---
 
-# Actions — shared
+# Actions - shared
 KEY_DURATION = "duration"
 KEY_AMOUNT = "amount"
 
-# Actions — Add
+# Actions - Add
 KEY_ADD_TYPE = "add_type"
 KEY_ADD_QUANTITY = "add_quantity"
 KEY_OPEN_FLAME = "open_flame"
 
-# Actions — Separate
+# Actions - Separate
 KEY_PHASE = "phase_to_keep"
 KEY_METHOD = "method"
 
-# Actions — Sieve
+# Actions - Sieve
 KEY_MIN_SIZE = "min_size"
 KEY_MAX_SIZE = "max_size"
 
-# Actions — ChangeAtmosphere
+# Actions - ChangeAtmosphere
 KEY_GASES = "gases"
 KEY_FLOW_RATE = "flow_rate"
 KEY_PRESSURE = "pressure"
 
-# Actions — ChangeTemperature
+# Actions - ChangeTemperature
 KEY_TEMPERATURE = "temperature"
 KEY_PROCESS = "process"
 KEY_RAMP = "ramp"
 KEY_POWER = "power"
 
-# Actions — NewRecipient
+# Actions - NewRecipient
 KEY_RECIPIENT = "recipient"
 KEY_MATERIAL = "material"
 KEY_VOLUME = "volume"
 
-# Actions — ChangeAgitation
+# Actions - ChangeAgitation
 KEY_AGITATION_TYPE = "agitation_type"
 KEY_SPEED = "speed"
 
-# Actions — SubProductCreation
+# Actions - SubProductCreation
 KEY_SUBSTANCE = "substance"
 
-# Actions — ContinuousAddition
+# Actions - ContinuousAddition
 KEY_CONTINUOUS_ADD_TYPE = "continuous_add_type"
 KEY_SUBSTANCE_LIST = "substance_list"
 
-# Actions — attached material
+# Actions - attached material
 KEY_CHEMICAL = "chemical"
 
 # First level
@@ -65,7 +65,7 @@ KEY_PRODUCER = "entity_producer"
 KEY_ENTITY_PURITY = "entity_purity"
 KEY_CAS_NUMBER = "cas_number"
 
-# Chemical — shared
+# Chemical - shared
 KEY_NAME = "name"
 KEY_FORMULA = "formula"
 KEY_SMILES = "smile"
@@ -75,12 +75,12 @@ KEY_CIF = "cif"
 KEY_QUANTITY = "quantity"
 KEY_CONCENTRATION = "concentration"
 
-# Chemical — Mixture
+# Chemical - Mixture
 KEY_ENTITY_TYPE = "entity_type"
 KEY_MIXTURE_TYPE = "mixture_type"
 KEY_CHEMICAL_LIST = "chemical_list"
 
-# Chemical — Media
+# Chemical - Media
 KEY_FUNCTION = "function"
 KEY_STATE = "state"
 KEY_PURITY = "purity"
@@ -90,16 +90,16 @@ KEY_TEMPERATURE_STABILITY = "temperature_stability"
 KEY_LIGHT_SENSITIVITY = "light_sensitivity"
 KEY_OXIDATION_SENSITIVITY = "oxidation_sensitivity"
 
-# Chemical — BioProducts
+# Chemical - BioProducts
 KEY_ORIGIN = "origin"
 KEY_PRODUCTION_PHASE = "production_phase"
 KEY_LOCATION = "location"
 KEY_TOXICITY_TO_PRODUCER = "toxicity_to_producer"
 
-# Chemical — Dispersion
+# Chemical - Dispersion
 KEY_SOLVENT = "solvent"
 
-# Chemical — Material
+# Chemical - Material
 KEY_ATOMIC_COMP = "atomic_composition"
 KEY_STRUCT_DESC = "structure_descriptor"
 KEY_TEXTURAL_DESC = "textural_descriptors"
@@ -108,7 +108,7 @@ KEY_MAT_LIST = "materials_list"
 KEY_BASE_MAT = "base_material"
 KEY_BASE_COMPLEX = "base_complex_material"
 
-# Chemical — HeterogeneousCatalysts
+# Chemical - HeterogeneousCatalysts
 KEY_3D_STRUCTURE = "3d_structure"
 KEY_CRYSTALLINITY = "crystallinity"
 KEY_N2_ADSORPTION_BET_AREA = "n2_adsorption_bet_area"
@@ -124,7 +124,7 @@ KEY_PY_L_450 = "py_l_450"
 
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
-    # --- Actions — shared ---
+    # --- Actions - shared ---
     KEY_DURATION: {"label": "Duration", "type": "unit", "units": ["s", "min", "h"], "defaults": ["0", "10", "30"], "placeholder": "Time", "required": True},
     KEY_AMOUNT: {"label": "Amount", "type": "text", "placeholder": "Number of times...", "required": False, "required_if": [{"action": "Repeat"}, {"action": "ContinuousAddition", "param": KEY_CONTINUOUS_ADD_TYPE, "equals": "Intermittent"}]},
 
@@ -176,7 +176,7 @@ FIELD_CONFIG = {
     KEY_ENTITY_PURITY: {"label": "Purity", "type": "text", "placeholder": "Degree of purity...", "required": False},
     KEY_CAS_NUMBER: {"label": "CAS Number", "type": "text", "placeholder": "Commercial identification number...", "required": False},
 
-    # --- Chemical — shared ---
+    # --- Chemical - shared ---
     KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity or mixture name...", "required": True},
     KEY_FORMULA: {"label": "Formula", "type": "text", "placeholder": "Chemical formula...", "required": True},
     KEY_SMILES: {"label": "SMILE", "type": "text", "placeholder": "SMILE string...", "required": True},
@@ -186,7 +186,7 @@ FIELD_CONFIG = {
     KEY_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["mg", "g", "kg", "mL", "L", "mol", "mmol"], "defaults": ["0"], "placeholder": "Amount", "required": True},
     KEY_CONCENTRATION: {"label": "Concentration", "type": "unit", "units": ["m/m", "vol/vol", "M", "g/L"], "defaults": ["0"], "placeholder": "Value", "required": False},
 
-    # --- Chemical — Mixture ---
+    # --- Chemical - Mixture ---
     KEY_ENTITY_TYPE: {"label": "Type", "type": "dropdown", "options": ["Substance", "Mixture"], "required": True},
     KEY_CHEMICAL_LIST: {
         "label": "Chemical List",
@@ -203,7 +203,7 @@ FIELD_CONFIG = {
         ],
     },
 
-    # --- Chemical — Media ---
+    # --- Chemical - Media ---
     KEY_FUNCTION: {"label": "Function", "type": "dropdown", "options": ["Carbon Source", "Nitrogen Source", "Mineral", "Vitamin", "Growth Factor", "Inducer", "Precursor"], "required": False},
     KEY_STATE: {"label": "State", "type": "dropdown", "options": ["solid", "liquid", "semi-solid", "lyophilized", "frozen"], "required": False},
     KEY_PURITY: {"label": "Purity", "type": "dropdown", "options": ["technical", "reagent", "analytical", "molecular biology", "cell culture grade"], "required": False},
@@ -213,13 +213,13 @@ FIELD_CONFIG = {
     KEY_LIGHT_SENSITIVITY: {"label": "Light Sensitivity", "type": "dropdown", "options": ["yes", "no"], "required": False},
     KEY_OXIDATION_SENSITIVITY: {"label": "Oxidation Sensitivity", "type": "dropdown", "options": ["oxidation stable", "oxidation sensitive", "highly oxidation sensitive", "oxygen reactive"], "required": False},
 
-    # --- Chemical — BioProducts ---
+    # --- Chemical - BioProducts ---
     KEY_ORIGIN: {"label": "Origin", "type": "dropdown", "options": ["primary metabolite", "secondary metabolite", "recombinant protein"], "required": False},
     KEY_PRODUCTION_PHASE: {"label": "Production Phase", "type": "dropdown", "options": ["associated to growth", "not associated to growth", "mixed"], "required": False},
     KEY_LOCATION: {"label": "Location", "type": "dropdown", "options": ["intracellular", "extracellular", "membrane bound"], "required": False},
     KEY_TOXICITY_TO_PRODUCER: {"label": "Toxicity to Producer", "type": "dropdown", "options": ["inhibitory", "toxic", "neutral"], "required": True},
 
-    # --- Chemical — Dispersion ---
+    # --- Chemical - Dispersion ---
     KEY_SOLVENT: {
         "label": "Solvent",
         "type": "single_chemical",
@@ -229,7 +229,7 @@ FIELD_CONFIG = {
         "required_if": [{"action": "Dispersion"}],
     },
 
-    # --- Chemical — Material ---
+    # --- Chemical - Material ---
     KEY_ATOMIC_COMP: {"label": "Atomic Comp.", "type": "text", "placeholder": "Atoms and % m/m...", "required": True},
     KEY_STRUCT_DESC: {"label": "Structure Desc.", "type": "text", "placeholder": "Structure description...", "required": True},
     KEY_TEXTURAL_DESC: {"label": "Textural Desc.", "type": "text", "placeholder": "Textural properties...", "required": True},
@@ -238,7 +238,7 @@ FIELD_CONFIG = {
     KEY_BASE_MAT: {"label": "Base Material", "type": "text", "placeholder": "Base entity name...", "required": True},
     KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity...", "required": True},
 
-    # --- Chemical — HeterogeneousCatalysts ---
+    # --- Chemical - HeterogeneousCatalysts ---
     KEY_3D_STRUCTURE: {"label": "3D Structure", "type": "text", "placeholder": "Crystal structure...", "required": False},
     KEY_CRYSTALLINITY: {"label": "Crystallinity", "type": "unit", "units": ["%"], "defaults": ["0"], "placeholder": "Crystal phase %...", "required": False},
     KEY_N2_ADSORPTION_BET_AREA: {"label": "N2 Adsorption BET Area", "type": "unit", "units": ["m²/g"], "defaults": ["0"], "placeholder": "Surface area...", "required": False},

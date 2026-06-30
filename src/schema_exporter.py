@@ -138,6 +138,12 @@ def _convert_step(step: dict) -> dict:
         "subproduct_branch": _convert_step(step["subproduct_branch"]) if isinstance(step.get("subproduct_branch"), dict) else None,
         "source_metadata": source_metadata or None,
     }
+    if step.get("part_of_complex_action"):
+        step_payload["part_of_complex_action"] = True
+        if step.get("complex_group_id"):
+            step_payload["complex_group_id"] = step.get("complex_group_id")
+        if step.get("complex_action_name"):
+            step_payload["complex_action_name"] = step.get("complex_action_name")
 
     return _clean_dict(step_payload)
 
@@ -239,6 +245,9 @@ def _normalize_linkml_instance(node: Any) -> Any:
             "flow_type",
             "is_explicit_first",
             "chemical_block_id",
+            "part_of_complex_action",
+            "complex_group_id",
+            "complex_action_name",
         }:
             continue
         normalized[key] = _normalize_linkml_instance(value)
@@ -306,6 +315,17 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
     return base_payload, activities, total_steps, total_chemicals, unmapped_fields
 
 
+def _activity_without_complex_steps(activity: dict) -> dict:
+    """Return an activity copy excluding steps that belong to a complex action."""
+    filtered = copy.deepcopy(activity)
+    filtered["has_synthesis_step"] = [
+        step
+        for step in (activity.get("has_synthesis_step") or [])
+        if not step.get("part_of_complex_action")
+    ]
+    return filtered
+
+
 def _validate_strict_mode(activities: list[dict]) -> None:
     """Enforce strict schema constraints against the canonical export data."""
     try:
@@ -316,7 +336,7 @@ def _validate_strict_mode(activities: list[dict]) -> None:
 
     schema = build_validation_schema()
     for idx, activity in enumerate(activities):
-        instance = _normalize_linkml_instance(activity)
+        instance = _normalize_linkml_instance(_activity_without_complex_steps(activity))
         report = linkml_validate(instance, schema=schema, target_class="LabSynthesisActivity", strict=True)
         results = getattr(report, "results", []) or []
         if results:

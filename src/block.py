@@ -264,8 +264,10 @@ class Block(QGraphicsRectItem):
         self.influence_list = [] # list of ids of support actions currently influencing this block (for badges)
         self.available_influences = []
         self.disabled_influences = set()
-        
-        # Hover tooltip support
+        self.complex_group_id: str | None = None
+        self.complex_step_index: int | None = None
+        self.part_of_complex_action = False
+        self._complex_group_drag = False
         self.hover_timer = QTimer()
         self.hover_timer.timeout.connect(self.show_details_tooltip)
         self.hover_timer.setSingleShot(True)
@@ -556,6 +558,9 @@ class Block(QGraphicsRectItem):
     def mouseDoubleClickEvent(self, event):
         """opens editor except for subproduct creation which is automatic."""
         if self.action != "SubProductCreation":
+            editor = getattr(self, "editor", None)
+            if editor is not None and getattr(editor, "complex_action_builder_mode", False):
+                return
             self.open_editor()
 
     def hoverEnterEvent(self, event):
@@ -676,18 +681,23 @@ class Block(QGraphicsRectItem):
             return 
 
         if self.editor and not is_ctrl:
-            # handle detachment logic only for movable actions
-            if self.action != "SubProductCreation":
-                old_above, old_below = self.above_block, self.below_block
-                if old_above or old_below:
-                    old_p, old_c = self.editor._pluck_vertical(self)
-                    if old_p: self.editor.reflow_entire_cluster(old_p)
-                    if old_c: self.editor.reflow_entire_cluster(old_c)
+            is_complex_member = getattr(self, "part_of_complex_action", False)
+            is_complex_surrogate = getattr(self, "is_complex_surrogate", False)
+            if is_complex_member or is_complex_surrogate:
+                self._complex_group_drag = True
+            else:
+                # handle detachment logic only for movable actions
+                if self.action != "SubProductCreation":
+                    old_above, old_below = self.above_block, self.below_block
+                    if old_above or old_below:
+                        old_p, old_c = self.editor._pluck_vertical(self)
+                        if old_p: self.editor.reflow_entire_cluster(old_p)
+                        if old_c: self.editor.reflow_entire_cluster(old_c)
 
-            if self.orientation == "vertical":
-                old_p, old_n = self.editor._pluck_horizontal(self)
-                if old_p: self.editor.reflow_entire_cluster(old_p)
-                if old_n: self.editor.reflow_entire_cluster(old_n)
+                if self.orientation == "vertical":
+                    old_p, old_n = self.editor._pluck_horizontal(self)
+                    if old_p: self.editor.reflow_entire_cluster(old_p)
+                    if old_n: self.editor.reflow_entire_cluster(old_n)
 
         if is_ctrl:
             self.chain_drag_mode = True
@@ -700,6 +710,15 @@ class Block(QGraphicsRectItem):
     def delete_block(self):
         """removes the block and correctly stitches or nullifies all pointers."""
         if not self.editor:
+            return
+
+        if getattr(self, "part_of_complex_action", False):
+            QMessageBox.warning(
+                self.editor.container if hasattr(self.editor, "container") else None,
+                "Complex Action",
+                "Individual steps of a complex action cannot be deleted. "
+                "Remove the whole complex action instead.",
+            )
             return
 
         if hasattr(self.editor, "open_entity_procedures"):
@@ -776,6 +795,13 @@ class Block(QGraphicsRectItem):
         if self.chain_drag_mode:
             self.chain_drag_mode = False
             # Don't perform linking operations for chain drag
+        elif getattr(self, "_complex_group_drag", False):
+            self._complex_group_drag = False
+            super().mouseReleaseEvent(event)
+            if self.editor:
+                self.editor.finalize_complex_group_links(self)
+                self.editor.update_linked_sequence()
+                self.editor.update_support_logic()
         else:
             super().mouseReleaseEvent(event)
             # Notify editor to check for linking based on block type
@@ -802,6 +828,9 @@ class Block(QGraphicsRectItem):
             # Move the entire chain (both directions from this block)
             delta = event.scenePos() - event.lastScenePos()
             self.move_chain(delta.x(), delta.y())
+        elif getattr(self, "_complex_group_drag", False) and self.editor:
+            delta = event.scenePos() - event.lastScenePos()
+            self.editor.move_complex_group(self, delta.x(), delta.y())
         else:
             # Normal single-block movement
             super().mouseMoveEvent(event)
@@ -815,8 +844,13 @@ class Block(QGraphicsRectItem):
         is_connected = bool(self.prev_block or self.next_block or self.above_block or 
                             self.below_block or self.chem_below)
 
-        # 1. orientation (not for chemicals or subproducts)
-        if ENABLE_VERTICAL_ORIENTATION_TOGGLE and not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
+        # 1. orientation (not for chemicals, subproducts, or complex members)
+        if (
+            ENABLE_VERTICAL_ORIENTATION_TOGGLE
+            and not isinstance(self, ChemicalBlock)
+            and self.action != "SubProductCreation"
+            and not getattr(self, "part_of_complex_action", False)
+        ):
             label = "Set Vertical" if self.orientation == "horizontal" else "Set Horizontal"
             toggle = menu.addAction(label)
             if is_connected:
@@ -835,8 +869,12 @@ class Block(QGraphicsRectItem):
             sub_opt.triggered.connect(lambda: self.editor.add_subproduct_branch(self))
             menu.addSeparator()
 
-        # 3. first logic (not for chemicals or subproducts)
-        if not isinstance(self, ChemicalBlock) and self.action != "SubProductCreation":
+        # 3. first logic (not for chemicals, subproducts, or complex members)
+        if (
+            not isinstance(self, ChemicalBlock)
+            and self.action != "SubProductCreation"
+            and not getattr(self, "part_of_complex_action", False)
+        ):
             if self.is_first:
                 menu.addAction("Unmark as First").triggered.connect(self.make_first)
             else:
@@ -1261,7 +1299,7 @@ class Block(QGraphicsRectItem):
                         row_text = format_gas_entry_label(chem)
                     else:
                         chem_type = chem.get("chemical_type", "Unknown")
-                        formula = chem.get(KEY_FORMULA, "—")
+                        formula = chem.get(KEY_FORMULA, "n/a")
                         conc = chem.get(KEY_CONCENTRATION, "")
                         row_text = f"{chem_type}: {formula}"
                         if conc:
@@ -1386,12 +1424,29 @@ class Block(QGraphicsRectItem):
                 edit.setValidator(QIntValidator(1, 999_999, edit))
             return edit, edit
 
+    def _complex_locked_param_keys(self) -> set[str]:
+        if self.complex_group_id is None or self.complex_step_index is None:
+            return set()
+        editor = self.editor
+        if editor is None:
+            return set()
+        groups = getattr(editor, "complex_action_groups", {})
+        group = groups.get(self.complex_group_id)
+        if group is None:
+            return set()
+        locked: set[str] = set()
+        for param in group.parameters:
+            if param.step_index == self.complex_step_index and not param.editable:
+                locked.add(param.param_key)
+        return locked
+
     def open_editor(self):
         """opens a dialog to edit block parameters. skips if no parameters."""
         if not self.params:
             return
 
         self._editor_accepted = False
+        locked_keys = self._complex_locked_param_keys()
 
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
@@ -1480,6 +1535,8 @@ class Block(QGraphicsRectItem):
             label = field_label(key, self.action)
 
             widget, tracker = self._get_field_widget(key, value)
+            if key in locked_keys and hasattr(widget, "setReadOnly"):
+                widget.setReadOnly(True)
             # Explicitly create label widget to ensure proper visibility control
             label_widget = QLabel(label + ":")
             target_layout.addRow(label_widget, widget)
@@ -1765,6 +1822,18 @@ class Block(QGraphicsRectItem):
             self.params.update(new_params)
             self._editor_accepted = True
 
+            if self.complex_group_id and self.editor:
+                group = getattr(self.editor, "complex_action_groups", {}).get(self.complex_group_id)
+                if group is not None:
+                    from .complex_actions import parameters_to_block_params, sync_group_parameters_from_members
+
+                    sync_group_parameters_from_members(group)
+                    if group.surrogate_block is not None:
+                        group.surrogate_block.params = parameters_to_block_params(
+                            group.definition_name,
+                            group.parameters,
+                        )
+
             self.update_text()
             if self.editor:
                 self.editor.refresh_procedure_guide()
@@ -1818,6 +1887,32 @@ class SupportAction(Block):
             self.setPen(QPen(QColor(255, 193, 7), 3))  # Modern yellow
         else:
             self.setPen(self.default_pen)
+
+
+class ComplexActionBlock(Block):
+    """Surrogate block representing a collapsed user-defined complex action."""
+
+    def __init__(self, definition_name: str, params: dict, editor=None):
+        super().__init__(definition_name, params, editor=editor)
+        self.is_complex_surrogate = True
+        self.complex_group_id: str | None = None
+
+    def update_visual_style(self):
+        if self.is_first:
+            self.setBrush(QColor(255, 159, 64))
+            self.default_pen = QPen(QColor(230, 126, 34), 3)
+        else:
+            self.setBrush(QColor(20, 184, 166))
+            self.default_pen = QPen(QColor(15, 118, 110), 3)
+        if self.connected:
+            self.setPen(QPen(QColor(255, 193, 7), 3))
+        else:
+            self.setPen(self.default_pen)
+
+    def open_editor(self):
+        from .complex_action_ui import edit_complex_action_instance
+
+        edit_complex_action_instance(self)
 
 
 class ChemicalBlock(Block):
