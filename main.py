@@ -2,6 +2,7 @@ import sys
 from src import resources_rc # this imports the compiled resources from resources.qrc
 from PySide6.QtWidgets import QApplication
 from src.editor import Editor
+from src.complex_actions import get_complex_action_registry, load_complex_actions_config
 
 # Initialize the application
 app = QApplication(sys.argv)
@@ -173,6 +174,8 @@ QMenu::separator {
 # Apply global application style and stylesheet
 app.setStyle("Fusion")
 app.setStyleSheet(stylesheet)
+
+load_complex_actions_config(get_complex_action_registry())
 
 # Create and show the editor
 editor = Editor()

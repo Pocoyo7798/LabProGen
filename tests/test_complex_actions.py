@@ -10,15 +10,24 @@ from src.complex_actions import (
     ComplexActionRegistry,
     KEY_COMPLEX_ACTION_NAME,
     apply_parameter_values,
+    append_definitions_to_config,
+    bindings_for_instance_section,
     build_parameter_bindings,
     collect_flow_steps_from_editor,
     complex_action_step_from_group,
+    build_instance_parameters,
     copy_instance_parameters,
+    definitions_from_payload,
     dictionary_filename,
     expand_definition_steps,
     expand_complex_action,
     get_complex_action_registry,
+    get_complex_actions_config_path,
+    iter_instance_dialog_sections,
+    load_complex_actions_config,
     parameters_to_block_params,
+    parse_complex_actions_payload,
+    register_complex_action_definitions,
     sequence_signature,
     step_action_signature,
     validate_definition,
@@ -844,25 +853,208 @@ def test_complex_action_step_from_group_syncs_member_params():
     assert group.parameters[1].value == "4 g"
 
 
-def test_chemical_cannot_attach_to_complex_action_member():
+def test_chemical_attach_rules_for_complex_actions():
     from src.editor import Editor
 
     editor = Editor.__new__(Editor)
 
-    class _Member:
+    class _MemberAdd:
         part_of_complex_action = True
         is_complex_surrogate = False
+        action = "Add"
+
+    class _MemberGrind:
+        part_of_complex_action = True
+        is_complex_surrogate = False
+        action = "Grind"
 
     class _Surrogate:
         part_of_complex_action = False
         is_complex_surrogate = True
+        action = "MyComplex"
 
-    assert editor._can_attach_chemical_to(_Member()) is False
+    assert editor._can_attach_chemical_to(_MemberAdd()) is True
+    assert editor._can_attach_chemical_to(_MemberGrind()) is True
     assert editor._can_attach_chemical_to(_Surrogate()) is False
+    assert editor._chemical_attach_rejection_message(_MemberAdd()) is None
+    assert editor._chemical_attach_rejection_message(_MemberGrind()) == (
+        "Chemicals cannot be linked to Grind"
+    )
+    assert "complex action" in editor._chemical_attach_rejection_message(_Surrogate())
 
-    class _Standalone:
-        part_of_complex_action = False
-        is_complex_surrogate = False
-        action = "Add"
 
-    assert editor._can_attach_chemical_to(_Standalone()) is True
+def test_build_instance_parameters_includes_nested_complex_bindings():
+    registry = get_complex_action_registry()
+    inner = ComplexActionDefinition(
+        name="dentroInstanceTest",
+        steps=[
+            {"action": "Repeat", "params": {"amount": "1"}},
+            {"action": "Wait", "params": {"duration": "10 min"}},
+        ],
+        parameters=[
+            ComplexActionParameter(
+                step_index=0,
+                action="Repeat",
+                param_key="amount",
+                display_name="Amount",
+                editable=True,
+                value="1",
+            ),
+            ComplexActionParameter(
+                step_index=1,
+                action="Wait",
+                param_key="duration",
+                display_name="Duration",
+                editable=False,
+                value="10 min",
+            ),
+        ],
+    )
+    registry.register(inner)
+    outer = ComplexActionDefinition(
+        name="foraInstanceTest",
+        steps=[
+            {"action": "Add", "params": {"duration": "0 s", "add_quantity": "0 g", "add_type": "", "open_flame": ""}},
+            {
+                "action": COMPLEX_ACTION_MARKER,
+                "params": parameters_to_block_params("dentroInstanceTest", inner.parameters),
+            },
+        ],
+        parameters=build_parameter_bindings([{"action": "Add", "params": {"duration": "0 s", "add_quantity": "0 g", "add_type": "", "open_flame": ""}}]),
+    )
+
+    bindings = build_instance_parameters(outer)
+    nested = [param for param in bindings if param.host_step_index == 1]
+    assert len(nested) == 2
+    assert nested[0].param_key == "amount"
+    assert nested[1].editable is False
+
+    bindings[0].value = "5 s"
+    nested[0].value = "3"
+    expanded = expand_definition_steps(outer.steps, bindings)
+    assert expanded[0]["params"]["duration"] == "5 s"
+    assert expanded[1]["params"]["amount"] == "3"
+
+
+def test_validate_instance_parameters_allows_existing_registry_definition():
+    registry = get_complex_action_registry()
+    steps = [{"action": "Wait", "params": {"duration": "5 min"}}]
+    definition = ComplexActionDefinition(
+        name="LoadedComplexAction",
+        steps=steps,
+        parameters=build_parameter_bindings(steps),
+    )
+    registry.register(definition)
+    parameters = build_instance_parameters(definition)
+    errors = validate_instance_parameters(parameters, definition)
+    assert not any("already exists" in err for err in errors)
+
+
+def test_iter_instance_dialog_sections_expands_nested_complex():
+    registry = get_complex_action_registry()
+    inner = ComplexActionDefinition(
+        name="dentroDialogSections",
+        steps=[
+            {"action": "Repeat", "params": {"amount": "1"}},
+            {"action": "Wait", "params": {"duration": "10 min"}},
+        ],
+        parameters=[
+            ComplexActionParameter(
+                step_index=0,
+                action="Repeat",
+                param_key="amount",
+                display_name="Amount",
+                editable=True,
+                value="1",
+            ),
+            ComplexActionParameter(
+                step_index=1,
+                action="Wait",
+                param_key="duration",
+                display_name="Duration",
+                editable=False,
+                value="10 min",
+            ),
+        ],
+    )
+    registry.register(inner)
+    outer = ComplexActionDefinition(
+        name="foraDialogSections",
+        steps=[
+            {"action": "Add", "params": {"duration": "0 s", "add_quantity": "0 g", "add_type": "", "open_flame": ""}},
+            {"action": "ChangeTemperature", "params": {"temperature": "50 °C", "process": "", "ramp": "0 °C/min", "power": "0 W"}},
+            {
+                "action": COMPLEX_ACTION_MARKER,
+                "params": parameters_to_block_params("dentroDialogSections", inner.parameters),
+            },
+        ],
+        parameters=build_parameter_bindings([
+            {"action": "Add", "params": {"duration": "0 s", "add_quantity": "0 g", "add_type": "", "open_flame": ""}},
+            {"action": "ChangeTemperature", "params": {"temperature": "50 °C", "process": "", "ramp": "0 °C/min", "power": "0 W"}},
+        ]),
+    )
+
+    sections = iter_instance_dialog_sections(outer)
+    assert [section.action_name for section in sections] == [
+        "Add",
+        "ChangeTemperature",
+        "Repeat",
+        "Wait",
+    ]
+    assert [section.display_index for section in sections] == [0, 1, 2, 3]
+
+    bindings = build_instance_parameters(outer)
+    repeat_items = bindings_for_instance_section(bindings, sections[2])
+    assert len(repeat_items) == 1
+    assert repeat_items[0][1].param_key == "amount"
+
+
+def test_parse_complex_actions_payload_supports_single_and_multi_formats():
+    single = {"complex_action_name": "A", "steps": [{"action": "Wait"}]}
+    multi = {"version": 1, "complex_actions": [single]}
+    raw_list = [single]
+
+    assert len(parse_complex_actions_payload(single)) == 1
+    assert len(parse_complex_actions_payload(multi)) == 1
+    assert len(parse_complex_actions_payload(raw_list)) == 1
+
+
+def test_register_and_append_definitions_to_config(tmp_path):
+    registry = ComplexActionRegistry()
+    config_path = tmp_path / "complex_actions.json"
+    steps = [{"action": "Wait", "params": {"duration": "1 min"}}]
+    first = ComplexActionDefinition(
+        name="Alpha",
+        steps=steps,
+        parameters=build_parameter_bindings(steps),
+    )
+    second = ComplexActionDefinition(
+        name="Beta",
+        steps=steps,
+        parameters=build_parameter_bindings(steps),
+    )
+
+    register_complex_action_definitions(
+        [first, second],
+        registry=registry,
+        persist=True,
+        config_path=config_path,
+    )
+    assert registry.list_names() == ["Alpha", "Beta"]
+    assert config_path.exists()
+
+    reloaded = ComplexActionRegistry()
+    loaded = load_complex_actions_config(reloaded, path=config_path)
+    assert loaded == 2
+    assert reloaded.list_names() == ["Alpha", "Beta"]
+
+    updated = ComplexActionDefinition(
+        name="Alpha",
+        steps=[{"action": "Grind", "params": {}}],
+        parameters=[],
+    )
+    append_definitions_to_config([updated], path=config_path)
+    final_registry = ComplexActionRegistry()
+    load_complex_actions_config(final_registry, path=config_path)
+    assert final_registry.get("Alpha").steps == [{"action": "Grind", "params": {}}]
+    assert final_registry.get("Beta") is not None

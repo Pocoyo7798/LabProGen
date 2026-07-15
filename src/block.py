@@ -1201,222 +1201,23 @@ class Block(QGraphicsRectItem):
             return container, single_ref
 
         elif f_type == "list":
-            # Create compact chemical list widget with add button and tags
-            list_value = value if isinstance(value, list) else (value or [])
-            is_gas_list = key == KEY_GASES
+            from .chemical_list_field import build_chemical_list_field
 
-            container = QWidget()
-            layout = QVBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(6)
+            parent_dialog = (
+                getattr(self, "_active_edit_dialog", None)
+                or (self.editor if self.editor else None)
+            )
+            field = build_chemical_list_field(
+                parent_dialog,
+                value,
+                param_key=key,
+                dialog_parent=getattr(self, "_active_edit_dialog", None),
+            )
+            if not hasattr(self, "_chemical_list_fields"):
+                self._chemical_list_fields = []
+            self._chemical_list_fields.append(field)
+            return field.widget, field.list_value
 
-            # Add button row
-            button_layout = QHBoxLayout()
-            button_layout.setContentsMargins(0, 0, 0, 0)
-            button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            
-            # Compact add button that shows the label without causing elision
-            add_btn = QToolButton()
-            add_btn.setText("+ Add")
-            add_btn.setToolTip("Add chemical")
-            # make it visible: keep compact height but allow enough width for the text
-            add_btn.setAutoRaise(False)
-            add_btn.setFixedHeight(28)
-            add_btn.setMinimumWidth(60)
-            add_btn.setStyleSheet(ADD_BUTTON_STYLE)
-            add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-            
-            def _add_chemical():
-                from .editor import (
-                    MixtureChemicalDialog,
-                    MixtureChemicalParametersDialog,
-                    UnifiedChemicalDetailsDialog,
-                    get_chemical_default_params,
-                    normalize_preparation_procedure,
-                )
-
-                parent_dialog = self.editor if self.editor else self
-
-                dlg = MixtureChemicalDialog(parent_dialog)
-                if dlg.exec() != QDialog.Accepted:
-                    return
-
-                details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
-                if details_dialog.exec() != QDialog.Accepted:
-                    return
-
-                params_dlg = MixtureChemicalParametersDialog(
-                    dlg.selected_chemical_type,
-                    parent_dialog,
-                    initial_params=get_chemical_default_params(dlg.selected_chemical_type),
-                )
-                if params_dlg.exec() != QDialog.Accepted:
-                    return
-
-                new_chem = {
-                    "chemical_type": dlg.selected_chemical_type,
-                    **params_dlg.chemical_params,
-                    **details_dialog.first_level_fields,
-                    KEY_CONCENTRATION: dlg.concentration,
-                }
-                if details_dialog.imported_procedure:
-                    new_chem[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
-                        details_dialog.imported_procedure
-                    )
-
-                chem_name = new_chem.get(KEY_NAME, "").strip()
-                if not chem_name:
-                    QMessageBox.warning(
-                        parent_dialog,
-                        "Missing Chemical Name",
-                        f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.",
-                    )
-                    return
-
-                list_value.append(new_chem)
-                _update_tags()
-            
-            add_btn.clicked.connect(_add_chemical)
-            button_layout.addWidget(add_btn)
-            layout.addLayout(button_layout)
-            
-            # Rows area for showing added items
-            rows_container = QWidget()
-            rows_layout = QVBoxLayout(rows_container)
-            rows_layout.setContentsMargins(0, 0, 0, 0)
-            rows_layout.setSpacing(4)
-            
-            def _update_tags():
-                # Clear existing rows
-                while rows_layout.count():
-                    child = rows_layout.takeAt(0)
-                    if child.widget():
-                        child.widget().deleteLater()
-                
-                # Add one compact row per chemical
-                for idx, chem in enumerate(list_value):
-                    if is_gas_list:
-                        row_text = format_gas_entry_label(chem)
-                    else:
-                        chem_type = chem.get("chemical_type", "Unknown")
-                        formula = chem.get(KEY_FORMULA, "n/a")
-                        conc = chem.get(KEY_CONCENTRATION, "")
-                        row_text = f"{chem_type}: {formula}"
-                        if conc:
-                            row_text += f" ({conc})"
-
-                    row_widget = QWidget()
-                    row_widget.setFixedHeight(28)
-                    row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(0, 0, 0, 0)
-                    row_layout.setSpacing(6)
-
-                    text_label = QLabel()
-                    text_label.setToolTip(row_text)
-                    text_label.setStyleSheet(
-                        "background-color: #e0e7ff; color: #3730a3; padding: 4px 8px; "
-                        "border-radius: 4px; font-size: 11px; border: 1px solid #c7d2fe;"
-                    )
-                    text_label.setFixedHeight(28)
-                    text_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-                    text_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-                    fm = QFontMetrics(text_label.font())
-                    text_label.setText(fm.elidedText(row_text, Qt.TextElideMode.ElideRight, 220))
-                    
-                    # Edit and Remove buttons
-                    edit_btn = QToolButton()
-                    edit_btn.setText("✎")
-                    edit_btn.setFixedSize(22, 22)
-                    edit_btn.setStyleSheet(LIST_ICON_BUTTON_STYLE)
-
-                    remove_btn = QToolButton()
-                    remove_btn.setText("✕")
-                    remove_btn.setFixedSize(22, 22)
-                    remove_btn.setStyleSheet(
-                        LIST_ICON_BUTTON_STYLE
-                        + "QToolButton { font-weight: bold; color: #6b7280; }"
-                        + "QToolButton:hover { color: #ef4444; }"
-                    )
-
-                    def _remove(check=False, i=idx):
-                        if 0 <= i < len(list_value):
-                            del list_value[i]
-                            _update_tags()
-
-                    def _edit(check=False, i=idx):
-                        from .editor import (
-                            MixtureChemicalDialog,
-                            MixtureChemicalParametersDialog,
-                            UnifiedChemicalDetailsDialog,
-                            get_chemical_default_params,
-                            normalize_preparation_procedure,
-                        )
-                        parent_dialog = self.editor if self.editor else self
-                        chem = list_value[i]
-
-                        dlg = MixtureChemicalDialog(
-                            parent_dialog,
-                            initial_type=chem.get("chemical_type", "Substance"),
-                            initial_concentration=chem.get(KEY_CONCENTRATION, ""),
-                        )
-                        if dlg.exec() != QDialog.Accepted:
-                            return
-
-                        # First Level Chemical Details (ID, Producer, Purity, Procedure)
-                        details_dialog = UnifiedChemicalDetailsDialog(parent_dialog)
-                        # Pre-fill with existing values
-                        details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
-                        details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
-                        details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
-                        details_dialog.cas_edit.setText(chem.get(KEY_CAS_NUMBER, ""))
-                        if KEY_PREPARATION_PROCEDURE in chem:
-                            details_dialog.imported_procedure = normalize_preparation_procedure(
-                                chem[KEY_PREPARATION_PROCEDURE]
-                            )
-                            details_dialog._set_status("✓ Procedure loaded", "success")
-                        if details_dialog.exec() != QDialog.Accepted:
-                            return
-
-                        params_dlg = MixtureChemicalParametersDialog(
-                            dlg.selected_chemical_type,
-                            parent_dialog,
-                            initial_params={**get_chemical_default_params(dlg.selected_chemical_type), **chem},
-                        )
-                        if params_dlg.exec() != QDialog.Accepted:
-                            return
-
-                        updated = {"chemical_type": dlg.selected_chemical_type, **params_dlg.chemical_params, **details_dialog.first_level_fields, KEY_CONCENTRATION: dlg.concentration}
-                        if details_dialog.imported_procedure:
-                            updated[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
-                                details_dialog.imported_procedure
-                            )
-                        
-                        # Validate that chemical has a name (required for all chemicals)
-                        chem_name = updated.get(KEY_NAME, "").strip()
-                        if not chem_name:
-                            QMessageBox.warning(parent_dialog, "Missing Chemical Name", f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.")
-                            return
-                        
-                        list_value[i] = updated
-                        _update_tags()
-
-                    edit_btn.clicked.connect(_edit)
-                    remove_btn.clicked.connect(_remove)
-
-                    row_layout.addWidget(text_label, 1)
-                    row_layout.addWidget(edit_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-                    row_layout.addWidget(remove_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-
-                    rows_layout.addWidget(row_widget)
-                
-                rows_layout.addStretch()
-            
-            _update_tags()
-            layout.addWidget(rows_container)
-            
-            # tracker will be the actual list object
-            return container, list_value
-        
         else:
             edit = QLineEdit(str(value))
             edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
@@ -1468,7 +1269,11 @@ class Block(QGraphicsRectItem):
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY, KEY_CAS_NUMBER]
 
-        dialog = EditDialog(self.editor if self.editor else None)
+        dialog_parent = getattr(self, "_dialog_parent_override", None)
+        if dialog_parent is None:
+            dialog_parent = self.editor if self.editor else None
+        dialog = EditDialog(dialog_parent)
+        self._active_edit_dialog = dialog
         dialog.setWindowTitle(self.action)
         dialog.setMinimumWidth(400)
         main_layout = QVBoxLayout(dialog)
@@ -1835,14 +1640,18 @@ class Block(QGraphicsRectItem):
                         )
 
             self.update_text()
-            if self.editor:
-                self.editor.refresh_procedure_guide()
+            refresh_guide = getattr(self.editor, "refresh_procedure_guide", None)
+            if callable(refresh_guide):
+                refresh_guide()
             dialog.set_accepted()
             dialog.accept()
 
         save_btn.clicked.connect(apply_changes)
         dialog.adjustSize()
-        dialog.exec()
+        try:
+            dialog.exec()
+        finally:
+            self._active_edit_dialog = None
     
     def get_editor_accepted(self) -> bool:
         """Return whether the last editor dialog was accepted by the user."""

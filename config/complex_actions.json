@@ -1,0 +1,431 @@
+{
+  "version": 1,
+  "complex_actions": [
+    {
+      "complex_action_name": "adsdsa",
+      "version": 1,
+      "steps": [
+        {
+          "action": "Add",
+          "params": {
+            "duration": "0 s",
+            "add_quantity": "0 g",
+            "add_type": "",
+            "open_flame": ""
+          }
+        },
+        {
+          "action": "Grind",
+          "params": {}
+        },
+        {
+          "action": "ChangeAtmosphere",
+          "params": {
+            "gases": [],
+            "flow_rate": "0 mL/min",
+            "pressure": "1 bar"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "s",
+          "default_value": "0 s",
+          "value": "0 s"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_quantity",
+          "display_name": "Quantity",
+          "editable": true,
+          "unit": "g",
+          "default_value": "0 g",
+          "value": "0 g"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_type",
+          "display_name": "Add Type",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "Diffusion"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "open_flame",
+          "display_name": "Open Flame",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "False"
+        },
+        {
+          "step_index": 2,
+          "action": "ChangeAtmosphere",
+          "param_key": "gases",
+          "display_name": "Gases",
+          "editable": true,
+          "unit": "",
+          "default_value": [],
+          "value": "[oxygen]"
+        },
+        {
+          "step_index": 2,
+          "action": "ChangeAtmosphere",
+          "param_key": "flow_rate",
+          "display_name": "Flow Rate",
+          "editable": true,
+          "unit": "L/h",
+          "default_value": "0 mL/min",
+          "value": "0 L/h"
+        },
+        {
+          "step_index": 2,
+          "action": "ChangeAtmosphere",
+          "param_key": "pressure",
+          "display_name": "Pressure",
+          "editable": true,
+          "unit": "bar",
+          "default_value": "1 bar",
+          "value": "1 bar"
+        }
+      ]
+    },
+    {
+      "complex_action_name": "asddsa",
+      "version": 1,
+      "steps": [
+        {
+          "action": "Wait",
+          "params": {
+            "duration": "10 min"
+          }
+        },
+        {
+          "action": "ChangeAtmosphere",
+          "params": {
+            "gases": [],
+            "flow_rate": "0 mL/min",
+            "pressure": "1 bar"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "Wait",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "min",
+          "default_value": "10 min",
+          "value": "10 min"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeAtmosphere",
+          "param_key": "gases",
+          "display_name": "Gases",
+          "editable": true,
+          "unit": "",
+          "default_value": [],
+          "value": [
+            {
+              "chemical_type": "Molecules",
+              "entity_type": "Substance",
+              "name": "12",
+              "formula": "12",
+              "smile": "12",
+              "inchi": "",
+              "entity_id": "",
+              "entity_producer": "",
+              "entity_purity": "",
+              "cas_number": "",
+              "concentration": "12 m/m"
+            }
+          ]
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeAtmosphere",
+          "param_key": "flow_rate",
+          "display_name": "Flow Rate",
+          "editable": true,
+          "unit": "mL/min",
+          "default_value": "0 mL/min",
+          "value": "0 mL/min"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeAtmosphere",
+          "param_key": "pressure",
+          "display_name": "Pressure",
+          "editable": true,
+          "unit": "bar",
+          "default_value": "1 bar",
+          "value": "1 bar"
+        }
+      ]
+    },
+    {
+      "complex_action_name": "dentro",
+      "version": 1,
+      "steps": [
+        {
+          "action": "Repeat",
+          "params": {
+            "amount": "1"
+          }
+        },
+        {
+          "action": "Wait",
+          "params": {
+            "duration": "10 min"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "Repeat",
+          "param_key": "amount",
+          "display_name": "Amount123",
+          "editable": true,
+          "unit": "",
+          "default_value": "1",
+          "value": "1"
+        },
+        {
+          "step_index": 1,
+          "action": "Wait",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "minkk",
+          "default_value": "10 min",
+          "value": "10 minkk"
+        }
+      ]
+    },
+    {
+      "complex_action_name": "ff",
+      "version": 1,
+      "steps": [
+        {
+          "action": "ChangeAtmosphere",
+          "params": {
+            "gases": [],
+            "flow_rate": "0 mL/min",
+            "pressure": "1 bar"
+          }
+        },
+        {
+          "action": "Grind",
+          "params": {}
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "ChangeAtmosphere",
+          "param_key": "gases",
+          "display_name": "Gases",
+          "editable": true,
+          "unit": "",
+          "default_value": [],
+          "value": [
+            {
+              "chemical_type": "Molecules",
+              "entity_type": "Substance",
+              "name": "12",
+              "formula": "12",
+              "smile": "12",
+              "inchi": "",
+              "entity_id": "",
+              "entity_producer": "",
+              "entity_purity": "",
+              "cas_number": "",
+              "concentration": "12 m/m"
+            },
+            {
+              "chemical_type": "Molecules",
+              "entity_type": "Substance",
+              "name": "34",
+              "formula": "34",
+              "smile": "34",
+              "inchi": "",
+              "entity_id": "",
+              "entity_producer": "",
+              "entity_purity": "",
+              "cas_number": "",
+              "concentration": "34 m/m"
+            }
+          ]
+        },
+        {
+          "step_index": 0,
+          "action": "ChangeAtmosphere",
+          "param_key": "flow_rate",
+          "display_name": "Flow Rate",
+          "editable": true,
+          "unit": "mL/min",
+          "default_value": "0 mL/min",
+          "value": "0 mL/min"
+        },
+        {
+          "step_index": 0,
+          "action": "ChangeAtmosphere",
+          "param_key": "pressure",
+          "display_name": "Pressure",
+          "editable": true,
+          "unit": "bar",
+          "default_value": "1 bar",
+          "value": "1 bar"
+        }
+      ]
+    },
+    {
+      "complex_action_name": "fora",
+      "version": 1,
+      "steps": [
+        {
+          "action": "Add",
+          "params": {
+            "duration": "0 s",
+            "add_quantity": "0 g",
+            "add_type": "",
+            "open_flame": ""
+          }
+        },
+        {
+          "action": "ChangeTemperature",
+          "params": {
+            "temperature": "50 °C",
+            "process": "",
+            "ramp": "0 °C/min",
+            "power": "0 W"
+          }
+        },
+        {
+          "action": "ComplexAction",
+          "params": {
+            "complex_action_name": "dentro",
+            "parameters": [
+              {
+                "step_index": 0,
+                "action": "Repeat",
+                "param_key": "amount",
+                "display_name": "Amount123",
+                "editable": true,
+                "unit": "",
+                "default_value": "1",
+                "value": "1"
+              },
+              {
+                "step_index": 1,
+                "action": "Wait",
+                "param_key": "duration",
+                "display_name": "Duration",
+                "editable": true,
+                "unit": "minkk",
+                "default_value": "10 min",
+                "value": "10 minkk"
+              }
+            ]
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "s",
+          "default_value": "0 s",
+          "value": "0 s"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_quantity",
+          "display_name": "Quantity",
+          "editable": true,
+          "unit": "g",
+          "default_value": "0 g",
+          "value": "0 g"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_type",
+          "display_name": "Add Type",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "Diffusion"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "open_flame",
+          "display_name": "Open Flame",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "True"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeTemperature",
+          "param_key": "temperature",
+          "display_name": "Temperature",
+          "editable": true,
+          "unit": "°C",
+          "default_value": "50 °C",
+          "value": "50 °C"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeTemperature",
+          "param_key": "process",
+          "display_name": "Processaaaa",
+          "editable": false,
+          "unit": "",
+          "default_value": "",
+          "value": "Atmospheric"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeTemperature",
+          "param_key": "ramp",
+          "display_name": "Ramp",
+          "editable": true,
+          "unit": "°C/min",
+          "default_value": "0 °C/min",
+          "value": "0 °C/min"
+        },
+        {
+          "step_index": 1,
+          "action": "ChangeTemperature",
+          "param_key": "power",
+          "display_name": "Power",
+          "editable": true,
+          "unit": "W",
+          "default_value": "0 W",
+          "value": "0 W"
+        }
+      ]
+    }
+  ]
+}

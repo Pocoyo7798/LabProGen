@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QWidget
 
 from .block import configure_unit_decimal_input, format_decimal_for_input
+from .chemical_list_field import build_chemical_list_field
 from .complex_actions import ComplexActionParameter
 from .config import FIELD_CONFIG
 
@@ -25,6 +26,7 @@ _LOCKED_WIDGET_STYLE = (
     "QComboBox { background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }"
     "QComboBox::drop-down:disabled { border: none; }"
     "QComboBox:disabled { background-color: #f1f5f9; color: #64748b; }"
+    "QToolButton:disabled { background-color: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }"
 )
 
 
@@ -56,9 +58,11 @@ class ParameterValueEditor:
         self,
         binding: ComplexActionParameter,
         *,
+        parent: QWidget | None = None,
         read_only: bool = False,
     ) -> None:
         self.binding = binding
+        self._parent = parent
         self._read_only = read_only
         config = FIELD_CONFIG.get(binding.param_key.lower(), {})
         self._field_type = config.get("type", "text")
@@ -75,6 +79,9 @@ class ParameterValueEditor:
                 self.widget.setStyleSheet("background-color: #f8fafc; border-radius: 4px;")
             elif self._field_type == "dropdown":
                 self._dropdown_combo.setStyleSheet(_LOCKED_WIDGET_STYLE)
+            elif self._field_type == "list":
+                self._list_field.set_read_only(True)
+                self.widget.setStyleSheet("background-color: #f8fafc; border-radius: 4px;")
             else:
                 self._line_edit.setStyleSheet(_LOCKED_WIDGET_STYLE)
             return
@@ -86,6 +93,9 @@ class ParameterValueEditor:
             self.widget.setStyleSheet("")
         elif self._field_type == "dropdown":
             self._dropdown_combo.setStyleSheet("")
+        elif self._field_type == "list":
+            self._list_field.set_read_only(False)
+            self.widget.setStyleSheet("")
         else:
             self._line_edit.setStyleSheet("")
 
@@ -139,6 +149,23 @@ class ParameterValueEditor:
             self._dropdown_combo = combo
             return combo
 
+        if self._field_type == "list":
+            initial = self.binding.value
+            if isinstance(initial, list):
+                initial = list(initial)
+            else:
+                initial = []
+            parent = self._parent or QWidget()
+            field = build_chemical_list_field(
+                parent,
+                initial,
+                param_key=self.binding.param_key,
+                read_only=self._read_only,
+                dialog_parent=self._parent,
+            )
+            self._list_field = field
+            return field.widget
+
         edit = QLineEdit(value_to_text(self.binding.value))
         edit.setReadOnly(self._read_only)
         self._line_edit = edit
@@ -162,6 +189,12 @@ class ParameterValueEditor:
 
             return _get_dropdown
 
+        if self._field_type == "list":
+            def _get_list() -> list:
+                return self._list_field.list_value
+
+            return _get_list
+
         def _get_text() -> Any:
             text = self._line_edit.text().strip()
             if isinstance(self.binding.default_value, list):
@@ -183,6 +216,8 @@ class ParameterValueEditor:
             self._unit_combo.setEnabled(not read_only)
         elif self._field_type == "dropdown":
             self._dropdown_combo.setEnabled(not read_only)
+        elif self._field_type == "list":
+            self._list_field.set_read_only(read_only)
         else:
             self._line_edit.setReadOnly(read_only)
         self._apply_locked_appearance(read_only)

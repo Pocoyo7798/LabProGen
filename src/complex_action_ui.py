@@ -28,11 +28,15 @@ from .complex_actions import (
     apply_parameters_to_member_blocks,
     build_parameter_bindings,
     collect_flow_steps_from_editor,
+    build_instance_parameters,
+    bindings_for_instance_section,
     copy_instance_parameters,
+    iter_instance_dialog_sections,
     dictionary_filename,
     get_complex_action_registry,
     is_complex_action_step,
     parameters_to_block_params,
+    register_complex_action_definitions,
     step_display_name,
     validate_definition,
     validate_instance_parameters,
@@ -158,7 +162,7 @@ class ComplexActionFinalizeDialog(QDialog):
                 self._display_edits[binding_index] = QLineEdit(binding.display_name)
                 form.addRow("Label:", self._display_edits[binding_index])
 
-                editor = ParameterValueEditor(binding, read_only=False)
+                editor = ParameterValueEditor(binding, parent=self, read_only=False)
                 self._value_editors[binding_index] = editor
                 form.addRow("Value:", editor.widget)
 
@@ -276,7 +280,7 @@ class ComplexActionFlowEditorDialog(QDialog):
             return
 
         self.definition = finalize.definition
-        self._registry.register(self.definition)
+        register_complex_action_definitions([self.definition], registry=self._registry)
 
         if self._parent_editor is not None:
             from .complex_action_protocol import materialize_complex_action
@@ -353,10 +357,10 @@ class ComplexActionUseDialog(QDialog):
         self.setWindowTitle(definition.name)
         self.setMinimumWidth(520)
         self._definition = definition
-        self._bindings = [
-            ComplexActionParameter.from_dict(param.to_dict())
-            for param in (initial_parameters or copy_instance_parameters(definition))
-        ]
+        self._bindings = build_instance_parameters(
+            definition,
+            initial_parameters,
+        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 20, 20, 20)
@@ -372,31 +376,21 @@ class ComplexActionUseDialog(QDialog):
         scroll_layout = QVBoxLayout(scroll_content)
 
         self._value_editors: dict[int, ParameterValueEditor] = {}
-        grouped: dict[int, list[tuple[int, ComplexActionParameter]]] = {}
-        for index, binding in enumerate(self._bindings):
-            grouped.setdefault(binding.step_index, []).append((index, binding))
+        sections = iter_instance_dialog_sections(definition)
 
-        for position, step_index in enumerate(range(len(definition.steps))):
-            step = definition.steps[step_index]
-            action_name = step_display_name(step)
-            items = grouped.get(step_index, [])
+        for position, section in enumerate(sections):
+            items = bindings_for_instance_section(self._bindings, section)
             form = _add_action_section(
                 scroll_layout,
-                action_name=action_name,
-                step_index=step_index,
+                action_name=section.action_name,
+                step_index=section.display_index,
                 show_separator=position > 0,
             )
             if not items:
-                if is_complex_action_step(step):
-                    _add_empty_step_note(
-                        form,
-                        text="Parameters are defined by the nested complex action.",
-                    )
-                else:
-                    _add_empty_step_note(form)
+                _add_empty_step_note(form)
                 continue
             for binding_index, binding in items:
-                editor = ParameterValueEditor(binding, read_only=not binding.editable)
+                editor = ParameterValueEditor(binding, parent=self, read_only=not binding.editable)
                 self._value_editors[binding_index] = editor
 
                 label = QLabel(binding.display_name + ":")
@@ -437,6 +431,7 @@ class ComplexActionUseDialog(QDialog):
                     unit=binding.unit,
                     default_value=binding.default_value,
                     value=value,
+                    host_step_index=binding.host_step_index,
                 )
             )
         return updated

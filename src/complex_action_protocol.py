@@ -13,9 +13,11 @@ from .complex_actions import (
     ComplexActionParameter,
     apply_parameter_values,
     copy_instance_parameters,
+    definitions_from_payload,
     find_sequence_ranges,
     get_complex_action_registry,
     parameters_to_block_params,
+    register_complex_action_definitions,
 )
 from .complex_action_ui import prompt_complex_action_use
 
@@ -223,26 +225,30 @@ def import_complex_action_dictionary(editor: Editor) -> bool:
         )
         return False
 
-    from .complex_actions import ComplexActionDefinition
+    from .complex_actions import definitions_from_payload
 
-    definition = ComplexActionDefinition.from_dict(data)
-    if not definition.name.strip() or not definition.steps:
+    definitions = definitions_from_payload(data)
+    if not definitions:
         QMessageBox.warning(
             editor.container if hasattr(editor, "container") else None,
             "Invalid Dictionary",
-            "The dictionary file does not contain a valid complex action definition.",
+            "The dictionary file does not contain any valid complex action definitions.",
         )
         return False
 
-    registry = get_complex_action_registry()
-    registry.register(definition)
-    attached = attach_matching_groups(editor, definition)
+    register_complex_action_definitions(definitions)
+    attached = 0
+    for definition in definitions:
+        attached += attach_matching_groups(editor, definition)
+
+    names = ", ".join(repr(defn.name) for defn in definitions)
     QMessageBox.information(
         editor.container if hasattr(editor, "container") else None,
         "Dictionary Imported",
         (
-            f"Loaded complex action {definition.name!r}.\n"
-            f"Matched {attached} sequence(s) in the current protocol."
+            f"Loaded {len(definitions)} complex action(s): {names}.\n"
+            f"Matched {attached} sequence(s) in the current protocol.\n"
+            "Definitions were appended to the default config file."
         ),
     )
     return True

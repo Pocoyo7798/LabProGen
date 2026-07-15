@@ -500,7 +500,15 @@ class MixtureChemicalParametersDialog(QDialog):
         temp_params = get_chemical_default_params(self.selected_chemical_type)
         temp_params.update(self.initial_params)
 
-        temp_block = ChemicalBlock(self.selected_chemical_type, temp_params, editor=self.parent())
+        parent_widget = self.parent()
+        editor = (
+            parent_widget
+            if callable(getattr(parent_widget, "refresh_procedure_guide", None))
+            else None
+        )
+        temp_block = ChemicalBlock(self.selected_chemical_type, temp_params, editor=editor)
+        if editor is None and parent_widget is not None:
+            temp_block._dialog_parent_override = parent_widget
         temp_block.open_editor()
 
         if getattr(temp_block, "_editor_accepted", False):
@@ -2412,10 +2420,8 @@ class Editor(QGraphicsView):
         return not (is_parent_action or is_parent_chemical)
 
     def _can_attach_chemical_to(self, target) -> bool:
-        """Chemicals may only attach to standalone actions, not complex-action members."""
+        """Chemicals may attach to eligible action blocks, but not complex surrogates."""
         if target is None:
-            return False
-        if getattr(target, "part_of_complex_action", False):
             return False
         if getattr(target, "is_complex_surrogate", False):
             return False
@@ -2425,10 +2431,9 @@ class Editor(QGraphicsView):
 
     def _chemical_attach_rejection_message(self, target) -> str | None:
         """Return a user-facing reason when a chemical cannot attach to target."""
-        if not self._can_attach_chemical_to(target):
-            if getattr(target, "is_complex_surrogate", False):
-                return f"Chemicals cannot be linked to complex action {target.action!r}"
-            return "Chemicals cannot be linked to complex actions"
+        if getattr(target, "is_complex_surrogate", False) or isinstance(target, ComplexActionBlock):
+            name = getattr(target, "action", "complex action")
+            return f"Chemicals cannot be linked to complex action {name!r}"
         allowed_for_chemicals = ["Add", "ChangeAtmosphere", "SubProductCreation"]
         if getattr(target, "action", None) not in allowed_for_chemicals:
             return f"Chemicals cannot be linked to {target.action}"
