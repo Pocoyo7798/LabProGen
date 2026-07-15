@@ -1,6 +1,6 @@
 import pytest
 
-from src.block import validate_repeat_amount
+from src.ui.block import validate_repeat_amount
 
 
 def test_repeat_amount_accepts_one():

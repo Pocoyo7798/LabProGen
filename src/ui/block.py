@@ -1,19 +1,16 @@
-import json
-
 from PySide6.QtWidgets import (
-    QGraphicsRectItem, QGraphicsTextItem, QGraphicsScene, QGraphicsView,
+    QGraphicsRectItem, QGraphicsTextItem, QGraphicsView,
     QGraphicsSimpleTextItem, QDialog, QFormLayout, QLineEdit, QPushButton,
     QMenu, QHBoxLayout, QComboBox, QWidget, QVBoxLayout, QLabel, QMessageBox,
     QToolButton, QSizePolicy, QFrame
 )
-from PySide6.QtCore import QRectF, Qt, QTimer, QSizeF, QObject, QEvent
+from PySide6.QtCore import QRectF, Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QPen, QColor, QFont, QPainter, QFontMetrics, QIntValidator
-from .config import *
-from .debug_flag import DEBUG_MODE
-from .linkml_adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
-from .procedure_text import format_gas_entry_label
-from .pubchem_autocomplete import attach_pubchem_compound_autocomplete
-from .pubchem_chemical_search import PubChemChemicalSearchController, PubChemResultNavigator
+from src.core.config import *
+from src.core.debug_flag import DEBUG_MODE
+from src.linkml.adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
+from src.pubchem.autocomplete import attach_pubchem_compound_autocomplete
+from src.pubchem.search import PubChemChemicalSearchController, PubChemResultNavigator
 
 
 class _SingleChemicalRef:
@@ -1630,7 +1627,7 @@ class Block(QGraphicsRectItem):
             if getattr(self, "complex_group_id", None) and self.editor:
                 group = getattr(self.editor, "complex_action_groups", {}).get(self.complex_group_id)
                 if group is not None:
-                    from .complex_actions import parameters_to_block_params, sync_group_parameters_from_members
+                    from src.complex.actions import parameters_to_block_params, sync_group_parameters_from_members
 
                     sync_group_parameters_from_members(group)
                     if group.surrogate_block is not None:
@@ -1719,7 +1716,7 @@ class ComplexActionBlock(Block):
             self.setPen(self.default_pen)
 
     def open_editor(self):
-        from .complex_action_ui import edit_complex_action_instance
+        from src.complex.ui import edit_complex_action_instance
 
         edit_complex_action_instance(self)
 

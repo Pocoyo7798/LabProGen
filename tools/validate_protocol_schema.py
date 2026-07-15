@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.schema_validator import validate_linkml_protocol, summarize_validation_messages
+from src.linkml.validator import validate_linkml_protocol, summarize_validation_messages
 
 
 def _load_protocol(path: Path) -> dict:

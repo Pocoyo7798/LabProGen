@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, Qt, QRunnable, QThreadPool, QTimer, Signal, 
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QCompleter, QFrame, QLineEdit, QListView
 
-from .pubchem import PUBCHEM_AUTOCOMPLETE_MIN_LEN, fetch_compound_autocomplete
+from .api import PUBCHEM_AUTOCOMPLETE_MIN_LEN, fetch_compound_autocomplete
 
 _DEBOUNCE_MS = 400
 _AUTOCOMPLETE_LIMIT = 10

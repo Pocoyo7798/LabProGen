@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QComboBox, QFormLayout, QLineEdit, QToolButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QPointF, QTimer, QObject, QEvent
+from PySide6.QtCore import Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QCursor, QFont, QPainter, QColor
 from .block import (
     ElementaryAction,
@@ -16,14 +16,15 @@ from .block import (
     configure_unit_decimal_input,
     format_decimal_for_input,
 )
-from .config import *
-from .actions import *
-from .chemicals import *
-from .protocol import Protocol
-from .linkml_adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM, CHEMICAL_SLOT_TO_PARAM
-from .schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
-from .schema_validator import validate_linkml_protocol
-from .procedure_text import build_procedure_text
+from src.core.config import *
+from src.core.actions import *
+from src.core.chemicals import *
+from src.core.protocol import Protocol
+from src.linkml.adapter import convert_linkml_to_protocol, STEP_SLOT_TO_PARAM, CHEMICAL_SLOT_TO_PARAM
+from src.linkml.exporter import convert_protocol_to_linkml, summarize_linkml_export
+from src.linkml.validator import validate_linkml_protocol
+from src.text.procedure_text import build_procedure_text
+from src.llm.ui import GenerateArticleDialog
 
 PRIMARY_BUTTON_STYLE = (
     "QPushButton {"
@@ -964,12 +965,14 @@ class Editor(QGraphicsView):
         self.add_action_btn = QPushButton("+ Add Action")
         self.add_chemical_btn = QPushButton("🧪 Add Chemical")
         self.export_btn = QPushButton("📥 Export Protocol")
+        self.generate_article_btn = QPushButton("📝 Generate Article")
         self.import_btn = QPushButton("📂 Import Protocol")
         self.import_complex_dict_btn = QPushButton("📖 Import Complex Dict")
         
         self.add_action_btn.clicked.connect(self.show_action_dialog)
         self.add_chemical_btn.clicked.connect(self.add_chemical_block)
         self.export_btn.clicked.connect(self.export_protocol)
+        self.generate_article_btn.clicked.connect(self.generate_article_text)
         self.import_btn.clicked.connect(self.import_protocol)
         self.import_complex_dict_btn.clicked.connect(self.import_complex_action_dictionary)
         
@@ -978,6 +981,7 @@ class Editor(QGraphicsView):
             self.add_action_btn,
             self.add_chemical_btn,
             self.export_btn,
+            self.generate_article_btn,
             self.import_btn,
             self.import_complex_dict_btn,
         ]
@@ -1026,6 +1030,8 @@ class Editor(QGraphicsView):
             self.add_chemical_btn.setVisible(not enabled)
         if hasattr(self, "export_btn"):
             self.export_btn.setVisible(not enabled)
+        if hasattr(self, "generate_article_btn"):
+            self.generate_article_btn.setVisible(not enabled)
         if hasattr(self, "import_btn"):
             self.import_btn.setVisible(not enabled)
         if hasattr(self, "import_complex_dict_btn"):
@@ -1134,7 +1140,7 @@ class Editor(QGraphicsView):
     def _complex_group_link_width(self, group, *, collapsed: bool) -> float:
         if collapsed and group.surrogate_block is not None:
             return float(group.surrogate_block.rect().width())
-        from .complex_action_protocol import _complex_group_horizontal_span
+        from src.complex.protocol import _complex_group_horizontal_span
 
         return _complex_group_horizontal_span(group.member_blocks)
 
@@ -1297,7 +1303,7 @@ class Editor(QGraphicsView):
         if not linked:
             self._restore_complex_group_externals(group, old_left, old_right, collapsed=collapsed)
         elif collapsed:
-            from .complex_action_protocol import refresh_collapsed_group_layout
+            from src.complex.protocol import refresh_collapsed_group_layout
 
             refresh_collapsed_group_layout(self, group)
 
@@ -1918,7 +1924,7 @@ class Editor(QGraphicsView):
         painter.fillRect(rect, QColor(241, 245, 249))
     
     def show_action_dialog(self):
-        from .complex_actions import get_complex_action_registry
+        from src.complex.actions import get_complex_action_registry
 
         registry = get_complex_action_registry()
         dialog = ActionSelectionDialog(
@@ -1929,14 +1935,14 @@ class Editor(QGraphicsView):
             return
 
         if dialog.selected_action == NEW_COMPLEX_ACTION:
-            from .complex_action_ui import start_new_complex_action_wizard
+            from src.complex.ui import start_new_complex_action_wizard
 
             start_new_complex_action_wizard(self)
             return
 
         registry = get_complex_action_registry()
         if registry.get(dialog.selected_action):
-            from .complex_action_protocol import insert_complex_action
+            from src.complex.protocol import insert_complex_action
 
             insert_complex_action(self, dialog.selected_action)
             return
@@ -1988,12 +1994,12 @@ class Editor(QGraphicsView):
             self.add_block(dialog.selected_action, params)
 
     def import_complex_action_dictionary(self):
-        from .complex_action_protocol import import_complex_action_dictionary
+        from src.complex.protocol import import_complex_action_dictionary
 
         import_complex_action_dictionary(self)
 
     def _toggle_complex_visibility(self, collapsed: bool) -> None:
-        from .complex_action_protocol import apply_complex_visibility
+        from src.complex.protocol import apply_complex_visibility
 
         apply_complex_visibility(self, collapsed)
 
@@ -3788,6 +3794,22 @@ class Editor(QGraphicsView):
             ),
         )
         return False
+
+    def generate_article_text(self):
+        """Generate article-style Methods prose from the current protocol via AIedu."""
+        protocol_data = self.generate_protocol_output(show_feedback=True)
+        if not protocol_data:
+            return
+        if not self._ensure_exportable_flows(protocol_data):
+            return
+
+        procedure_guide_text = build_procedure_text(self.collect_procedure_guide_steps())
+        dialog = GenerateArticleDialog(
+            protocol_data=protocol_data,
+            procedure_guide_text=procedure_guide_text,
+            parent=self,
+        )
+        dialog.exec()
 
     def export_protocol(self):
         """Export either the internal protocol or the LinkML payload."""

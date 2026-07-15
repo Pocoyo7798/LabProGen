@@ -1,0 +1,5 @@
+{
+  "endpoint_url": "https://api.iaedu.pt/agent-chat/api/v1/agent/YOUR_AGENT_ID/stream",
+  "api_key": "YOUR_API_KEY",
+  "channel_id": "YOUR_CHANNEL_ID"
+}

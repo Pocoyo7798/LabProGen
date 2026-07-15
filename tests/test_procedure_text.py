@@ -1,5 +1,5 @@
-from src.config import KEY_CONCENTRATION, KEY_NAME, KEY_RECIPIENT, KEY_MATERIAL, KEY_VOLUME
-from src.procedure_text import (
+from src.core.config import KEY_CONCENTRATION, KEY_NAME, KEY_RECIPIENT, KEY_MATERIAL, KEY_VOLUME
+from src.text.procedure_text import (
     build_procedure_text,
     chemical_display_name,
     format_gas_entry_label,

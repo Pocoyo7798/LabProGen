@@ -2,8 +2,8 @@ import json
 from .actions import *
 from .chemicals import *
 from .config import DEFAULT_PROTOCOL_NAME
-from .linkml_adapter import convert_linkml_to_protocol
-from .schema_exporter import convert_protocol_to_linkml
+from src.linkml.adapter import convert_linkml_to_protocol
+from src.linkml.exporter import convert_protocol_to_linkml
 
 
 class Protocol:

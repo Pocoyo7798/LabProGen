@@ -28,7 +28,7 @@ class ChemicalEntity:
         }
 
     def to_linkml_dict(self):
-        from .linkml_adapter import chemical_to_linkml_dict
+        from src.linkml.adapter import chemical_to_linkml_dict
 
         return chemical_to_linkml_dict(self.__class__.__name__, self.params)
 

@@ -12,35 +12,29 @@ import copy
 import sys
 from pathlib import Path
 
+from src.core.paths import get_app_dir, get_bundle_dir, is_frozen
+
 
 def get_schema_directory() -> Path:
     """Resolve the schema directory in source and frozen runtimes."""
 
     candidates: list[Path] = []
+    bundle_dir = get_bundle_dir()
+    app_dir = get_app_dir()
 
-    if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", None)
-        if meipass:
-            meipass_path = Path(meipass)
-            candidates.extend(
-                [
-                    meipass_path / "schema",
-                    meipass_path / "src" / "schema",
-                ]
-            )
-
-        exe_dir = Path(sys.executable).resolve().parent
+    if is_frozen():
         candidates.extend(
             [
-                exe_dir / "schema",
-                exe_dir.parent / "schema",
+                bundle_dir / "schema",
+                bundle_dir / "src" / "schema",
+                app_dir / "schema",
+                app_dir.parent / "schema",
             ]
         )
 
-    # Source checkout / editable install fallback
     candidates.extend(
         [
-            Path(__file__).resolve().parent.parent / "schema",
+            app_dir / "schema",
             Path.cwd() / "schema",
         ]
     )
@@ -49,8 +43,7 @@ def get_schema_directory() -> Path:
         if candidate.exists():
             return candidate
 
-    # Keep previous behavior as final fallback for clearer error messages.
-    return Path(__file__).resolve().parent.parent / "schema"
+    return app_dir / "schema"
 
 
 def ensure_six_meta_path_importer_compatibility() -> None:

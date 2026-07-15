@@ -9,9 +9,9 @@ results into a compact project-friendly format.
 from dataclasses import dataclass
 from collections import Counter
 
-from .config import is_field_required, KEY_GASES
-from .schema_loader import build_validation_schema, load_linkml_schema, ensure_six_meta_path_importer_compatibility
-from .linkml_adapter import get_linkml_step_class
+from src.core.config import is_field_required, KEY_GASES
+from .loader import build_validation_schema, load_linkml_schema, ensure_six_meta_path_importer_compatibility
+from .adapter import get_linkml_step_class
 
 
 @dataclass
@@ -138,7 +138,7 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         ]
 
     try:
-        from .schema_exporter import _activity_without_complex_steps, _normalize_linkml_instance, convert_protocol_to_linkml
+        from .exporter import _activity_without_complex_steps, _normalize_linkml_instance, convert_protocol_to_linkml
 
         payload = convert_protocol_to_linkml(protocol_data)
         schema = build_validation_schema()

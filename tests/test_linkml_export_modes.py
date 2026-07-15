@@ -1,8 +1,8 @@
 import copy
 import unittest
 
-from src.linkml_adapter import build_material_entity, convert_linkml_to_protocol
-from src.schema_exporter import (
+from src.linkml.adapter import build_material_entity, convert_linkml_to_protocol
+from src.linkml.exporter import (
     _expand_optimized_export,
     convert_protocol_to_linkml,
 )

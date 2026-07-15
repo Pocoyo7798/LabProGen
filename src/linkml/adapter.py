@@ -14,7 +14,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-from .config import *
+from src.core.config import *
 
 
 # Internal action names -> LinkML step classes in dcat_p_lab.yaml

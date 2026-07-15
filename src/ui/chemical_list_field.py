@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from .config import (
+from src.core.config import (
     KEY_CAS_NUMBER,
     KEY_CONCENTRATION,
     KEY_ENTITY_ID,
@@ -29,7 +29,7 @@ from .config import (
     KEY_PREPARATION_PROCEDURE,
     KEY_PRODUCER,
 )
-from .procedure_text import format_gas_entry_label
+from src.text.procedure_text import format_gas_entry_label
 
 _ADD_BUTTON_STYLE = (
     "QToolButton {"

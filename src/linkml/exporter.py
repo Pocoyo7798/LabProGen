@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from pathlib import Path
-import os
 from typing import Any, Literal
 
-from .config import DEFAULT_PROTOCOL_NAME
-from .linkml_adapter import (
+from src.core.config import DEFAULT_PROTOCOL_NAME
+from .adapter import (
     normalize_action_to_linkml,
     convert_slots_to_linkml_objects,
     get_linkml_chemical_class,
@@ -24,7 +22,7 @@ from .linkml_adapter import (
     get_linkml_slot,
     get_linkml_step_class,
 )
-from .schema_loader import build_validation_schema, load_linkml_schema, schema_summary, ensure_six_meta_path_importer_compatibility
+from .loader import build_validation_schema, load_linkml_schema, schema_summary, ensure_six_meta_path_importer_compatibility
 
 
 @dataclass

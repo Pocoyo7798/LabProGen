@@ -1,8 +1,9 @@
 import sys
-from src import resources_rc # this imports the compiled resources from resources.qrc
+
+import src.resources_rc  # pyright: ignore[reportUnusedImport]  # registers Qt resources
 from PySide6.QtWidgets import QApplication
-from src.editor import Editor
-from src.complex_actions import get_complex_action_registry, load_complex_actions_config
+from src.ui.editor import Editor
+from src.complex.actions import get_complex_action_registry, load_complex_actions_config
 
 # Initialize the application
 app = QApplication(sys.argv)

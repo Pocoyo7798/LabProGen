@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-from .config import KEY_BIGSMILES, KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
+from src.core.config import KEY_BIGSMILES, KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
 
 PUBCHEM_AUTOCOMPLETE_BASE = (
     "https://pubchem.ncbi.nlm.nih.gov/rest/autocomplete/compound"

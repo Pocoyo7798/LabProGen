@@ -1,15 +1,10 @@
-import json
-
-import pytest
-
-from src.complex_actions import (
+from src.complex.actions import (
     COMPLEX_ACTION_MARKER,
     ComplexActionDefinition,
     ComplexActionGroup,
     ComplexActionParameter,
     ComplexActionRegistry,
     KEY_COMPLEX_ACTION_NAME,
-    apply_parameter_values,
     append_definitions_to_config,
     bindings_for_instance_section,
     build_parameter_bindings,
@@ -17,12 +12,10 @@ from src.complex_actions import (
     complex_action_step_from_group,
     build_instance_parameters,
     copy_instance_parameters,
-    definitions_from_payload,
     dictionary_filename,
     expand_definition_steps,
     expand_complex_action,
     get_complex_action_registry,
-    get_complex_actions_config_path,
     iter_instance_dialog_sections,
     load_complex_actions_config,
     parameters_to_block_params,
@@ -188,7 +181,7 @@ def test_definition_json_roundtrip_preserves_editable_flag():
 
 
 def test_find_sequence_ranges():
-    from src.complex_actions import ComplexActionDefinition, find_sequence_ranges
+    from src.complex.actions import ComplexActionDefinition, find_sequence_ranges
 
     definition = ComplexActionDefinition(
         name="Pair",
@@ -255,7 +248,7 @@ def test_collect_horizontal_flow_steps_avoids_cycles():
         exported.append(block.action)
         return [{"action": block.action}]
 
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     content = Editor._collect_horizontal_flow_steps(_Editor(), m0, get_step_data, set())
     assert exported == ["Wait", "Grind"]
@@ -290,7 +283,7 @@ def test_is_horizontal_flow_head_for_complex_member():
         def get_complex_action_group(self, block):
             return self.complex_action_groups.get(block.complex_group_id)
 
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._is_horizontal_flow_head(editor, head) is True
@@ -330,7 +323,7 @@ def test_wire_surrogate_into_chain_restores_external_links():
         member_blocks=[first, second],
         surrogate_block=surrogate,
     )
-    from src.complex_action_protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
+    from src.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
 
     _wire_surrogate_into_chain(group)
     assert left.next_block is surrogate
@@ -377,7 +370,7 @@ def test_complex_group_horizontal_span():
         def rect(self):
             return self._rect
 
-    from src.complex_action_protocol import _complex_group_horizontal_span
+    from src.complex.protocol import _complex_group_horizontal_span
 
     b0 = _Block(50)
     b1 = _Block(170)
@@ -460,7 +453,7 @@ def test_layout_collapsed_group_pulls_right_tail():
         def push_chain(self, start_block, shift_x):
             start_block.setPos(start_block.pos().x() + shift_x, start_block.pos().y())
 
-    from src.complex_action_protocol import _layout_collapsed_group
+    from src.complex.protocol import _layout_collapsed_group
 
     _layout_collapsed_group(_Editor(), group)
     assert surrogate.rect().width() == 260.0
@@ -510,7 +503,7 @@ def test_collect_horizontal_flow_steps_expands_collapsed_surrogate():
         exported.append(block.action)
         return [{"action": block.action}]
 
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     content = Editor._collect_horizontal_flow_steps(_Editor(), surrogate, get_step_data, set())
     assert exported[:2] == ["Wait", "Grind"]
@@ -518,7 +511,7 @@ def test_collect_horizontal_flow_steps_expands_collapsed_surrogate():
 
 
 def test_activity_without_complex_steps_filters_linkml_validation():
-    from src.schema_exporter import _activity_without_complex_steps
+    from src.linkml.exporter import _activity_without_complex_steps
 
     activity = {
         "has_synthesis_step": [
@@ -558,7 +551,7 @@ def test_can_be_left_neighbor_of_complex_group_last_member():
         def _groups_share_block(self, group, block):
             return block.complex_group_id == group.group_id
 
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._can_be_left_neighbor_of_group(editor, last, moving) is True
@@ -588,7 +581,7 @@ def test_wire_surrogate_tolerates_legacy_group_without_chain_flag():
     )
     del group.chain_wired_collapsed
 
-    from src.complex_action_protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
+    from src.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
 
     _wire_surrogate_into_chain(group)
     assert group.chain_wired_collapsed is True
@@ -618,7 +611,7 @@ def test_allowed_complex_link_zone_blocks_internal_insertion():
             member_blocks=[first, last],
         )
     }
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._allowed_complex_link_zone(editor, first, "LEFT") is True
@@ -675,7 +668,7 @@ def test_position_complex_group_preserves_relative_layout():
         def reflow_entire_cluster(self, block):
             raise AssertionError("reflow should not run when source layout is available")
 
-    from src.complex_action_protocol import _position_complex_group
+    from src.complex.protocol import _position_complex_group
 
     m0 = _Block(0)
     m1 = _Block(0, prev=m0)
@@ -854,7 +847,7 @@ def test_complex_action_step_from_group_syncs_member_params():
 
 
 def test_chemical_attach_rules_for_complex_actions():
-    from src.editor import Editor
+    from src.ui.editor import Editor
 
     editor = Editor.__new__(Editor)
 

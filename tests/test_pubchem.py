@@ -1,8 +1,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from src.config import KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
-from src.pubchem import (
+from src.core.config import KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
+from src.pubchem.api import (
     CompoundSearchPage,
     PubChemCompoundRecord,
     build_compound_autocomplete_url,
@@ -154,7 +154,7 @@ def test_map_pubchem_only_fills_visible_keys():
     assert mapped == {KEY_NAME: "Water", KEY_FORMULA: "H2O"}
 
 
-@patch("src.pubchem.urllib.request.urlopen")
+@patch("src.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_parses_json(mock_urlopen):
     payload = json.dumps(SAMPLE_RESPONSE).encode("utf-8")
     mock_response = MagicMock()
@@ -166,7 +166,7 @@ def test_fetch_compound_autocomplete_parses_json(mock_urlopen):
     assert terms == ["Water", "water", "Water-18O"]
 
 
-@patch("src.pubchem.urllib.request.urlopen")
+@patch("src.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_page(mock_urlopen):
     payload = json.dumps(SAMPLE_RESPONSE).encode("utf-8")
     mock_response = MagicMock()
@@ -179,8 +179,8 @@ def test_fetch_compound_autocomplete_page(mock_urlopen):
     assert page.terms[0] == "Water"
 
 
-@patch("src.pubchem.fetch_compound_properties_by_cids")
-@patch("src.pubchem.fetch_compound_search_cids_page")
+@patch("src.pubchem.api.fetch_compound_properties_by_cids")
+@patch("src.pubchem.api.fetch_compound_search_cids_page")
 def test_fetch_compound_search_batch_uses_sdq_page(mock_cids_page, mock_props):
     mock_cids_page.return_value = CompoundSearchPage(
         cids=[962, 16217612, 129010977],
@@ -201,7 +201,7 @@ def test_fetch_compound_search_batch_uses_sdq_page(mock_cids_page, mock_props):
     assert len(records) == 3
 
 
-@patch("src.pubchem.urllib.request.urlopen")
+@patch("src.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_network_error(mock_urlopen):
     mock_urlopen.side_effect = OSError("network down")
     assert fetch_compound_autocomplete("water") == []

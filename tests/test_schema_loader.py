@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.schema_loader import get_schema_directory
+from src.linkml.loader import get_schema_directory
 
 
 class TestSchemaDirectoryResolution(unittest.TestCase):

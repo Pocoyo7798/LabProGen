@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.schema_exporter import convert_protocol_to_linkml, summarize_linkml_export
+from src.linkml.exporter import convert_protocol_to_linkml, summarize_linkml_export
 
 
 def _load_input(path: Path) -> dict:

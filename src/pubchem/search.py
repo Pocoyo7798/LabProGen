@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .pubchem import (
+from .api import (
     PUBCHEM_SEARCH_BATCH_SIZE,
     PubChemCompoundRecord,
     fetch_compound_search_batch,

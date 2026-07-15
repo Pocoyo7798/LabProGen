@@ -23,7 +23,7 @@ class Action:
         return data
 
     def to_linkml_dict(self):
-        from .linkml_adapter import action_to_linkml_dict
+        from src.linkml.adapter import action_to_linkml_dict
 
         payload = action_to_linkml_dict(
             self.__class__.__name__,

@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QWidget
 
-from .block import configure_unit_decimal_input, format_decimal_for_input
-from .chemical_list_field import build_chemical_list_field
-from .complex_actions import ComplexActionParameter
-from .config import FIELD_CONFIG
+from src.ui.block import configure_unit_decimal_input, format_decimal_for_input
+from src.ui.chemical_list_field import build_chemical_list_field
+from .actions import ComplexActionParameter
+from src.core.config import FIELD_CONFIG
 
 LOCKED_FIELD_TOOLTIP = (
     "The creator of this complex action marked this field as non-editable."

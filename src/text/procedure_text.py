@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import (
+from src.core.config import (
     KEY_ADD_QUANTITY,
     KEY_ADD_TYPE,
     KEY_AGITATION_TYPE,

@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .block import field_label
-from .complex_action_fields import LOCKED_FIELD_TOOLTIP, LOCKED_LABEL_STYLE, ParameterValueEditor
-from .complex_actions import (
+from src.ui.block import field_label
+from .fields import LOCKED_FIELD_TOOLTIP, LOCKED_LABEL_STYLE, ParameterValueEditor
+from .actions import (
     ComplexActionDefinition,
     ComplexActionParameter,
     ComplexActionRegistry,
@@ -30,7 +30,6 @@ from .complex_actions import (
     collect_flow_steps_from_editor,
     build_instance_parameters,
     bindings_for_instance_section,
-    copy_instance_parameters,
     iter_instance_dialog_sections,
     dictionary_filename,
     get_complex_action_registry,
@@ -41,8 +40,8 @@ from .complex_actions import (
     validate_definition,
     validate_instance_parameters,
 )
-from .config import FIELD_CONFIG
-from .editor import Editor
+from src.core.config import FIELD_CONFIG
+from src.ui.editor import Editor
 
 _BUTTON_STYLE = (
     "QPushButton {"
@@ -283,7 +282,7 @@ class ComplexActionFlowEditorDialog(QDialog):
         register_complex_action_definitions([self.definition], registry=self._registry)
 
         if self._parent_editor is not None:
-            from .complex_action_protocol import materialize_complex_action
+            from .protocol import materialize_complex_action
 
             materialize_complex_action(
                 self._parent_editor,

@@ -7,29 +7,28 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from .block import ChemicalBlock, ComplexActionBlock, ElementaryAction, SupportAction
-from .complex_actions import (
+from src.ui.block import ChemicalBlock, ComplexActionBlock, ElementaryAction, SupportAction
+from .actions import (
     ComplexActionGroup,
     ComplexActionParameter,
     apply_parameter_values,
     copy_instance_parameters,
-    definitions_from_payload,
     find_sequence_ranges,
     get_complex_action_registry,
     parameters_to_block_params,
     register_complex_action_definitions,
 )
-from .complex_action_ui import prompt_complex_action_use
+from .ui import prompt_complex_action_use
 
 if TYPE_CHECKING:
-    from .editor import Editor
+    from src.ui.editor import Editor
 
 
 def _horizontal_chain_from_editor(editor: Editor | None) -> list:
     """Return the primary horizontal action chain from an editor."""
     if editor is None:
         return []
-    from .block import ChemicalBlock
+    from src.ui.block import ChemicalBlock
 
     heads = [
         b
@@ -225,7 +224,7 @@ def import_complex_action_dictionary(editor: Editor) -> bool:
         )
         return False
 
-    from .complex_actions import definitions_from_payload
+    from .actions import definitions_from_payload
 
     definitions = definitions_from_payload(data)
     if not definitions:

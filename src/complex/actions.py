@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .config import FIELD_CONFIG, is_field_required
+from src.core.config import FIELD_CONFIG, is_field_required
 
 ELEMENTARY_ACTIONS = frozenset({"Add", "Grind", "Separate", "Sieve", "Wait"})
 SUPPORT_ACTIONS = frozenset({
@@ -182,7 +182,7 @@ class ComplexActionDefinition:
 
 def build_parameter_bindings(steps: list[dict[str, Any]]) -> list[ComplexActionParameter]:
     """Create parameter bindings from a flow skeleton (one entry per param key)."""
-    from .block import field_label
+    from src.ui.block import field_label
 
     bindings: list[ComplexActionParameter] = []
     for step_index, step in enumerate(steps):
@@ -208,7 +208,7 @@ def build_parameter_bindings(steps: list[dict[str, Any]]) -> list[ComplexActionP
 
 def collect_flow_steps_from_editor(editor) -> list[dict[str, Any]]:
     """Collect the main horizontal action chain from an editor (no chemicals)."""
-    from .complex_action_protocol import _horizontal_chain_from_editor
+    from .protocol import _horizontal_chain_from_editor
 
     chain = _horizontal_chain_from_editor(editor)
     if not chain:
@@ -739,14 +739,12 @@ COMPLEX_ACTIONS_CONFIG_VERSION = 1
 DEFAULT_COMPLEX_ACTIONS_CONFIG_NAME = "complex_actions.json"
 
 
-def get_project_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
 def get_complex_actions_config_path(
     filename: str = DEFAULT_COMPLEX_ACTIONS_CONFIG_NAME,
 ) -> Path:
-    return get_project_root() / "config" / filename
+    from src.core.paths import writable_config_path
+
+    return writable_config_path(filename)
 
 
 def parse_complex_actions_payload(data: Any) -> list[dict[str, Any]]:
@@ -791,8 +789,21 @@ def load_complex_actions_config(
     path: Path | str | None = None,
 ) -> int:
     """Load default complex actions from the config file into the registry."""
+    from src.core.paths import (
+        resolve_config_read_path,
+        seed_writable_config_from_bundle,
+        writable_config_path,
+    )
+
     registry = registry or get_complex_action_registry()
-    config_path = Path(path) if path is not None else get_complex_actions_config_path()
+    if path is not None:
+        config_path = Path(path)
+    else:
+        seed_writable_config_from_bundle(DEFAULT_COMPLEX_ACTIONS_CONFIG_NAME)
+        config_path = (
+            resolve_config_read_path(DEFAULT_COMPLEX_ACTIONS_CONFIG_NAME)
+            or writable_config_path(DEFAULT_COMPLEX_ACTIONS_CONFIG_NAME)
+        )
     if not config_path.exists():
         return 0
 

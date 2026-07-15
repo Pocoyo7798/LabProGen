@@ -46,3 +46,7 @@ ENTITY_*.md
 EXPORT_*.md
 IMPLEMENTATION_*.md
 procedure_guide.txt
+
+# LLM credentials
+config/aiedu_config.json
+aiedu_config.json
