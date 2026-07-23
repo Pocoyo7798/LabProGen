@@ -3,7 +3,7 @@
 Welcome to the **Laboratory Protocol Builder**, a professional tool designed to help you create, organize, and export chemical laboratory procedures using an intuitive "smart block" system. If it is your first using it, consider answering this [Google Form](https://forms.gle/2RoHZSrXgg8aZRDV6) to give us feedback about your experience.
 
 ## 0. Download or Set Up
-If you want to use the Interface Directly, download the Windows or Mac version [here]([/guides/content/editing-an-existing-page](https://ulisboa-my.sharepoint.com/:f:/g/personal/ist187382_tecnico_ulisboa_pt/IgBbEPWlrYx1QJbgrnwBPx4-AYCU74uv_ykpcqADT8ZSn2Q?e=kRzZr3)).
+If you want to use the Interface Directly, download the Windows or Mac version [here](https://ulisboa-my.sharepoint.com/:f:/g/personal/ist187382_tecnico_ulisboa_pt/IgBbEPWlrYx1QJbgrnwBPx4-AYCU74uv_ykpcqADT8ZSn2Q?e=csxmn7).
 
 Follow these steps to set up a Python virtual environment and run the project.
 
