@@ -5,29 +5,77 @@ Welcome to the **Laboratory Protocol Builder**, a professional tool designed to 
 ## 0. Download or Set Up
 If you want to use the Interface Directly, download the Windows or Mac version [here](https://ulisboa-my.sharepoint.com/:f:/g/personal/ist187382_tecnico_ulisboa_pt/IgBbEPWlrYx1QJbgrnwBPx4-AYCU74uv_ykpcqADT8ZSn2Q?e=csxmn7).
 
+### Run it as a tool
+
+[uv](https://github.com/astral-sh/uv) can fetch the project from GitHub, build it in a temporary
+environment and start it, without installing anything permanently:
+
+```bash
+uvx --from git+https://github.com/Pocoyo7798/LabProGen labprogen
+```
+
+`--from` names the package to install, `labprogen` the command it provides. Append `@` and a branch,
+tag or commit to run a revision other than the default branch:
+
+```bash
+uvx --from git+https://github.com/Pocoyo7798/LabProGen@main labprogen
+```
+
+To keep the command on your PATH instead of resolving it on every run, install it as a tool:
+
+```bash
+uv tool install git+https://github.com/Pocoyo7798/LabProGen
+labprogen
+```
+
+[pipx](https://github.com/pypa/pipx) installs from git the same way:
+
+```bash
+pipx install git+https://github.com/Pocoyo7798/LabProGen
+labprogen
+```
+
+Each isolated environment carries its own PySide6 build, about 820 MB. The first run downloads it,
+later runs reuse the cache.
+
+### Set up for development
+
 Follow these steps to set up a Python virtual environment and run the project.
 
-### Linux / macOS
+#### Linux / macOS
 
 ```bash
 cd /path/to/LabProGen
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 python main.py
 ```
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 ```powershell
 cd C:\path\to\LabProGen
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -e .
 python main.py
 ```
 
 If you already have the environment created, activate it with `source .venv/bin/activate` (Linux/macOS) and run `python main.py`.
+
+### Where files are stored
+
+Schemas and the config templates ship inside the `src` package. Editable settings, such as
+AIedu credentials and complex action definitions, are written to:
+
+| Runtime | Location |
+| --- | --- |
+| Checkout | `<project>/config/` |
+| Downloaded build | `<folder holding the executable>/config/` |
+| `pipx` or `uv` install | `%APPDATA%\LabProGen` (Windows), `~/.config/LabProGen` (Linux), `~/Library/Application Support/LabProGen` (macOS) |
+
+On first run the application copies the packaged templates into that location.
 
 ## 1. Overview
 This application allows you to build logical flowcharts for experiments. Each block represents either a physical action (e.g., stirring, heating) or a chemical entity (e.g., substances, solutions). The system automatically handles snapping, alignment, and logic rules to ensure your protocol is consistent.

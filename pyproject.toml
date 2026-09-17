@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labprogen"
+version = "0.1.0"
+description = "Smart-block editor for building, validating and exporting laboratory protocols"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Pedro Tavares", email = "pedro.b.tavares@tecnico.ulisboa.pt" },
+    { name = "Daniel Pereira Costa", email = "daniel.pereira.costa@tecnico.ulisboa.pt" },
+]
+dependencies = [
+    "PySide6==6.10.2",
+    "PyYAML>=6.0.2",
+    "linkml>=1.8",
+    "platformdirs>=4",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+labprogen = "src.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pyinstaller>=6",
+]
+
+[project.urls]
+Repository = "https://github.com/Pocoyo7798/LabProGen"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.setuptools.package-data]
+src = ["schema/*.yaml", "schema/*.md", "config/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Tests import `src.*`; keep a plain checkout importable without an install.
+pythonpath = ["."]

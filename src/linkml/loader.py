@@ -12,38 +12,23 @@ import copy
 import sys
 from pathlib import Path
 
-from src.core.paths import get_app_dir, get_bundle_dir, is_frozen
+from src.core.paths import bundled_asset_candidates, resolve_bundled_asset_dir
 
 
 def get_schema_directory() -> Path:
-    """Resolve the schema directory in source and frozen runtimes."""
+    """Resolve the schema directory shipped with the application.
 
-    candidates: list[Path] = []
-    bundle_dir = get_bundle_dir()
-    app_dir = get_app_dir()
+    A ``schema`` directory in the working directory still wins over nothing,
+    which lets a caller run the exporter against a schema copy of its own.
+    """
 
-    if is_frozen():
-        candidates.extend(
-            [
-                bundle_dir / "schema",
-                bundle_dir / "src" / "schema",
-                app_dir / "schema",
-                app_dir.parent / "schema",
-            ]
-        )
-
-    candidates.extend(
-        [
-            app_dir / "schema",
-            Path.cwd() / "schema",
-        ]
-    )
+    candidates = [*bundled_asset_candidates("schema"), Path.cwd() / "schema"]
 
     for candidate in candidates:
         if candidate.exists():
             return candidate
 
-    return app_dir / "schema"
+    return resolve_bundled_asset_dir("schema")
 
 
 def ensure_six_meta_path_importer_compatibility() -> None:

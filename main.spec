@@ -2,10 +2,9 @@
 from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 
-datas = [('schema', 'schema')]
-datas += [
-    ('config/complex_actions.json', 'config'),
-    ('config/aiedu_config.example.json', 'config'),
+datas = [
+    ('src/schema', 'src/schema'),
+    ('src/config', 'src/config'),
 ]
 datas += collect_data_files('prefixcommons')
 datas += collect_data_files('prefixmaps')

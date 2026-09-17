@@ -47,7 +47,8 @@ class TestAppPaths(unittest.TestCase):
             bundled.write_text('{"version": 1, "complex_actions": [{"name": "Bundled"}]}', encoding="utf-8")
 
             with patch("src.core.paths.get_config_dir", return_value=tmp_path / "config"), patch(
-                "src.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"
+                "src.core.paths.bundled_asset_candidates",
+                return_value=[tmp_path / "bundle" / "config"],
             ):
                 candidates = config_read_candidates("complex_actions.json")
                 self.assertEqual(candidates[0], writable)
@@ -62,9 +63,10 @@ class TestAppPaths(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text('{"version": 1, "complex_actions": []}', encoding="utf-8")
 
-            with patch("src.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"), patch(
-                "src.core.paths.writable_config_path", return_value=target
-            ):
+            with patch(
+                "src.core.paths.bundled_asset_candidates",
+                return_value=[tmp_path / "bundle" / "config"],
+            ), patch("src.core.paths.writable_config_path", return_value=target):
                 seeded = seed_writable_config_from_bundle("complex_actions.json")
 
             self.assertEqual(seeded, target)
