@@ -6,8 +6,8 @@ DEFAULT_PROTOCOL_NAME = "laboratory procedure"
 # --- FEATURE FLAGS ---
 ENABLE_VERTICAL_ORIENTATION_TOGGLE = False
 
-# Support influences that cannot be toggled off on elementary actions (e.g. New Recipient)
-LOCKED_INFLUENCE_ACTIONS = frozenset({"NewRecipient"})
+# Support influences that cannot be toggled off on elementary actions (e.g. Change Recipient)
+LOCKED_INFLUENCE_ACTIONS = frozenset({"ChangeRecipient"})
 
 # --- PARAM KEYS ---
 
@@ -25,11 +25,12 @@ KEY_PHASE = "phase_to_keep"
 KEY_METHOD = "method"
 
 # Actions - Sieve
-KEY_MIN_SIZE = "min_size"
-KEY_MAX_SIZE = "max_size"
+KEY_SIZE_RANGE = "size_range"
+KEY_MIN_SIZE = "min_size"  # legacy load alias
+KEY_MAX_SIZE = "max_size"  # legacy load alias
 
-# Actions - ChangeAtmosphere
-KEY_GASES = "gases"
+# Actions - ChangePressure / ContinuousAddition
+KEY_GASES = "gases"  # legacy load alias
 KEY_FLOW_RATE = "flow_rate"
 KEY_PRESSURE = "pressure"
 
@@ -39,7 +40,7 @@ KEY_PROCESS = "process"
 KEY_RAMP = "ramp"
 KEY_POWER = "power"
 
-# Actions - NewRecipient
+# Actions - ChangeRecipient
 KEY_RECIPIENT = "recipient"
 KEY_MATERIAL = "material"
 KEY_VOLUME = "volume"
@@ -48,7 +49,7 @@ KEY_VOLUME = "volume"
 KEY_AGITATION_TYPE = "agitation_type"
 KEY_SPEED = "speed"
 
-# Actions - SubProductCreation
+# Actions - CollectSubProduct
 KEY_SUBSTANCE = "substance"
 
 # Actions - ContinuousAddition
@@ -80,7 +81,7 @@ KEY_ENTITY_TYPE = "entity_type"
 KEY_MIXTURE_TYPE = "mixture_type"
 KEY_CHEMICAL_LIST = "chemical_list"
 
-# Chemical - Media
+# Chemical - Medium
 KEY_FUNCTION = "function"
 KEY_STATE = "state"
 KEY_PURITY = "purity"
@@ -125,12 +126,26 @@ KEY_PY_L_450 = "py_l_450"
 # --- UI CONFIGURATION ---
 FIELD_CONFIG = {
     # --- Actions - shared ---
-    KEY_DURATION: {"label": "Duration", "type": "unit", "units": ["s", "min", "h"], "defaults": ["0", "10", "30"], "placeholder": "Time", "required": True},
-    KEY_AMOUNT: {"label": "Amount", "type": "text", "placeholder": "Number of times...", "required": False, "required_if": [{"action": "Repeat"}, {"action": "ContinuousAddition", "param": KEY_CONTINUOUS_ADD_TYPE, "equals": "Intermittent"}]},
+    KEY_DURATION: {
+        "label": "Duration",
+        "type": "unit",
+        "units": ["s", "min", "h"],
+        "defaults": ["0", "10", "30"],
+        "placeholder": "Time",
+        "required": False,
+        "required_if": [{"action": "Add"}, {"action": "NoModification"}],
+    },
+    KEY_AMOUNT: {
+        "label": "Amount",
+        "type": "text",
+        "placeholder": "Number of times...",
+        "required": False,
+        "required_if": [{"action": "Repeat"}, {"action": "ContinuousAddition"}],
+    },
 
     # --- Add ---
     KEY_ADD_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["g", "ml", "L", "uL", "mg"], "defaults": ["0"], "placeholder": "Amount", "required": True},
-    KEY_ADD_TYPE: {"label": "Add Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"], "required": True},
+    KEY_ADD_TYPE: {"label": "Type", "type": "dropdown", "options": ["Normal", "Dropwise", "Diffusion"], "required": True},
     KEY_OPEN_FLAME: {"label": "Open Flame", "type": "dropdown", "options": ["True", "False"], "required": True},
     KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name...", "required": True},
 
@@ -139,13 +154,11 @@ FIELD_CONFIG = {
     KEY_METHOD: {"label": "Method", "type": "dropdown", "options": ["Filtration", "Centrifugation", "Decantation"], "required": True},
 
     # --- Sieve ---
-    KEY_MIN_SIZE: {"label": "Min Size", "type": "unit", "units": ["μm", "mm", "m"], "defaults": ["0"], "placeholder": "Size", "required": True},
-    KEY_MAX_SIZE: {"label": "Max Size", "type": "unit", "units": ["μm", "mm", "m"], "defaults": ["0"], "placeholder": "Size", "required": True},
+    KEY_SIZE_RANGE: {"label": "Size Range", "type": "text", "placeholder": "Particle size range...", "required": True},
 
-    # --- ChangeAtmosphere ---
-    KEY_GASES: {"label": "Gases", "type": "list", "placeholder": "Manage gases...", "required": True},
+    # --- ChangePressure / ContinuousAddition ---
     KEY_FLOW_RATE: {"label": "Flow Rate", "type": "unit", "units": ["mL/min", "L/h"], "defaults": ["0"], "placeholder": "Rate", "required": True},
-    KEY_PRESSURE: {"label": "Pressure", "type": "unit", "units": ["bar", "atm", "Pa", "kPa"], "defaults": ["1"], "placeholder": "Pressure", "required": True},
+    KEY_PRESSURE: {"label": "Pressure", "type": "unit", "units": ["bar", "atm", "Pa", "kPa"], "defaults": ["101.325"], "placeholder": "Pressure", "required": True},
 
     # --- ChangeTemperature ---
     KEY_TEMPERATURE: {"label": "Temperature", "type": "unit", "units": ["°C", "°F"], "defaults": ["50"], "placeholder": "Value", "required": True},
@@ -153,7 +166,7 @@ FIELD_CONFIG = {
     KEY_RAMP: {"label": "Ramp", "type": "unit", "units": ["°C/min", "K/min"], "defaults": ["0"], "placeholder": "Slope", "required": False},
     KEY_POWER: {"label": "Power", "type": "unit", "units": ["W", "kW"], "defaults": ["0"], "placeholder": "Power", "required": False},
 
-    # --- NewRecipient ---
+    # --- ChangeRecipient ---
     KEY_RECIPIENT: {"label": "Recipient", "type": "dropdown", "options": ["Beaker", "Flask", "Autoclave"], "required": True},
     KEY_MATERIAL: {"label": "Material", "type": "dropdown", "options": ["Glass", "Plastic", "Ceramic"], "required": True},
     KEY_VOLUME: {"label": "Volume", "type": "unit", "units": ["μL", "mL", "L"], "defaults": ["0"], "placeholder": "Volume", "required": True},
@@ -162,7 +175,7 @@ FIELD_CONFIG = {
     KEY_AGITATION_TYPE: {"label": "Type", "type": "dropdown", "options": ["Manual", "Magnetic", "Mechanical", "Rotative", "None"], "required": True},
     KEY_SPEED: {"label": "Speed", "type": "unit", "units": ["rpm"], "defaults": ["0"], "placeholder": "Velocity", "required": False},
 
-    # --- SubProductCreation ---
+    # --- CollectSubProduct ---
     KEY_SUBSTANCE: {"label": "Substance", "type": "text", "placeholder": "Chemical entity...", "required": True},
 
     # --- ContinuousAddition ---
@@ -178,16 +191,29 @@ FIELD_CONFIG = {
 
     # --- Chemical - shared ---
     KEY_NAME: {"label": "Name", "type": "text", "placeholder": "Entity or mixture name...", "required": True},
-    KEY_FORMULA: {"label": "Formula", "type": "text", "placeholder": "Chemical formula...", "required": True},
+    KEY_FORMULA: {
+        "label": "Formula",
+        "labels_by_action": {"HeterogeneousCatalysts": "Chemical Formula"},
+        "type": "text",
+        "placeholder": "Chemical formula...",
+        "required": False,
+        "required_if": [{"action": "Molecules"}, {"action": "Polymers"}],
+    },
     KEY_SMILES: {"label": "SMILE", "type": "text", "placeholder": "SMILE string...", "required": True},
     KEY_BIGSMILES: {"label": "BigSMILES", "type": "text", "placeholder": "BigSMILES string...", "required": True},
     KEY_INCHI: {"label": "InChi", "type": "text", "placeholder": "InChi string...", "required": False},
-    KEY_CIF: {"label": "CIF", "type": "text", "placeholder": "Crystallographic Information File...", "required": True},
     KEY_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["mg", "g", "kg", "mL", "L", "mol", "mmol"], "defaults": ["0"], "placeholder": "Amount", "required": True},
-    KEY_CONCENTRATION: {"label": "Concentration", "type": "unit", "units": ["m/m", "vol/vol", "M", "g/L"], "defaults": ["0"], "placeholder": "Value", "required": False},
+    KEY_CONCENTRATION: {
+        "label": "Concentration",
+        "type": "unit",
+        "units": ["m/m", "vol/vol", "M", "g/L"],
+        "defaults": ["0"],
+        "placeholder": "Value",
+        "required": False,
+        "required_if": [{"action": "MixtureSubstance"}],
+    },
 
     # --- Chemical - Mixture ---
-    KEY_ENTITY_TYPE: {"label": "Type", "type": "dropdown", "options": ["Substance", "Mixture"], "required": True},
     KEY_CHEMICAL_LIST: {
         "label": "Chemical List",
         "labels_by_action": {"Dispersion": "Substance"},
@@ -197,13 +223,11 @@ FIELD_CONFIG = {
         "required_if": [
             {"action": "Mixture"},
             {"action": "Dispersion"},
-            {"action": "Media", "param": KEY_ENTITY_TYPE, "equals": "Mixture"},
-            {"action": "BioProducts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"},
-            {"action": "HeterogeneousCatalysts", "param": KEY_ENTITY_TYPE, "equals": "Mixture"},
+            {"action": "Medium"},
         ],
     },
 
-    # --- Chemical - Media ---
+    # --- Chemical - Medium ---
     KEY_FUNCTION: {"label": "Function", "type": "dropdown", "options": ["Carbon Source", "Nitrogen Source", "Mineral", "Vitamin", "Growth Factor", "Inducer", "Precursor"], "required": False},
     KEY_STATE: {"label": "State", "type": "dropdown", "options": ["solid", "liquid", "semi-solid", "lyophilized", "frozen"], "required": False},
     KEY_PURITY: {"label": "Purity", "type": "dropdown", "options": ["technical", "reagent", "analytical", "molecular biology", "cell culture grade"], "required": False},
@@ -228,15 +252,6 @@ FIELD_CONFIG = {
         "required": False,
         "required_if": [{"action": "Dispersion"}],
     },
-
-    # --- Chemical - Material ---
-    KEY_ATOMIC_COMP: {"label": "Atomic Comp.", "type": "text", "placeholder": "Atoms and % m/m...", "required": True},
-    KEY_STRUCT_DESC: {"label": "Structure Desc.", "type": "text", "placeholder": "Structure description...", "required": True},
-    KEY_TEXTURAL_DESC: {"label": "Textural Desc.", "type": "text", "placeholder": "Textural properties...", "required": True},
-    KEY_CHEM_DESC: {"label": "Chem Desc.", "type": "text", "placeholder": "Chemical descriptors...", "required": True},
-    KEY_MAT_LIST: {"label": "Materials List", "type": "text", "placeholder": "List of materials...", "required": True},
-    KEY_BASE_MAT: {"label": "Base Material", "type": "text", "placeholder": "Base entity name...", "required": True},
-    KEY_BASE_COMPLEX: {"label": "Base Complex", "type": "text", "placeholder": "Base complex entity...", "required": True},
 
     # --- Chemical - HeterogeneousCatalysts ---
     KEY_3D_STRUCTURE: {"label": "3D Structure", "type": "text", "placeholder": "Crystal structure...", "required": False},
@@ -271,3 +286,94 @@ def is_field_required(field_key, params=None, action_name=None):
         break
 
     return required
+
+
+ACTION_NAME_ALIASES = {
+    "Wait": "NoModification",
+    "ChangeAtmosphere": "ChangePressure",
+    "NewRecipient": "ChangeRecipient",
+    "SubProductCreation": "CollectSubProduct",
+}
+
+CHEMICAL_NAME_ALIASES = {
+    "Media": "Medium",
+    "MixtureChemical": "MixtureSubstance",
+    "Material": "Substance",
+    "PerfectSingleCrystalMaterial": "Molecules",
+}
+
+
+def canonical_action_name(name):
+    """Map legacy action names to the current Action Data Model names."""
+    if not name:
+        return name
+    return ACTION_NAME_ALIASES.get(str(name), str(name))
+
+
+def canonical_chemical_name(name):
+    """Map legacy chemical entity names to the current Action Data Model names."""
+    if not name:
+        return name
+    return CHEMICAL_NAME_ALIASES.get(str(name), str(name))
+
+
+def migrate_action_params(action_name, params=None):
+    """Normalize stored action params to the current Action Data Model fields."""
+    action_name = canonical_action_name(action_name)
+    data = dict(params or {})
+    if action_name == "Sieve":
+        if not str(data.get(KEY_SIZE_RANGE) or "").strip():
+            min_size = str(data.get(KEY_MIN_SIZE) or "").strip()
+            max_size = str(data.get(KEY_MAX_SIZE) or "").strip()
+            if min_size or max_size:
+                data[KEY_SIZE_RANGE] = " - ".join(part for part in (min_size, max_size) if part)
+        data.pop(KEY_MIN_SIZE, None)
+        data.pop(KEY_MAX_SIZE, None)
+    elif action_name == "ChangePressure":
+        data.pop(KEY_GASES, None)
+        data.pop(KEY_FLOW_RATE, None)
+        data.setdefault(KEY_PRESSURE, data.get(KEY_PRESSURE) or "101.325 kPa")
+    elif action_name == "ContinuousAddition":
+        data.setdefault(KEY_FLOW_RATE, "0 mL/min")
+    return data
+
+
+def migrate_chemical_params(chemical_name, params=None):
+    """Normalize stored chemical params to the current Action Data Model fields."""
+    chemical_name = canonical_chemical_name(chemical_name)
+    data = dict(params or {})
+    if chemical_name in {
+        "Medium",
+        "Dispersion",
+        "BioProducts",
+        "HeterogeneousCatalysts",
+        "Molecules",
+        "Polymers",
+        "Substance",
+        "Mixture",
+    }:
+        data.pop(KEY_ENTITY_TYPE, None)
+    if chemical_name == "BioProducts":
+        data.pop(KEY_CHEMICAL_LIST, None)
+    if chemical_name == "HeterogeneousCatalysts":
+        data.pop(KEY_NAME, None)
+        data.pop(KEY_CHEMICAL_LIST, None)
+    nested = data.get("chemical_type")
+    if nested:
+        data["chemical_type"] = canonical_chemical_name(nested)
+    nested_list = data.get(KEY_CHEMICAL_LIST)
+    if isinstance(nested_list, list):
+        migrated_list = []
+        for item in nested_list:
+            if not isinstance(item, dict):
+                migrated_list.append(item)
+                continue
+            nested_item = dict(item)
+            nested_type = nested_item.get("chemical_type")
+            if nested_type:
+                nested_item["chemical_type"] = canonical_chemical_name(nested_type)
+            migrated_list.append(nested_item)
+        data[KEY_CHEMICAL_LIST] = migrated_list
+    return data
+
+

@@ -26,7 +26,7 @@ SAMPLE_PROTOCOL = {
                     ],
                 },
                 {
-                    "action": "Wait",
+                    "action": "NoModification",
                     "params": {"duration": "10 min"},
                 },
             ],
@@ -61,7 +61,7 @@ def test_build_article_prompt_includes_guide_and_json():
     )
     assert "Methods section" in prompt
     assert "Add Water" in prompt
-    assert '"action": "Wait"' in prompt
+    assert '"action": "NoModification"' in prompt
 
 
 def test_extract_message_content_from_stream_chunk():

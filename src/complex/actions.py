@@ -8,18 +8,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from src.core.config import FIELD_CONFIG, is_field_required
+from src.core.config import FIELD_CONFIG, is_field_required, canonical_action_name, migrate_action_params
 
-ELEMENTARY_ACTIONS = frozenset({"Add", "Grind", "Separate", "Sieve", "Wait"})
+ELEMENTARY_ACTIONS = frozenset({"Add", "Grind", "Separate", "Sieve", "NoModification"})
 SUPPORT_ACTIONS = frozenset({
-    "ChangeAtmosphere",
+    "ChangePressure",
     "ChangeTemperature",
-    "NewRecipient",
+    "ChangeRecipient",
     "ChangeAgitation",
     "Repeat",
     "ContinuousAddition",
 })
-FLOW_ACTIONS = ELEMENTARY_ACTIONS | SUPPORT_ACTIONS | frozenset({"SubProductCreation"})
+FLOW_ACTIONS = ELEMENTARY_ACTIONS | SUPPORT_ACTIONS | frozenset({"CollectSubProduct"})
 
 COMPLEX_ACTION_MARKER = "ComplexAction"
 KEY_COMPLEX_ACTION_NAME = "complex_action_name"
@@ -32,31 +32,33 @@ DEFAULT_ACTION_PARAMS: dict[str, dict[str, Any]] = {
         "add_type": "",
         "open_flame": "",
     },
-    "Grind": {},
-    "Separate": {"phase_to_keep": "", "method": ""},
-    "Sieve": {"min_size": "0 μm", "max_size": "0 μm"},
-    "Wait": {"duration": "10 min"},
-    "ChangeAtmosphere": {"gases": [], "flow_rate": "0 mL/min", "pressure": "1 bar"},
+    "Grind": {"duration": ""},
+    "Separate": {"phase_to_keep": "", "method": "", "duration": ""},
+    "Sieve": {"size_range": "", "duration": ""},
+    "NoModification": {"duration": "10 min"},
+    "ChangePressure": {"pressure": "101.325 kPa"},
     "ChangeTemperature": {
         "temperature": "50 °C",
         "process": "",
         "ramp": "0 °C/min",
         "power": "0 W",
     },
-    "NewRecipient": {"recipient": "", "material": "", "volume": "250 mL"},
+    "ChangeRecipient": {"recipient": "", "material": "", "volume": "250 mL"},
     "ChangeAgitation": {"agitation_type": "", "speed": "0 rpm"},
-    "SubProductCreation": {"substance": ""},
+    "CollectSubProduct": {"substance": ""},
     "Repeat": {"amount": "1"},
     "ContinuousAddition": {
         "substance_list": "",
         "continuous_add_type": "",
         "amount": "1",
+        "flow_rate": "0 mL/min",
     },
 }
 
 
 def default_action_params(action_name: str) -> dict[str, Any]:
     """Return a shallow copy of default params for an action type."""
+    action_name = canonical_action_name(action_name)
     return dict(DEFAULT_ACTION_PARAMS.get(action_name, {}))
 
 
@@ -135,9 +137,10 @@ class ComplexActionParameter:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ComplexActionParameter:
         host_step_index = data.get("host_step_index")
+        action = canonical_action_name(str(data.get("action", "")))
         return cls(
             step_index=int(data.get("step_index", 0)),
-            action=str(data.get("action", "")),
+            action=action,
             param_key=str(data.get("param_key", "")),
             display_name=str(data.get("display_name", "")),
             editable=bool(data.get("editable", True)),
@@ -165,7 +168,14 @@ class ComplexActionDefinition:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ComplexActionDefinition:
         name = str(data.get("complex_action_name") or data.get("name") or "").strip()
-        steps = [dict(step) for step in data.get("steps", []) or []]
+        steps = []
+        for step in data.get("steps", []) or []:
+            item = dict(step)
+            action = canonical_action_name(item.get("action"))
+            item["action"] = action
+            if action != COMPLEX_ACTION_MARKER:
+                item["params"] = migrate_action_params(action, item.get("params"))
+            steps.append(item)
         parameters = [
             ComplexActionParameter.from_dict(item)
             for item in data.get("parameters", []) or []

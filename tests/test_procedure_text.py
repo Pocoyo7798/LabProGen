@@ -26,7 +26,7 @@ def test_add_lists_all_chemical_names():
 
 def test_subproduct_creation_lists_chemicals():
     step = {
-        "action": "SubProductCreation",
+        "action": "CollectSubProduct",
         "params": {
             "substance": [
                 {"chemical": "Substance", "params": {KEY_NAME: "precipitate A"}},
@@ -41,7 +41,7 @@ def test_excludes_imported_chemical_flows():
         "flows": [
             {
                 "flow_id": 1,
-                "steps": [{"action": "Wait", "params": {"duration": "1 min"}}],
+                "steps": [{"action": "NoModification", "params": {"duration": "1 min"}}],
             },
             {
                 "flow_id": 2,
@@ -52,12 +52,12 @@ def test_excludes_imported_chemical_flows():
     }
     steps = main_flow_steps_from_protocol(protocol)
     assert len(steps) == 1
-    assert steps[0]["action"] == "Wait"
+    assert steps[0]["action"] == "NoModification"
 
 
 def test_new_recipient_sentence():
     step = {
-        "action": "NewRecipient",
+        "action": "ChangeRecipient",
         "params": {KEY_RECIPIENT: "Beaker", KEY_MATERIAL: "Glass", KEY_VOLUME: "250 mL"},
     }
     text = sentence_for_step(step)
@@ -81,7 +81,7 @@ def test_repeat_uses_singular_time_for_one():
 def test_build_procedure_text_numbers_steps():
     text = build_procedure_text(
         [
-            {"action": "Wait", "params": {"duration": "1 min"}},
+            {"action": "NoModification", "params": {"duration": "1 min"}},
             {"action": "Grind", "params": {}},
         ]
     )
@@ -97,4 +97,4 @@ def test_gas_entry_label_with_concentration():
 
 
 def test_chemical_display_name_fallback():
-    assert chemical_display_name({"chemical": "Material", "params": {}}) == "Material"
+    assert chemical_display_name({"chemical": "Substance", "params": {}}) == "Substance"

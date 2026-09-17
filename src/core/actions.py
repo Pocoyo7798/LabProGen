@@ -50,44 +50,48 @@ class Add(Action):
         })
 
 class Grind(Action):
-    """Triturate a solid substance. Has no specific parameters."""
-    def __init__(self, **kwargs):
-        super().__init__()
+    """Triturate a solid substance."""
+    def __init__(self, duration="", **kwargs):
+        super().__init__(**{
+            KEY_DURATION: duration,
+            **kwargs,
+        })
 
 class Separate(Action):
     """Physical separation of two different phases."""
-    def __init__(self, phase_to_keep="", method="", **kwargs):
+    def __init__(self, phase_to_keep="", method="", duration="", **kwargs):
         super().__init__(**{
             KEY_PHASE: phase_to_keep,
-            KEY_METHOD: method
+            KEY_METHOD: method,
+            KEY_DURATION: duration,
+            **kwargs,
         })
 
 class Sieve(Action):
     """Screening of solid particles by size."""
-    def __init__(self, min_size="0 μm", max_size="0 μm", **kwargs):
+    def __init__(self, size_range="", duration="", **kwargs):
         super().__init__(**{
-            KEY_MIN_SIZE: min_size,
-            KEY_MAX_SIZE: max_size
+            KEY_SIZE_RANGE: size_range,
+            KEY_DURATION: duration,
+            **kwargs,
         })
 
-class Wait(Action):
+class NoModification(Action):
     """Time passes with nothing happening."""
     def __init__(self, duration="10 min", **kwargs):
         super().__init__(**{
-            KEY_DURATION: duration
+            KEY_DURATION: duration,
+            **kwargs,
         })
 
 # --- Support Actions ---
 
-class ChangeAtmosphere(Action):
+class ChangePressure(Action):
     """Modification of the atmosphere composition."""
-    def __init__(self, gases=None, flow_rate="0 mL/min", pressure="1 bar", **kwargs):
-        if gases is None:
-            gases = []
+    def __init__(self, pressure="101.325 kPa", **kwargs):
         super().__init__(**{
-            KEY_GASES: gases,
-            KEY_FLOW_RATE: flow_rate,
-            KEY_PRESSURE: pressure
+            KEY_PRESSURE: pressure,
+            **kwargs,
         })
 
 class ChangeTemperature(Action):
@@ -97,16 +101,18 @@ class ChangeTemperature(Action):
             KEY_TEMPERATURE: temperature,
             KEY_PROCESS: process,
             KEY_RAMP: ramp,
-            KEY_POWER: power
+            KEY_POWER: power,
+            **kwargs,
         })
 
-class NewRecipient(Action):
-    """Set or replace the reaction vessel (recipient)."""
+class ChangeRecipient(Action):
+    """Modification of the mixture recipient."""
     def __init__(self, recipient="", material="", volume="250 mL", **kwargs):
         super().__init__(**{
             KEY_RECIPIENT: recipient,
             KEY_MATERIAL: material,
-            KEY_VOLUME: volume
+            KEY_VOLUME: volume,
+            **kwargs,
         })
 
 class ChangeAgitation(Action):
@@ -114,28 +120,33 @@ class ChangeAgitation(Action):
     def __init__(self, type="", speed="0 rpm", **kwargs):
         super().__init__(**{
             KEY_AGITATION_TYPE: type,
-            KEY_SPEED: speed
+            KEY_SPEED: speed,
+            **kwargs,
         })
 
-class SubProductCreation(Action):
+class CollectSubProduct(Action):
     """Indication that another product will not follow the main path."""
     def __init__(self, substance="", **kwargs):
         super().__init__(**{
-            KEY_SUBSTANCE: substance
+            KEY_SUBSTANCE: substance,
+            **kwargs,
         })
 
 class Repeat(Action):
     """Indication of the number of repetitions of the elementary actions."""
     def __init__(self, amount="1", **kwargs):
         super().__init__(**{
-            KEY_AMOUNT: amount
+            KEY_AMOUNT: amount,
+            **kwargs,
         })
 
 class ContinuousAddition(Action):
     """Support action for controlled repeated or continuous additions."""
-    def __init__(self, substance_list="", type="Continuous", amount="1", **kwargs):
+    def __init__(self, substance_list="", type="Continuous", amount="1", flow_rate="0 mL/min", **kwargs):
         super().__init__(**{
             KEY_SUBSTANCE_LIST: substance_list,
             KEY_CONTINUOUS_ADD_TYPE: type,
-            KEY_AMOUNT: amount
+            KEY_AMOUNT: amount,
+            KEY_FLOW_RATE: flow_rate,
+            **kwargs,
         })

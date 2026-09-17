@@ -65,17 +65,21 @@ class Protocol:
 
     @staticmethod
     def _build_action(action_type, params):
+        from .config import canonical_action_name, migrate_action_params
+
+        action_type = canonical_action_name(action_type)
+        params = migrate_action_params(action_type, params)
         action_classes = {
             "Add": Add,
             "Grind": Grind,
             "Separate": Separate,
             "Sieve": Sieve,
-            "Wait": Wait,
-            "ChangeAtmosphere": ChangeAtmosphere,
+            "NoModification": NoModification,
+            "ChangePressure": ChangePressure,
             "ChangeTemperature": ChangeTemperature,
-            "NewRecipient": NewRecipient,
+            "ChangeRecipient": ChangeRecipient,
             "ChangeAgitation": ChangeAgitation,
-            "SubProductCreation": SubProductCreation,
+            "CollectSubProduct": CollectSubProduct,
             "Repeat": Repeat,
             "ContinuousAddition": ContinuousAddition,
         }
@@ -91,15 +95,20 @@ class Protocol:
 
     @staticmethod
     def _build_chemical(chemical_name, params):
+        from .config import canonical_chemical_name, migrate_chemical_params
+
+        chemical_name = canonical_chemical_name(chemical_name)
+        params = migrate_chemical_params(chemical_name, params)
         chemical_classes = {
             "Substance": Substance,
-            "Material": Material,
+            "MixtureSubstance": MixtureSubstance,
             "Mixture": Mixture,
-            "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
+            "Molecules": Molecules,
             "Polymers": Polymers,
-            "Media": Media,
+            "Medium": Medium,
             "Dispersion": Dispersion,
             "BioProducts": BioProducts,
+            "HeterogeneousCatalysts": HeterogeneousCatalysts,
         }
         chemical_class = chemical_classes.get(chemical_name, Chemical)
         try:

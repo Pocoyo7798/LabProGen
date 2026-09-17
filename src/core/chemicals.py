@@ -33,7 +33,7 @@ class ChemicalEntity:
         return chemical_to_linkml_dict(self.__class__.__name__, self.params)
 
 class Substance(ChemicalEntity):
-    """Second Level: Simple molecule that can be described by atom-level representations."""
+    """Second Level: Chemical entities that do not have specific descriptors."""
     def __init__(self, name="", **kwargs):
         super().__init__(**{
             KEY_NAME: name,
@@ -41,47 +41,11 @@ class Substance(ChemicalEntity):
         })
 
 
-class Molecules(Substance):
-    """Third Level: Chemical entities described fully by formula + SMILES/InChi.
-    
-    Inherits from Substance with identical fields.
-    """
-    def __init__(self, name="", formula="", smile="", inchi="", **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.params.update({
-            KEY_FORMULA: formula,
-            KEY_SMILES: smile,
-            KEY_INCHI: inchi,
-        })
+class MixtureSubstance(ChemicalEntity):
+    """Second Level: Chemical entity in a mixture with concentration.
 
-class Material(ChemicalEntity):
-    """generic material with structural, textural and chemical descriptors."""
-    def __init__(self, formula="", structure_descriptor="", textural_descriptors="", chemical_descriptors="", **kwargs):
-        super().__init__(**{
-            KEY_FORMULA: formula,
-            KEY_STRUCT_DESC: structure_descriptor,
-            KEY_TEXTURAL_DESC: textural_descriptors,
-            KEY_CHEM_DESC: chemical_descriptors,
-            **kwargs
-        })
-
-class Mixture(ChemicalEntity):
-    """Mixture entity composed of other chemicals in a chemical list."""
-    def __init__(self, name="", chemical_list=None, **kwargs):
-        if chemical_list is None:
-            chemical_list = []
-        super().__init__(**{
-            KEY_NAME: name,
-            KEY_CHEMICAL_LIST: chemical_list,
-            **kwargs
-        })
-
-
-class MixtureChemical(ChemicalEntity):
-    """Third Level: Individual chemical in a mixture with concentration.
-    
     Used only within Mixture.chemical_list as array items.
-    Stores: {type, chemical_type, params, concentration}
+    Stores: {chemical_type, params, concentration}
     """
     def __init__(self, chemical_type="", params=None, concentration="", **kwargs):
         """
@@ -99,13 +63,30 @@ class MixtureChemical(ChemicalEntity):
             **kwargs
         })
 
-class PerfectSingleCrystalMaterial(ChemicalEntity):
-    """perfect single crystal material with formula and CIF file reference."""
-    def __init__(self, formula="", cif="", **kwargs):
+
+class Mixture(ChemicalEntity):
+    """Mixture entity composed of other chemicals in a chemical list."""
+    def __init__(self, name="", chemical_list=None, **kwargs):
+        if chemical_list is None:
+            chemical_list = []
         super().__init__(**{
-            KEY_FORMULA: formula,
-            KEY_CIF: cif,
+            KEY_NAME: name,
+            KEY_CHEMICAL_LIST: chemical_list,
             **kwargs
+        })
+
+
+class Molecules(Substance):
+    """Third Level: Chemical entities described fully by formula + SMILES/InChi.
+    
+    Inherits from Substance with identical fields.
+    """
+    def __init__(self, name="", formula="", smile="", inchi="", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.params.update({
+            KEY_FORMULA: formula,
+            KEY_SMILES: smile,
+            KEY_INCHI: inchi,
         })
 
 class Polymers(Molecules):
@@ -120,11 +101,10 @@ class Polymers(Molecules):
             del self.params[KEY_SMILES]
         self.params[KEY_BIGSMILES] = bigsmiles
 
-class Media(ChemicalEntity):
-    """Biological media as Substance or Mixture (via entity_type)."""
+class Medium(Mixture):
+    """Biological media purchased from a company or obtained from an external lab."""
     def __init__(
         self,
-        entity_type="Substance",
         name="",
         chemical_list=None,
         quantity="",
@@ -139,12 +119,8 @@ class Media(ChemicalEntity):
         oxidation_sensitivity="",
         **kwargs,
     ):
-        if chemical_list is None:
-            chemical_list = []
-        super().__init__(**{
-            KEY_ENTITY_TYPE: entity_type,
-            KEY_NAME: name,
-            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
+        super().__init__(name=name, chemical_list=chemical_list, **kwargs)
+        self.params.update({
             KEY_QUANTITY: quantity,
             KEY_FUNCTION: function,
             KEY_STATE: state,
@@ -155,35 +131,22 @@ class Media(ChemicalEntity):
             KEY_TEMPERATURE_STABILITY: temperature_stability,
             KEY_LIGHT_SENSITIVITY: light_sensitivity,
             KEY_OXIDATION_SENSITIVITY: oxidation_sensitivity,
-            **kwargs
         })
 
 
-class Dispersion(ChemicalEntity):
-    """Dispersion (Mixture): solutes in chemical_list plus one solvent; always Mixture type."""
+class Dispersion(Mixture):
+    """Dispersion (Mixture): solutes in chemical_list plus one solvent."""
     def __init__(self, name="", chemical_list=None, solvent=None, **kwargs):
-        if chemical_list is None:
-            chemical_list = []
         if solvent is None:
             solvent = {}
-        super().__init__(**{
-            KEY_ENTITY_TYPE: "Mixture",
-            KEY_NAME: name,
-            KEY_CHEMICAL_LIST: chemical_list,
-            KEY_SOLVENT: solvent,
-            **kwargs
-        })
+        super().__init__(name=name, chemical_list=chemical_list, **kwargs)
+        self.params[KEY_SOLVENT] = solvent
 
 class BioProducts(ChemicalEntity):
-    """Biological products with production and localization metadata.
-
-    Substance or Mixture (entity_type). Mixture uses name + chemical_list.
-    """
+    """Entities created by biological compounds like metabolites."""
     def __init__(
         self,
-        entity_type="Substance",
         name="",
-        chemical_list=None,
         origin="",
         production_phase="",
         location="",
@@ -193,12 +156,8 @@ class BioProducts(ChemicalEntity):
         toxicity_to_producer="",
         **kwargs,
     ):
-        if chemical_list is None:
-            chemical_list = []
         super().__init__(**{
-            KEY_ENTITY_TYPE: entity_type,
             KEY_NAME: name,
-            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
             KEY_ORIGIN: origin,
             KEY_PRODUCTION_PHASE: production_phase,
             KEY_LOCATION: location,
@@ -211,12 +170,9 @@ class BioProducts(ChemicalEntity):
 
 
 class HeterogeneousCatalysts(ChemicalEntity):
-    """Heterogeneous catalysts as Substance or Mixture (entity_type). Mixture uses name + chemical_list."""
+    """Substances that increase reaction rates with a different phase than the reaction medium."""
     def __init__(
         self,
-        entity_type="Substance",
-        name="",
-        chemical_list=None,
         formula="",
         structure_3d="",
         crystallinity="",
@@ -232,12 +188,7 @@ class HeterogeneousCatalysts(ChemicalEntity):
         py_l_450="",
         **kwargs,
     ):
-        if chemical_list is None:
-            chemical_list = []
         super().__init__(**{
-            KEY_ENTITY_TYPE: entity_type,
-            KEY_NAME: name,
-            KEY_CHEMICAL_LIST: chemical_list if entity_type == "Mixture" else [],
             KEY_FORMULA: formula,
             KEY_3D_STRUCTURE: structure_3d,
             KEY_CRYSTALLINITY: crystallinity,

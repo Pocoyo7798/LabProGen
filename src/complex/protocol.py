@@ -34,7 +34,7 @@ def _horizontal_chain_from_editor(editor: Editor | None) -> list:
         b
         for b in editor.blocks
         if not isinstance(b, ChemicalBlock)
-        and b.action != "SubProductCreation"
+        and b.action != "CollectSubProduct"
         and not isinstance(b, ComplexActionBlock)
         and b.prev_block is None
         and (b.next_block is not None or getattr(b, "is_first", False))
@@ -191,7 +191,7 @@ def materialize_complex_action(
 
 
 def _create_member_block(editor: Editor, action_name: str, params: dict):
-    elementary_list = ["Add", "Grind", "Separate", "Sieve", "Wait"]
+    elementary_list = ["Add", "Grind", "Separate", "Sieve", "NoModification"]
     if action_name in elementary_list:
         block = ElementaryAction(action_name, params, editor=editor)
     else:
@@ -321,7 +321,7 @@ def _horizontal_chains(editor: Editor) -> list[list]:
     for block in editor.blocks:
         if isinstance(block, (ChemicalBlock, ComplexActionBlock)):
             continue
-        if block.action == "SubProductCreation":
+        if block.action == "CollectSubProduct":
             continue
         if block.prev_block is not None:
             continue

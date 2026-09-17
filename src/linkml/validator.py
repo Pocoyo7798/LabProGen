@@ -9,7 +9,7 @@ results into a compact project-friendly format.
 from dataclasses import dataclass
 from collections import Counter
 
-from src.core.config import is_field_required, KEY_GASES
+from src.core.config import is_field_required
 from .loader import build_validation_schema, load_linkml_schema, ensure_six_meta_path_importer_compatibility
 from .adapter import get_linkml_step_class
 
@@ -178,19 +178,6 @@ def validate_linkml_protocol(protocol_data: dict, target_class: str = "LabSynthe
         return False
 
     def _validate_instance(instance, class_name: str, activity_index: int, step_index: int | None = None, source_action: str | None = None, source_chemical: str | None = None, chemical_index: int | None = None, export_step: dict | None = None):
-        if source_action == "ChangeAtmosphere" and isinstance(export_step, dict):
-            meta = export_step.get("source_metadata") or {}
-            gases_value = meta.get(KEY_GASES)
-            if _is_blank(gases_value):
-                messages.append(
-                    ValidationMessage(
-                        level="error",
-                        code="validation.required_field_missing",
-                        message="At least one chemical is required in Gases for ChangeAtmosphere.",
-                        context={"activity_index": activity_index, "step_index": step_index} if step_index is not None else {"activity_index": activity_index},
-                    )
-                )
-
         try:
             report = linkml_validate(instance, schema=schema, target_class=class_name, strict=False)
             results = getattr(report, "results", []) or []

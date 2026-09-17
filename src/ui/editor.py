@@ -65,26 +65,21 @@ def get_chemical_default_params(chemical_type: str) -> dict:
     """Return the default parameter dictionary for a chemical type."""
     defaults = {
         "Substance": {KEY_NAME: ""},
-        "MixtureChemical": {"chemical_type": "Substance", KEY_FORMULA: "", KEY_CONCENTRATION: ""},
-        "Material": {KEY_FORMULA: "", KEY_STRUCT_DESC: "", KEY_TEXTURAL_DESC: "", KEY_CHEM_DESC: ""},
+        "MixtureSubstance": {"chemical_type": "Substance", KEY_CONCENTRATION: ""},
         "Mixture": {KEY_NAME: "", KEY_CHEMICAL_LIST: []},
-        "PerfectSingleCrystalMaterial": {KEY_FORMULA: "", KEY_CIF: ""},
         "Molecules": {
-            KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
             KEY_FORMULA: "",
             KEY_SMILES: "",
             KEY_INCHI: "",
         },
         "Polymers": {
-            KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
             KEY_FORMULA: "",
             KEY_BIGSMILES: "",
             KEY_INCHI: "",
         },
-        "Media": {
-            KEY_ENTITY_TYPE: "Substance",
+        "Medium": {
             KEY_NAME: "",
             KEY_CHEMICAL_LIST: [],
             KEY_QUANTITY: "",
@@ -99,13 +94,11 @@ def get_chemical_default_params(chemical_type: str) -> dict:
             KEY_OXIDATION_SENSITIVITY: "",
         },
         "Dispersion": {
-            KEY_ENTITY_TYPE: "Mixture",
             KEY_NAME: "",
             KEY_CHEMICAL_LIST: [],
             KEY_SOLVENT: {},
         },
         "BioProducts": {
-            KEY_ENTITY_TYPE: "Substance",
             KEY_NAME: "",
             KEY_ORIGIN: "",
             KEY_PRODUCTION_PHASE: "",
@@ -116,8 +109,6 @@ def get_chemical_default_params(chemical_type: str) -> dict:
             KEY_TOXICITY_TO_PRODUCER: "",
         },
         "HeterogeneousCatalysts": {
-            KEY_ENTITY_TYPE: "Substance",
-            KEY_NAME: "",
             KEY_FORMULA: "",
             KEY_3D_STRUCTURE: "",
             KEY_CRYSTALLINITY: "",
@@ -134,6 +125,10 @@ def get_chemical_default_params(chemical_type: str) -> dict:
         },
     }
     return copy.deepcopy(defaults.get(chemical_type, {}))
+
+
+def chemical_requires_name(chemical_type: str) -> bool:
+    return canonical_chemical_name(chemical_type) != "HeterogeneousCatalysts"
 
 NEW_COMPLEX_ACTION = "__new_complex_action__"
 
@@ -168,7 +163,7 @@ class ActionSelectionDialog(QDialog):
             "Grind": "🔨 Grind",
             "Separate": "⚗ Separate",
             "Sieve": "🏁 Sieve",
-            "Wait": "⏳ Wait"
+            "NoModification": "⏳ No Modification"
         }
         
         for action_id, label in self.btn_elementary.items():
@@ -186,9 +181,9 @@ class ActionSelectionDialog(QDialog):
         supp_layout.addWidget(supp_label)
         
         self.btn_support = {
-            "ChangeAtmosphere": "☁ Change Atmosphere",
+            "ChangePressure": "☁ Change Pressure",
             "ChangeTemperature": "🌡 Change Temperature",
-            "NewRecipient": "🧪 New Recipient",
+            "ChangeRecipient": "🧪 Change Recipient",
             "ChangeAgitation": "🔄 Change Agitation",
             "Repeat": "🔁 Repeat",
             "ContinuousAddition": "➕ Continuous Addition"
@@ -258,7 +253,7 @@ class ChemicalSelectionDialog(QDialog):
             "BioProducts": "BioProducts",
             "Molecules": "Molecules",
             "Polymers": "Polymers",
-            "Media": "Media",
+            "Medium": "Medium",
             "Dispersion": "Dispersion (Mixture)",
             "HeterogeneousCatalysts": "HeterogeneousCatalysts",
         }
@@ -479,7 +474,7 @@ def pick_embedded_chemical(parent, initial=None, *, for_solvent=False):
         )
 
     chem_name = result.get(KEY_NAME, "").strip()
-    if not chem_name:
+    if chemical_requires_name(dlg.selected_chemical_type) and not chem_name:
         QMessageBox.warning(
             parent_dialog,
             "Missing Chemical Name",
@@ -549,7 +544,7 @@ class MixtureChemicalDialog(QDialog):
             self.type_combo.addItem("Molecules", "Molecules")
             self.type_combo.addItem("BioProducts", "BioProducts")
             self.type_combo.addItem("Polymers", "Polymers")
-            self.type_combo.addItem("Media", "Media")
+            self.type_combo.addItem("Medium", "Medium")
             self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
         idx = self.type_combo.findData(initial_type)
         if idx < 0:
@@ -619,7 +614,10 @@ class MixtureChemicalDialog(QDialog):
         if not self.for_solvent and self.conc_edit and self.conc_unit:
             value = self.conc_edit.text().strip()
             unit = self.conc_unit.currentText().strip()
-            self.concentration = f"{value} {unit}" if value else ""
+            if not value:
+                QMessageBox.warning(self, "Missing Required Field", "'Concentration' is required.")
+                return
+            self.concentration = f"{value} {unit}"
         else:
             self.concentration = ""
         self.accept()
@@ -749,7 +747,7 @@ class MixtureChemicalListDialog(QDialog):
         
         # Validate that chemical has a name (required for all chemicals)
         chem_name = new_chem.get(KEY_NAME, "").strip()
-        if not chem_name:
+        if chemical_requires_name(dialog.selected_chemical_type) and not chem_name:
             QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
             return
         
@@ -800,7 +798,7 @@ class MixtureChemicalListDialog(QDialog):
             
             # Validate that chemical has a name (required for all chemicals)
             chem_name = self.chemical_list[row].get(KEY_NAME, "").strip()
-            if not chem_name:
+            if chemical_requires_name(dialog.selected_chemical_type) and not chem_name:
                 QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
                 return
             self._populate_table()
@@ -1423,7 +1421,7 @@ class Editor(QGraphicsView):
                 cb.toggle_orientation(block.orientation)
                 a_rect, c_rect = block.rect(), cb.rect()
 
-                if block.action == "SubProductCreation":
+                if block.action == "CollectSubProduct":
                     new_x = block.pos().x() - c_rect.width() + border_overlap
                     body_start_y = block.pos().y() + 18
                     body_h = a_rect.height() - 18
@@ -1550,7 +1548,7 @@ class Editor(QGraphicsView):
                 cb.toggle_orientation(block.orientation)
                 a_rect, c_rect = block.rect(), cb.rect()
 
-                if block.action == "SubProductCreation":
+                if block.action == "CollectSubProduct":
                     new_x = block.pos().x() - c_rect.width() + border_overlap
                     body_start_y = block.pos().y() + 18
                     body_h = a_rect.height() - 18
@@ -1661,7 +1659,7 @@ class Editor(QGraphicsView):
                 cb.toggle_orientation(block.orientation)
                 a_rect, c_rect = block.rect(), cb.rect()
 
-                if block.action == "SubProductCreation":
+                if block.action == "CollectSubProduct":
                     new_x = block.pos().x() - c_rect.width() + border_overlap
                     body_start_y = block.pos().y() + 18
                     body_h = a_rect.height() - 18
@@ -1949,10 +1947,10 @@ class Editor(QGraphicsView):
 
         action_map = {
             "Add": Add, "Grind": Grind, "Separate": Separate,
-            "Sieve": Sieve, "Wait": Wait,
-            "ChangeAtmosphere": ChangeAtmosphere, "ChangeTemperature": ChangeTemperature,
-            "NewRecipient": NewRecipient, "ChangeAgitation": ChangeAgitation,
-            "SubProductCreation": SubProductCreation, "Repeat": Repeat,
+            "Sieve": Sieve, "NoModification": NoModification,
+            "ChangePressure": ChangePressure, "ChangeTemperature": ChangeTemperature,
+            "ChangeRecipient": ChangeRecipient, "ChangeAgitation": ChangeAgitation,
+            "CollectSubProduct": CollectSubProduct, "Repeat": Repeat,
             "ContinuousAddition": ContinuousAddition,
         }
 
@@ -1963,25 +1961,26 @@ class Editor(QGraphicsView):
                 KEY_ADD_TYPE: "",
                 KEY_OPEN_FLAME: "",
             },
-            "Grind": {},
-            "Separate": {KEY_PHASE: "", KEY_METHOD: ""},
-            "Sieve": {KEY_MIN_SIZE: "0 μm", KEY_MAX_SIZE: "0 μm"},
-            "Wait": {KEY_DURATION: "10 min"},
-            "ChangeAtmosphere": {KEY_GASES: [], KEY_FLOW_RATE: "0 mL/min", KEY_PRESSURE: "1 bar"},
+            "Grind": {KEY_DURATION: ""},
+            "Separate": {KEY_PHASE: "", KEY_METHOD: "", KEY_DURATION: ""},
+            "Sieve": {KEY_SIZE_RANGE: "", KEY_DURATION: ""},
+            "NoModification": {KEY_DURATION: "10 min"},
+            "ChangePressure": {KEY_PRESSURE: "101.325 kPa"},
             "ChangeTemperature": {
                 KEY_TEMPERATURE: "50 °C",
                 KEY_PROCESS: "",
                 KEY_RAMP: "0 °C/min",
                 KEY_POWER: "0 W",
             },
-            "NewRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
+            "ChangeRecipient": {KEY_RECIPIENT: "", KEY_MATERIAL: "", KEY_VOLUME: "250 mL"},
             "ChangeAgitation": {KEY_AGITATION_TYPE: "", KEY_SPEED: "0 rpm"},
-            "SubProductCreation": {KEY_SUBSTANCE: ""},
+            "CollectSubProduct": {KEY_SUBSTANCE: ""},
             "Repeat": {KEY_AMOUNT: "1"},
             "ContinuousAddition": {
                 KEY_SUBSTANCE_LIST: "",
                 KEY_CONTINUOUS_ADD_TYPE: "",
                 KEY_AMOUNT: "1",
+                KEY_FLOW_RATE: "0 mL/min",
             },
         }
 
@@ -2318,11 +2317,10 @@ class Editor(QGraphicsView):
             
             chemical_map = {
                 "Substance": Substance,
-                "Material": Material,
-                "PerfectSingleCrystalMaterial": PerfectSingleCrystalMaterial,
+                "Mixture": Mixture,
                 "Molecules": Molecules,
                 "Polymers": Polymers,
-                "Media": Media,
+                "Medium": Medium,
                 "Dispersion": Dispersion,
                 "BioProducts": BioProducts,
                 "HeterogeneousCatalysts": HeterogeneousCatalysts,
@@ -2440,7 +2438,7 @@ class Editor(QGraphicsView):
         if getattr(target, "is_complex_surrogate", False) or isinstance(target, ComplexActionBlock):
             name = getattr(target, "action", "complex action")
             return f"Chemicals cannot be linked to complex action {name!r}"
-        allowed_for_chemicals = ["Add", "ChangeAtmosphere", "SubProductCreation"]
+        allowed_for_chemicals = ["Add", "CollectSubProduct"]
         if getattr(target, "action", None) not in allowed_for_chemicals:
             return f"Chemicals cannot be linked to {target.action}"
         return None
@@ -2502,7 +2500,7 @@ class Editor(QGraphicsView):
     def add_subproduct_branch(self, parent_block):
         """creates an anchored subproduct block without opening a popup."""
         params = {KEY_SUBSTANCE: []} # initialize substance as a list
-        block = SupportAction("SubProductCreation", params, editor=self)
+        block = SupportAction("CollectSubProduct", params, editor=self)
         
         block.toggle_orientation("vertical")
         block.setFlag(QGraphicsRectItem.ItemIsMovable, False)
@@ -2583,7 +2581,7 @@ class Editor(QGraphicsView):
                     return None, None
 
             # check action flow rules (no actions below subproduct)
-            if not isinstance(moved_block, ChemicalBlock) and potential_target.action == "SubProductCreation":
+            if not isinstance(moved_block, ChemicalBlock) and potential_target.action == "CollectSubProduct":
                 if potential_role == "child":
                     QToolTip.showText(QCursor.pos(), "Only Chemicals can be linked here", self)
                     return None, None # reject link
@@ -2913,7 +2911,7 @@ class Editor(QGraphicsView):
             cb.toggle_orientation(block.orientation)
             a_rect, c_rect = block.rect(), cb.rect()
 
-            if block.action == "SubProductCreation":
+            if block.action == "CollectSubProduct":
                 new_x = block.pos().x() - c_rect.width() + border_overlap
                 body_start_y = block.pos().y() + 18
                 body_h = a_rect.height() - 18
@@ -3211,7 +3209,7 @@ class Editor(QGraphicsView):
             cb.toggle_orientation(block.orientation)
             a_rect, c_rect = block.rect(), cb.rect()
             
-            if block.action == "SubProductCreation":
+            if block.action == "CollectSubProduct":
                 # specific logic for subproduct: arrow is at the top
                 new_x = block.pos().x() - c_rect.width() + border_overlap
                 body_start_y = block.pos().y() + 18
@@ -3288,10 +3286,10 @@ class Editor(QGraphicsView):
 
         type_config = {
             "ChangeTemperature": ("CT", QColor(255, 20, 147)), 
-            "ChangeAtmosphere": ("CA", QColor(46, 204, 113)),  
-            "NewRecipient": ("NR", QColor(155, 89, 182)),
+            "ChangePressure": ("CA", QColor(46, 204, 113)),  
+            "ChangeRecipient": ("NR", QColor(155, 89, 182)),
             "ChangeAgitation": ("AG", QColor(52, 152, 219)),
-            "SubProductCreation": ("SP", QColor(231, 76, 60)),
+            "CollectSubProduct": ("SP", QColor(231, 76, 60)),
             "Repeat": ("RE", QColor(230, 126, 34)),
             "ContinuousAddition": ("CD", QColor(26, 188, 156))
         }
@@ -3388,7 +3386,7 @@ class Editor(QGraphicsView):
             b
             for b in self.blocks
             if not isinstance(b, ChemicalBlock)
-            and b.action != "SubProductCreation"
+            and b.action != "CollectSubProduct"
             and b.prev_block is None
             and (b.next_block is not None or b.is_first)
         ]
@@ -3426,7 +3424,7 @@ class Editor(QGraphicsView):
             "action": block.action,
             "params": block.params.copy(),
         }
-        if block.action == "SubProductCreation":
+        if block.action == "CollectSubProduct":
             step["params"][KEY_SUBSTANCE] = chemicals
         elif chemicals:
             step["chemicals"] = chemicals
@@ -3454,8 +3452,8 @@ class Editor(QGraphicsView):
 
     def _reconstruct_block(self, step_data, flow_type, id_to_block):
         """helper to create a block and its nested components during import."""
-        action_name = step_data.get("action")
-        params = step_data.get("params", {})
+        action_name = canonical_action_name(step_data.get("action"))
+        params = migrate_action_params(action_name, step_data.get("params", {}))
         b_id = step_data.get("block_id")
         
         new_block = self._create_block_by_name(action_name, params)
@@ -3476,15 +3474,15 @@ class Editor(QGraphicsView):
 
         # 2. handle chemicals (ingredients)
         # for subproducts, chemicals are inside params['substance']
-        if action_name == "SubProductCreation":
+        if action_name == "CollectSubProduct":
             chem_list = params.get(KEY_SUBSTANCE, [])
         else:
             chem_list = step_data.get("chemicals", [])
             
         prev_chem = None
         for c_data in chem_list:
-            chem_name = c_data.get("chemical")
-            chem_params = c_data.get("params", {})
+            chem_name = canonical_chemical_name(c_data.get("chemical"))
+            chem_params = migrate_chemical_params(chem_name, c_data.get("params", {}))
             cb = ChemicalBlock(chem_name, chem_params, editor=self)
             self.scene.addItem(cb)
             self.blocks.append(cb)
@@ -3502,7 +3500,7 @@ class Editor(QGraphicsView):
 
     def _create_block_by_name(self, name, params):
         """helper to instantiate the correct block class with proper colors."""
-        elementary_list = ["Add", "Grind", "Separate", "Sieve", "Wait"]
+        elementary_list = ["Add", "Grind", "Separate", "Sieve", "NoModification"]
         
         if name in elementary_list:
             block = ElementaryAction(name, params, editor=self)
@@ -3525,7 +3523,9 @@ class Editor(QGraphicsView):
                 curr = curr.below_block
         
         for c_data in chem_list:
-            cb = ChemicalBlock(c_data.get("chemical"), c_data.get("params", {}), editor=self)
+            chem_name = canonical_chemical_name(c_data.get("chemical"))
+            chem_params = migrate_chemical_params(chem_name, c_data.get("params", {}))
+            cb = ChemicalBlock(chem_name, chem_params, editor=self)
             self.scene.addItem(cb)
             self.blocks.append(cb)
             self._register_block_id(cb, c_data.get("block_id"))
@@ -3575,7 +3575,7 @@ class Editor(QGraphicsView):
             return None
 
         # check for empty subproduct creation blocks
-        empty_subproducts = [b for b in self.blocks if b.action == "SubProductCreation" and b.chem_below is None]
+        empty_subproducts = [b for b in self.blocks if b.action == "CollectSubProduct" and b.chem_below is None]
         if empty_subproducts:
             if show_feedback:
                 QMessageBox.warning(self, "Export Error", "Every Sub Product Creation must have at least one chemical attached.")
@@ -3657,7 +3657,7 @@ class Editor(QGraphicsView):
 
             # standard action
             data = base_data.copy()
-            if block.action == "SubProductCreation":
+            if block.action == "CollectSubProduct":
                 data["params"][KEY_SUBSTANCE] = chemicals
             elif chemicals:
                 data["chemicals"] = chemicals
@@ -3709,7 +3709,7 @@ class Editor(QGraphicsView):
 
         # --- 1. export horizontal flows ---
         for b in self.blocks:
-            if isinstance(b, (ChemicalBlock, ComplexActionBlock)) or b.action == "SubProductCreation":
+            if isinstance(b, (ChemicalBlock, ComplexActionBlock)) or b.action == "CollectSubProduct":
                 continue
             group_id = getattr(b, "complex_group_id", None)
             if group_id:
@@ -3723,7 +3723,7 @@ class Editor(QGraphicsView):
 
         # --- 2. export vertical flows ---
         for b in self.blocks:
-            if isinstance(b, ChemicalBlock) or b.action == "SubProductCreation": continue
+            if isinstance(b, ChemicalBlock) or b.action == "CollectSubProduct": continue
             has_action_above = b.above_block is not None and not isinstance(b.above_block, ChemicalBlock)
             if not has_action_above:
                 if b.below_block is not None or (b.is_first and b.orientation == "vertical"):

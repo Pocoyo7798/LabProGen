@@ -290,7 +290,7 @@ class Block(QGraphicsRectItem):
         m = 4 
         path = QPainterPath()
 
-        if self.action == "SubProductCreation":
+        if self.action == "CollectSubProduct":
             # upward arrow for subproducts
             path.moveTo(w / 2, m)
             path.lineTo(w - m, m + arrow_size)
@@ -385,7 +385,7 @@ class Block(QGraphicsRectItem):
         x_offset_right = arrow_size if is_action else 2
 
         # 1. draw own id badge at top-left for support actions
-        if self.support_id and self.action != "SubProductCreation":
+        if self.support_id and self.action != "CollectSubProduct":
             painter.setPen(Qt.PenStyle.NoPen)
             bg_color = getattr(self, 'support_color', QColor(44, 62, 80, 220))
             painter.setBrush(bg_color)
@@ -521,7 +521,7 @@ class Block(QGraphicsRectItem):
         self.text.document().setDefaultTextOption(option)
         
         # special case for subproduct (upward arrow at the top)
-        if self.action == "SubProductCreation":
+        if self.action == "CollectSubProduct":
             self.text.setRotation(90)
             # define available height inside the body (below the arrow tip)
             self.text.setTextWidth(block_rect.height() - arrow_size - 10)
@@ -554,7 +554,7 @@ class Block(QGraphicsRectItem):
     
     def mouseDoubleClickEvent(self, event):
         """opens editor except for subproduct creation which is automatic."""
-        if self.action != "SubProductCreation":
+        if self.action != "CollectSubProduct":
             editor = getattr(self, "editor", None)
             if editor is not None and getattr(editor, "complex_action_builder_mode", False):
                 return
@@ -664,7 +664,7 @@ class Block(QGraphicsRectItem):
             return
 
         # check for anchored subproduct
-        is_subproduct = self.action == "SubProductCreation" and self.above_block
+        is_subproduct = self.action == "CollectSubProduct" and self.above_block
         is_ctrl = event.modifiers() == Qt.ControlModifier
 
         # bring to foreground always
@@ -684,7 +684,7 @@ class Block(QGraphicsRectItem):
                 self._complex_group_drag = True
             else:
                 # handle detachment logic only for movable actions
-                if self.action != "SubProductCreation":
+                if self.action != "CollectSubProduct":
                     old_above, old_below = self.above_block, self.below_block
                     if old_above or old_below:
                         old_p, old_c = self.editor._pluck_vertical(self)
@@ -754,7 +754,7 @@ class Block(QGraphicsRectItem):
             n_v.update()
 
         # 3. special case: if this is a subproduct, clear the parent's anchor
-        if self.action == "SubProductCreation" and p_v:
+        if self.action == "CollectSubProduct" and p_v:
             if hasattr(p_v, 'subproduct_below'):
                 p_v.subproduct_below = None
 
@@ -845,7 +845,7 @@ class Block(QGraphicsRectItem):
         if (
             ENABLE_VERTICAL_ORIENTATION_TOGGLE
             and not isinstance(self, ChemicalBlock)
-            and self.action != "SubProductCreation"
+            and self.action != "CollectSubProduct"
             and not getattr(self, "part_of_complex_action", False)
         ):
             label = "Set Vertical" if self.orientation == "horizontal" else "Set Horizontal"
@@ -869,7 +869,7 @@ class Block(QGraphicsRectItem):
         # 3. first logic (not for chemicals, subproducts, or complex members)
         if (
             not isinstance(self, ChemicalBlock)
-            and self.action != "SubProductCreation"
+            and self.action != "CollectSubProduct"
             and not getattr(self, "part_of_complex_action", False)
         ):
             if self.is_first:
@@ -1249,20 +1249,14 @@ class Block(QGraphicsRectItem):
         is_chemical = isinstance(self, ChemicalBlock)
         params_for_dialog = self.params.copy()
 
-        is_fixed_mixture = self.action == "Dispersion"
-        can_switch_to_mixture = (
-            self.action in {"BioProducts", "HeterogeneousCatalysts", "Molecules", "Polymers", "Media"}
-            and not is_fixed_mixture
-        )
+        is_fixed_mixture = self.action in {"Dispersion", "Medium", "Mixture"}
+        can_switch_to_mixture = False
         if is_fixed_mixture:
-            params_for_dialog[KEY_ENTITY_TYPE] = "Mixture"
             params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
-            params_for_dialog.setdefault(KEY_SOLVENT, {})
-        if can_switch_to_mixture:
-            params_for_dialog.setdefault(KEY_CHEMICAL_LIST, [])
-        if self.action == "Media":
-            params_for_dialog.setdefault(KEY_ENTITY_TYPE, "Substance")
+            if self.action == "Dispersion":
+                params_for_dialog.setdefault(KEY_SOLVENT, {})
         params_for_dialog.pop(KEY_MIXTURE_TYPE, None)
+        params_for_dialog.pop(KEY_ENTITY_TYPE, None)
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY, KEY_CAS_NUMBER]
 
@@ -1303,15 +1297,13 @@ class Block(QGraphicsRectItem):
         optional_keys: list[str] = []
         entity_type_value = params_for_dialog.get(KEY_ENTITY_TYPE, "")
         force_required_keys = set()
-        if self.action in {"Mixture", "Dispersion"}:
+        if self.action in {"Mixture", "Dispersion", "Medium"}:
             force_required_keys.update({KEY_CHEMICAL_LIST})
-        if is_fixed_mixture:
+        if self.action == "Dispersion":
             force_required_keys.add(KEY_SOLVENT)
 
         main_conditional_keys: list[str] = []
-        if can_switch_to_mixture:
-            main_conditional_keys.append(KEY_CHEMICAL_LIST)
-        if is_fixed_mixture:
+        if self.action == "Dispersion":
             main_conditional_keys = [KEY_SOLVENT]
         
         for key in ordered_keys:
@@ -1562,7 +1554,7 @@ class Block(QGraphicsRectItem):
                 if k == KEY_OPEN_FLAME:
                     value = normalize_boolean(value)
                 elif k in {
-                    KEY_DURATION, KEY_ADD_QUANTITY, KEY_TEMPERATURE, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_SPEED,
+                    KEY_DURATION, KEY_ADD_QUANTITY, KEY_TEMPERATURE, KEY_SPEED,
                     KEY_FLOW_RATE, KEY_PRESSURE, KEY_RAMP, KEY_POWER, KEY_VOLUME,
                     KEY_QUANTITY, KEY_CONCENTRATION
                 }:
@@ -1610,15 +1602,8 @@ class Block(QGraphicsRectItem):
                         return
 
             if is_fixed_mixture:
-                new_params[KEY_ENTITY_TYPE] = "Mixture"
                 new_params.setdefault(KEY_CHEMICAL_LIST, [])
-            elif can_switch_to_mixture:
-                if current_type == "Mixture":
-                    new_params[KEY_ENTITY_TYPE] = "Mixture"
-                    new_params.setdefault(KEY_CHEMICAL_LIST, [])
-                else:
-                    new_params[KEY_ENTITY_TYPE] = "Substance"
-                    new_params.pop(KEY_CHEMICAL_LIST, None)
+                new_params.pop(KEY_ENTITY_TYPE, None)
             new_params.pop(KEY_MIXTURE_TYPE, None)
 
             self.params.update(new_params)

@@ -14,12 +14,9 @@ from src.core.config import (
     KEY_DURATION,
     KEY_FLOW_RATE,
     KEY_FORMULA,
-    KEY_GASES,
     KEY_NAME,
     KEY_MATERIAL,
-    KEY_MAX_SIZE,
     KEY_METHOD,
-    KEY_MIN_SIZE,
     KEY_NAME,
     KEY_OPEN_FLAME,
     KEY_PHASE,
@@ -28,6 +25,7 @@ from src.core.config import (
     KEY_PROCESS,
     KEY_RAMP,
     KEY_RECIPIENT,
+    KEY_SIZE_RANGE,
     KEY_SPEED,
     KEY_SUBSTANCE,
     KEY_SUBSTANCE_LIST,
@@ -108,7 +106,7 @@ def sentence_for_step(step: dict) -> str:
     names = chemical_names_from_step(step)
     names_text = _format_name_list(names)
 
-    if action == "NewRecipient":
+    if action == "ChangeRecipient":
         recipient = _s(params.get(KEY_RECIPIENT)) or "recipient"
         material = _s(params.get(KEY_MATERIAL))
         volume = _s(params.get(KEY_VOLUME))
@@ -149,20 +147,15 @@ def sentence_for_step(step: dict) -> str:
             sentence += f"; {extras}"
         return sentence + "."
 
-    if action == "Wait":
+    if action == "NoModification":
         duration = _s(params.get(KEY_DURATION)) or "the specified time"
         return f"Wait for {duration}."
 
-    if action == "ChangeAtmosphere":
-        gases = _gases_summary(params.get(KEY_GASES))
-        flow_rate = _s(params.get(KEY_FLOW_RATE))
+    if action == "ChangePressure":
         pressure = _s(params.get(KEY_PRESSURE))
-        parts = [f"Change atmosphere to {gases}"]
-        if flow_rate:
-            parts.append(f"flow {flow_rate}")
         if pressure:
-            parts.append(f"pressure {pressure}")
-        return ", ".join(parts) + "."
+            return f"Change pressure to {pressure}."
+        return "Change pressure."
 
     if action == "ChangeAgitation":
         agitation = _s(params.get(KEY_AGITATION_TYPE)) or "agitation"
@@ -177,13 +170,20 @@ def sentence_for_step(step: dict) -> str:
         return f"Separate and keep the {phase} phase by {method}."
 
     if action == "Sieve":
-        min_size = _s(params.get(KEY_MIN_SIZE))
-        max_size = _s(params.get(KEY_MAX_SIZE))
-        if min_size and max_size:
-            return f"Sieve between {min_size} and {max_size}."
+        size_range = _s(params.get(KEY_SIZE_RANGE))
+        duration = _s(params.get(KEY_DURATION))
+        if size_range and duration:
+            return f"Sieve {size_range} for {duration}."
+        if size_range:
+            return f"Sieve {size_range}."
+        if duration:
+            return f"Sieve the solid for {duration}."
         return "Sieve the solid."
 
     if action == "Grind":
+        duration = _s(params.get(KEY_DURATION))
+        if duration:
+            return f"Grind the material for {duration}."
         return "Grind the material."
 
     if action == "Repeat":
@@ -200,14 +200,17 @@ def sentence_for_step(step: dict) -> str:
         mode = _s(params.get(KEY_CONTINUOUS_ADD_TYPE)) or "continuous"
         amount = _s(params.get(KEY_AMOUNT))
         substances = _s(params.get(KEY_SUBSTANCE_LIST))
+        flow_rate = _s(params.get(KEY_FLOW_RATE))
         sentence = f"Apply {mode.lower()} addition"
         if substances:
             sentence += f" of {substances}"
-        if amount and mode.lower() == "intermittent":
+        if amount:
             sentence += f" ({amount} cycles)"
+        if flow_rate:
+            sentence += f" at {flow_rate}"
         return sentence + "."
 
-    if action == "SubProductCreation":
+    if action == "CollectSubProduct":
         if names_text:
             return f"Create subproduct from {names_text}."
         return "Create subproduct."

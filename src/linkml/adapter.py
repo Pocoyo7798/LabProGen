@@ -23,12 +23,12 @@ ACTION_TO_LINKML_STEP = {
     "Grind": "GrindingStep",
     "Separate": "SeparationStep",
     "Sieve": "SievingStep",
-    "Wait": "WaitingStep",
-    "ChangeAtmosphere": "AtmosphereChangeStep",
+    "NoModification": "WaitingStep",
+    "ChangePressure": "AtmosphereChangeStep",
     "ChangeTemperature": "TemperatureChangeStep",
-    "NewRecipient": "RecipientChangeStep",
+    "ChangeRecipient": "RecipientChangeStep",
     "ChangeAgitation": "StirringStep",
-    "SubProductCreation": "SubProductCreationStep",
+    "CollectSubProduct": "SubProductCreationStep",
     "Repeat": "RepetitionBlock",
     "ContinuousAddition": "ContinuousAdditionStep",
 }
@@ -43,8 +43,7 @@ FIELD_TO_LINKML_SLOT = {
     KEY_OPEN_FLAME: "has_open_flame",
     KEY_PHASE: "phase_to_keep",
     KEY_METHOD: "uses_separation_method",
-    KEY_MIN_SIZE: "has_minimum_particle_size",
-    KEY_MAX_SIZE: "has_maximum_particle_size",
+    KEY_SIZE_RANGE: "has_minimum_particle_size",
     KEY_SPEED: "has_stirring_speed",
     KEY_FLOW_RATE: "has_flow_rate",
     KEY_PRESSURE: "has_pressure",
@@ -67,7 +66,7 @@ CHEMICAL_TO_LINKML_CLASS = {
     "Mixture": "ChemicalSubstance",
     "PerfectSingleCrystalMaterial": "ChemicalEntity",
     "Polymers": "ChemicalEntity",
-    "Media": "ChemicalSubstance",
+    "Medium": "ChemicalSubstance",
     "Dispersion": "ChemicalSubstance",
     "BioProducts": "ChemicalSubstance",
     "HeterogeneousCatalysts": "Catalyst",
@@ -110,7 +109,7 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
         KEY_BIGSMILES: "smiles",
         KEY_INCHI: "inchi",
     },
-    "Media": {
+    "Medium": {
         KEY_NAME: "alternative_label",
         KEY_QUANTITY: "has_volume",
         KEY_CONCENTRATION: "has_concentration",
@@ -146,7 +145,7 @@ CHEMICAL_FIELD_TO_LINKML_SLOT = {
         KEY_PY_L_150: "alternative_label",
         KEY_PY_L_450: "alternative_label",
     },
-    "MixtureChemical": {
+    "MixtureSubstance": {
         KEY_CONCENTRATION: "has_concentration",
     },
     "ComplexMaterial": {
@@ -382,16 +381,22 @@ def change_agitation_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def grind_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
+    }
+
+
 def separate_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "phase_to_keep": params.get(KEY_PHASE),
         "uses_separation_method": params.get(KEY_METHOD),
+        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
     }
 
 
-def change_atmosphere_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+def change_pressure_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "has_flow_rate": _quantity_or_raw(params.get(KEY_FLOW_RATE)),
         "has_pressure": _quantity_or_raw(params.get(KEY_PRESSURE)),
     }
 
@@ -415,8 +420,8 @@ def new_recipient_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
 
 def sieve_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
-        "has_minimum_particle_size": _quantity_or_raw(params.get(KEY_MIN_SIZE)),
-        "has_maximum_particle_size": _quantity_or_raw(params.get(KEY_MAX_SIZE)),
+        "has_minimum_particle_size": params.get(KEY_SIZE_RANGE),
+        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
     }
 
 
@@ -426,29 +431,38 @@ def repeat_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def no_modification_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
+    }
+
+
 def continuous_addition_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "has_added_material": params.get(KEY_SUBSTANCE_LIST),
         "continuous_addition_type": params.get(KEY_CONTINUOUS_ADD_TYPE),
         "has_intermittent_amount": build_amount_of_substance(params.get(KEY_AMOUNT)),
+        "has_flow_rate": _quantity_or_raw(params.get(KEY_FLOW_RATE)),
     }
 
 
 ACTION_TO_ADAPTER = {
     "Add": add_to_linkml,
+    "Grind": grind_to_linkml,
     "Separate": separate_to_linkml,
-    "ChangeAtmosphere": change_atmosphere_to_linkml,
+    "ChangePressure": change_pressure_to_linkml,
     "ChangeTemperature": change_temperature_to_linkml,
-    "NewRecipient": new_recipient_to_linkml,
+    "ChangeRecipient": new_recipient_to_linkml,
     "ChangeAgitation": change_agitation_to_linkml,
     "Sieve": sieve_to_linkml,
+    "NoModification": no_modification_to_linkml,
     "Repeat": repeat_to_linkml,
     "ContinuousAddition": continuous_addition_to_linkml,
 }
 
 
 def get_linkml_step_class(action_name: str) -> str | None:
-    return ACTION_TO_LINKML_STEP.get(action_name)
+    return ACTION_TO_LINKML_STEP.get(canonical_action_name(action_name))
 
 
 def get_linkml_slot(field_key: str, action_name: str | None = None) -> str | None:
@@ -462,7 +476,7 @@ def get_linkml_slot(field_key: str, action_name: str | None = None) -> str | Non
 
 
 def get_linkml_chemical_class(chemical_name: str) -> str | None:
-    return CHEMICAL_TO_LINKML_CLASS.get(chemical_name)
+    return CHEMICAL_TO_LINKML_CLASS.get(canonical_chemical_name(chemical_name))
 
 
 def get_linkml_chemical_slot(chemical_name: str, field_key: str) -> str | None:
@@ -474,12 +488,12 @@ LINKML_STEP_TO_ACTION = {
     "GrindingStep": "Grind",
     "SeparationStep": "Separate",
     "SievingStep": "Sieve",
-    "WaitingStep": "Wait",
-    "AtmosphereChangeStep": "ChangeAtmosphere",
+    "WaitingStep": "NoModification",
+    "AtmosphereChangeStep": "ChangePressure",
     "TemperatureChangeStep": "ChangeTemperature",
-    "RecipientChangeStep": "NewRecipient",
+    "RecipientChangeStep": "ChangeRecipient",
     "StirringStep": "ChangeAgitation",
-    "SubProductCreationStep": "SubProductCreation",
+    "SubProductCreationStep": "CollectSubProduct",
     "RepetitionBlock": "Repeat",
     "ContinuousAdditionStep": "ContinuousAddition",
 }
@@ -487,7 +501,7 @@ LINKML_STEP_TO_ACTION = {
 
 LINKML_CHEMICAL_TO_SOURCE = {
     "ChemicalEntity": "Substance",
-    "MaterialEntity": "Material",
+    "MaterialEntity": "Substance",
     "ChemicalSubstance": "Mixture",
     "Polymer": "Polymers",
 }
@@ -500,8 +514,7 @@ STEP_SLOT_TO_PARAM = {
     "has_open_flame": KEY_OPEN_FLAME,
     "phase_to_keep": KEY_PHASE,
     "uses_separation_method": KEY_METHOD,
-    "has_minimum_particle_size": KEY_MIN_SIZE,
-    "has_maximum_particle_size": KEY_MAX_SIZE,
+    "has_minimum_particle_size": KEY_SIZE_RANGE,
     "stirring_type": KEY_AGITATION_TYPE,
     "has_stirring_speed": KEY_SPEED,
     "has_atmosphere_type": KEY_GASES,

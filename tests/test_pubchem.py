@@ -149,7 +149,7 @@ def test_map_pubchem_only_fills_visible_keys():
         record,
         "Water",
         visible_keys={KEY_NAME, KEY_FORMULA},
-        chemical_type="Media",
+        chemical_type="Medium",
     )
     assert mapped == {KEY_NAME: "Water", KEY_FORMULA: "H2O"}
 

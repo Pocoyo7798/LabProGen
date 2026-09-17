@@ -154,6 +154,7 @@ class ChemicalListField:
             MixtureChemicalDialog,
             MixtureChemicalParametersDialog,
             UnifiedChemicalDetailsDialog,
+            chemical_requires_name,
             get_chemical_default_params,
             normalize_preparation_procedure,
         )
@@ -186,7 +187,7 @@ class ChemicalListField:
             )
 
         chem_name = new_chem.get(KEY_NAME, "").strip()
-        if not chem_name:
+        if chemical_requires_name(dlg.selected_chemical_type) and not chem_name:
             QMessageBox.warning(
                 self._dialog_parent(),
                 "Missing Chemical Name",
@@ -202,6 +203,7 @@ class ChemicalListField:
             MixtureChemicalDialog,
             MixtureChemicalParametersDialog,
             UnifiedChemicalDetailsDialog,
+            chemical_requires_name,
             get_chemical_default_params,
             normalize_preparation_procedure,
         )
@@ -252,7 +254,7 @@ class ChemicalListField:
             )
 
         chem_name = updated.get(KEY_NAME, "").strip()
-        if not chem_name:
+        if chemical_requires_name(dlg.selected_chemical_type) and not chem_name:
             QMessageBox.warning(
                 self._dialog_parent(),
                 "Missing Chemical Name",
