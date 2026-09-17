@@ -96,5 +96,28 @@ def test_gas_entry_label_with_concentration():
     assert label == "nitrogen (80 vol/vol)"
 
 
+def test_continuous_addition_lists_chemical_names():
+    step = {
+        "action": "ContinuousAddition",
+        "params": {
+            "continuous_add_type": "Intermittent",
+            "amount": "2",
+            "flow_rate": "1 mL/min",
+            "substance_list": [
+                {"chemical_type": "Substance", "name": "water"},
+                {"chemical": "Molecules", "params": {KEY_NAME: "ethanol"}},
+            ],
+        },
+    }
+    text = sentence_for_step(step)
+    assert "water" in text
+    assert "ethanol" in text
+    assert "Intermittent" in text or "intermittent" in text
+
+
 def test_chemical_display_name_fallback():
     assert chemical_display_name({"chemical": "Substance", "params": {}}) == "Substance"
+
+
+def test_chemical_display_name_flattened_list_item():
+    assert chemical_display_name({"chemical_type": "Substance", "name": "water"}) == "water"

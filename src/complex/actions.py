@@ -8,7 +8,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from src.core.config import FIELD_CONFIG, is_field_required, canonical_action_name, migrate_action_params
+from src.core.config import (
+    FIELD_CONFIG,
+    canonical_action_name,
+    is_chemical_entity_field,
+    is_field_required,
+    migrate_action_params,
+)
 
 ELEMENTARY_ACTIONS = frozenset({"Add", "Grind", "Separate", "Sieve", "NoModification"})
 SUPPORT_ACTIONS = frozenset({
@@ -48,7 +54,7 @@ DEFAULT_ACTION_PARAMS: dict[str, dict[str, Any]] = {
     "CollectSubProduct": {"substance": ""},
     "Repeat": {"amount": "1"},
     "ContinuousAddition": {
-        "substance_list": "",
+        "substance_list": [],
         "continuous_add_type": "",
         "amount": "1",
         "flow_rate": "0 mL/min",
@@ -308,6 +314,8 @@ def validate_definition(
                 continue
             action = str(step.get("action", ""))
         params = step_params.get(param.step_index, {})
+        if is_chemical_entity_field(param.param_key):
+            continue
         if not is_field_required(param.param_key, params=params, action_name=action):
             continue
         key = (param.step_index, param.param_key)

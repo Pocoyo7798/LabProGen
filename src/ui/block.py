@@ -1218,8 +1218,9 @@ class Block(QGraphicsRectItem):
         else:
             edit = QLineEdit(str(value))
             edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
-            if self.action == "Repeat" and key == KEY_AMOUNT:
-                edit.setValidator(QIntValidator(1, 999_999, edit))
+            if config.get("integer"):
+                minimum = int(config.get("minimum", 1) or 1)
+                edit.setValidator(QIntValidator(minimum, 999_999, edit))
             return edit, edit
 
     def _complex_locked_param_keys(self) -> set[str]:
@@ -1259,6 +1260,17 @@ class Block(QGraphicsRectItem):
         params_for_dialog.pop(KEY_ENTITY_TYPE, None)
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY, KEY_CAS_NUMBER]
+        hidden_action_keys = set()
+        if self.action == "CollectSubProduct":
+            hidden_action_keys.add(KEY_SUBSTANCE)
+
+        if is_chemical:
+            ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_chemical_keys]
+        else:
+            ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_action_keys]
+
+        if not ordered_keys and not is_chemical:
+            return
 
         dialog_parent = getattr(self, "_dialog_parent_override", None)
         if dialog_parent is None:
@@ -1278,11 +1290,6 @@ class Block(QGraphicsRectItem):
         input_map = {}
         row_widgets = {}
         row_labels = {}  # Store label widgets for visibility control
-
-        if is_chemical:
-            ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_chemical_keys]
-        else:
-            ordered_keys = list(params_for_dialog.keys())
 
         # Extract entity_type if exists and move it to the front
         entity_type_key = None
@@ -1314,6 +1321,11 @@ class Block(QGraphicsRectItem):
             # When entity_type is Mixture, chemical_list is required
             if key in force_required_keys or (entity_type_value == "Mixture" and key == KEY_CHEMICAL_LIST):
                 required_keys.append(key)
+            elif (
+                getattr(self, "part_of_complex_action", False)
+                and is_chemical_entity_field(key)
+            ):
+                optional_keys.append(key)
             elif is_field_required(key, params=params_for_dialog, action_name=self.action):
                 required_keys.append(key)
             else:
@@ -1539,7 +1551,8 @@ class Block(QGraphicsRectItem):
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
 
-                if k == KEY_AMOUNT and self.action == "Repeat" and value:
+                amount_config = FIELD_CONFIG.get(str(k).lower(), {})
+                if k == KEY_AMOUNT and value and amount_config.get("integer"):
                     try:
                         value = str(validate_repeat_amount(value))
                     except ValueError:
@@ -1564,9 +1577,16 @@ class Block(QGraphicsRectItem):
                     k in force_required_keys
                     or is_field_required(k, params=new_params, action_name=self.action)
                 )
+                if getattr(self, "part_of_complex_action", False) and is_chemical_entity_field(k):
+                    field_required = False
                 if field_required and is_empty_value(value):
                     label = field_label(k, self.action)
-                    QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.")
+                    extra = ""
+                    if FIELD_CONFIG.get(str(k).lower(), {}).get("type") == "list":
+                        extra = " Add at least one chemical."
+                    elif FIELD_CONFIG.get(str(k).lower(), {}).get("type") == "single_chemical":
+                        extra = " Use '+ Add' to select a chemical."
+                    QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.{extra}")
                     if isinstance(tracker, tuple):
                         tracker[0].setFocus()
                     elif isinstance(tracker, _SingleChemicalRef):

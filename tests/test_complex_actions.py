@@ -510,18 +510,21 @@ def test_collect_horizontal_flow_steps_expands_collapsed_surrogate():
     assert [step["action"] for step in content][:2] == ["NoModification", "Grind"]
 
 
-def test_activity_without_complex_steps_filters_linkml_validation():
+def test_activity_without_complex_steps_keeps_adm_members():
     from src.linkml.exporter import _activity_without_complex_steps
 
     activity = {
         "has_synthesis_step": [
+            {"source_action": "ComplexAction"},
             {"source_action": "NoModification", "part_of_complex_action": True},
             {"source_action": "Add"},
         ]
     }
     filtered = _activity_without_complex_steps(activity)
-    assert len(filtered["has_synthesis_step"]) == 1
-    assert filtered["has_synthesis_step"][0]["source_action"] == "Add"
+    assert [step["source_action"] for step in filtered["has_synthesis_step"]] == [
+        "NoModification",
+        "Add",
+    ]
 
 
 def test_can_be_left_neighbor_of_complex_group_last_member():
@@ -941,6 +944,44 @@ def test_validate_instance_parameters_allows_existing_registry_definition():
     parameters = build_instance_parameters(definition)
     errors = validate_instance_parameters(parameters, definition)
     assert not any("already exists" in err for err in errors)
+
+
+def test_complex_action_skips_chemical_entity_requirements():
+    from src.core.config import action_requires_attached_chemical
+
+    assert action_requires_attached_chemical("Add") is True
+    assert action_requires_attached_chemical("CollectSubProduct") is True
+    assert action_requires_attached_chemical("Add", part_of_complex_action=True) is False
+    assert action_requires_attached_chemical("Grind") is False
+
+    steps = [
+        {
+            "action": "Add",
+            "params": {
+                "duration": "1 s",
+                "add_quantity": "1 g",
+                "add_type": "Normal",
+                "open_flame": "False",
+            },
+        },
+        {"action": "CollectSubProduct", "params": {"substance": ""}},
+        {
+            "action": "ContinuousAddition",
+            "params": {
+                "substance_list": [],
+                "continuous_add_type": "Continuous",
+                "amount": "1",
+                "flow_rate": "1 mL/min",
+            },
+        },
+    ]
+    definition = ComplexActionDefinition(
+        name="ChemOptionalComplex",
+        steps=steps,
+        parameters=build_parameter_bindings(steps),
+    )
+    assert validate_definition(definition) == []
+    assert validate_instance_parameters(definition.parameters, definition) == []
 
 
 def test_iter_instance_dialog_sections_expands_nested_complex():

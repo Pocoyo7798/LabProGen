@@ -6,6 +6,7 @@ import json
 from typing import Any, Callable
 
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtGui import QIntValidator
 
 from src.ui.block import configure_unit_decimal_input, format_decimal_for_input
 from src.ui.chemical_list_field import build_chemical_list_field
@@ -167,6 +168,9 @@ class ParameterValueEditor:
 
         edit = QLineEdit(value_to_text(self.binding.value))
         edit.setReadOnly(self._read_only)
+        if config.get("integer"):
+            minimum = int(config.get("minimum", 1) or 1)
+            edit.setValidator(QIntValidator(minimum, 999_999, edit))
         self._line_edit = edit
         return edit
 

@@ -21,12 +21,12 @@ class TestSchemaValidator(unittest.TestCase):
         finally:
             sys.meta_path.remove(dummy_importer)
 
-    def test_linkml_unavailable_is_reported_as_warning(self):
+    def test_linkml_unavailable_is_reported_as_error(self):
         with patch.dict("sys.modules", {"linkml": None, "linkml.validator": None}):
             messages = validate_linkml_protocol({"activities": []})
 
         self.assertEqual(len(messages), 1)
-        self.assertEqual(messages[0].level, "warning")
+        self.assertEqual(messages[0].level, "error")
         self.assertEqual(messages[0].code, "linkml.unavailable")
 
 

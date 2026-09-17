@@ -14,6 +14,8 @@ from pathlib import Path
 
 from src.core.paths import get_app_dir, get_bundle_dir, is_frozen
 
+ACTION_DATA_MODEL_SCHEMA = "action_data_model.yaml"
+
 
 def get_schema_directory() -> Path:
     """Resolve the schema directory in source and frozen runtimes."""
@@ -94,14 +96,45 @@ def _load_yaml_file(path_str: str) -> dict:
     return data
 
 
-def load_linkml_schema(schema_name: str = "dcat_p_lab.yaml") -> dict:
+def _merge_linkml_builtin_types(merged: dict) -> None:
+    """Inline LinkML core types that recursive loading cannot resolve by path."""
+    types_schema: dict | None = None
+    try:
+        import linkml_runtime.linkml_model as linkml_model
+
+        types_path = Path(linkml_model.__file__).resolve().parent / "model" / "schema" / "types.yaml"
+        if types_path.exists():
+            types_schema = _load_yaml_file(str(types_path))
+    except Exception:
+        types_schema = None
+
+    if not types_schema:
+        merged.setdefault("types", {}).setdefault(
+            "string",
+            {"uri": "xsd:string", "base": "str", "description": "A character string"},
+        )
+        return
+
+    for key, value in types_schema.items():
+        if key == "imports":
+            continue
+        if isinstance(value, dict):
+            merged.setdefault(key, {})
+            builtin = copy.deepcopy(value)
+            builtin.update(merged[key])
+            merged[key] = builtin
+        elif key not in merged:
+            merged[key] = copy.deepcopy(value)
+
+
+def load_linkml_schema(schema_name: str = ACTION_DATA_MODEL_SCHEMA) -> dict:
     schema_path = get_schema_directory() / schema_name
     if not schema_path.exists():
         raise FileNotFoundError(f"Schema file not found: {schema_path}")
     return _load_yaml_file(str(schema_path))
 
 
-def load_linkml_schema_recursive(schema_name: str = "dcat_p_lab.yaml") -> dict:
+def load_linkml_schema_recursive(schema_name: str = ACTION_DATA_MODEL_SCHEMA) -> dict:
     """Load a schema and recursively merge local imports into a single mapping.
 
     This keeps the local schema layout intact while giving LinkML's validator a
@@ -138,6 +171,9 @@ def load_linkml_schema_recursive(schema_name: str = "dcat_p_lab.yaml") -> dict:
         for imp in schema.get("imports", []) or []:
             if not isinstance(imp, str):
                 continue
+            if imp in {"linkml:types", "linkml_runtime.linkml_model.types"}:
+                _merge_linkml_builtin_types(merged)
+                continue
             if imp.startswith(("http://", "https://")) or ":" in imp:
                 continue
             _load(imp)
@@ -147,129 +183,138 @@ def load_linkml_schema_recursive(schema_name: str = "dcat_p_lab.yaml") -> dict:
     return merged
 
 
-def build_validation_schema(schema_name: str = "dcat_p_lab.yaml") -> dict:
-    """Build a validation-friendly schema with local imports merged and stubs added."""
+def _strip_unsupported_metamodel_keys(schema: dict) -> dict:
+    """Drop class keys the installed LinkML runtime cannot load.
 
-    schema = load_linkml_schema_recursive(schema_name)
-    classes = schema.setdefault("classes", {})
-    slots = schema.setdefault("slots", {})
-    enums = schema.setdefault("enums", {})
-    types = schema.setdefault("types", {})
+    `closed` is kept in action_data_model.yaml as the intended constraint.
+    This project's LinkML runtime does not accept ClassDefinition.closed, so
+    unknown-field rejection is enforced in the validator instead.
+    """
+    cleaned = copy.deepcopy(schema)
+    for class_def in (cleaned.get("classes") or {}).values():
+        if isinstance(class_def, dict):
+            class_def.pop("closed", None)
+    return cleaned
 
-    qualitative_string_slots = {
-        "molecular_formula",
-        "smiles",
-        "inchi",
-        "inchikey",
-        "iupac_name",
+
+def build_validation_schema(schema_name: str = ACTION_DATA_MODEL_SCHEMA) -> dict:
+    """Load the validation schema without fabricating missing classes or slots."""
+    return _strip_unsupported_metamodel_keys(load_linkml_schema_recursive(schema_name))
+
+
+def _class_mro(schema: dict, class_name: str) -> list[str]:
+    classes = schema.get("classes") or {}
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def walk(name: str) -> None:
+        if not name or name in seen:
+            return
+        seen.add(name)
+        class_def = classes.get(name) or {}
+        parent = class_def.get("is_a")
+        if isinstance(parent, str):
+            walk(parent)
+        ordered.append(name)
+
+    walk(class_name)
+    return ordered
+
+
+def class_slot_constraints(class_name: str, schema: dict | None = None) -> dict:
+    """Return allowed slots, required slots, and enum values for a class."""
+    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
+    classes = schema.get("classes") or {}
+    slot_defs = schema.get("slots") or {}
+    enums = schema.get("enums") or {}
+
+    allowed: set[str] = set()
+    required: set[str] = set()
+    enum_values: dict[str, set[str]] = {}
+    ranges: dict[str, str] = {}
+    multivalued: dict[str, bool] = {}
+
+    for name in _class_mro(schema, class_name):
+        class_def = classes.get(name) or {}
+        for slot_name in class_def.get("slots") or []:
+            if isinstance(slot_name, str):
+                allowed.add(slot_name)
+        usage = class_def.get("slot_usage") or {}
+        for slot_name, spec in usage.items():
+            if not isinstance(spec, dict):
+                continue
+            allowed.add(slot_name)
+            if spec.get("required") is True:
+                required.add(slot_name)
+            elif spec.get("required") is False:
+                required.discard(slot_name)
+            if isinstance(spec.get("range"), str):
+                ranges[slot_name] = spec["range"]
+            if "multivalued" in spec:
+                multivalued[slot_name] = bool(spec.get("multivalued"))
+
+    for slot_name in list(allowed):
+        slot_def = slot_defs.get(slot_name) or {}
+        if slot_def.get("required") is True:
+            required.add(slot_name)
+        range_name = ranges.get(slot_name) or slot_def.get("range")
+        if isinstance(range_name, str):
+            ranges[slot_name] = range_name
+            if range_name in enums:
+                values = enums[range_name].get("permissible_values") or {}
+                enum_values[slot_name] = set(values.keys())
+        if slot_name not in multivalued:
+            multivalued[slot_name] = bool(slot_def.get("multivalued"))
+
+    for name in _class_mro(schema, class_name):
+        usage = (classes.get(name) or {}).get("slot_usage") or {}
+        for slot_name, spec in usage.items():
+            if isinstance(spec, dict) and spec.get("required") is False:
+                required.discard(slot_name)
+
+    return {
+        "allowed": allowed,
+        "required": required,
+        "enums": enum_values,
+        "ranges": ranges,
+        "multivalued": multivalued,
     }
 
-    for class_def in classes.values():
-        if isinstance(class_def, dict) and class_def.get("mixin"):
-            class_def.pop("mixin", None)
 
-    primitive_ranges = {
-        "string",
-        "boolean",
-        "integer",
-        "float",
-        "double",
-        "decimal",
-        "uri",
-        "curie",
-        "ncname",
-        "nodeidentifier",
-        "jsonpointer",
-        "jsonpath",
-        "sparqlpath",
-        "objectidentifier",
-        "date",
-        "datetime",
-        "time",
-        "duration",
-    }
+def listed_action_classes(schema: dict | None = None) -> set[str]:
+    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
+    classes = schema.get("classes") or {}
+    names: set[str] = set()
+    for name, class_def in classes.items():
+        if not isinstance(class_def, dict):
+            continue
+        if class_def.get("is_a") == "Action" and not class_def.get("abstract"):
+            names.add(name)
+    return names
 
-    def is_primitive(name: object) -> bool:
-        return isinstance(name, str) and name in primitive_ranges
 
-    def looks_like_class(name: object) -> bool:
-        return isinstance(name, str) and bool(name) and name[0].isupper() and " " not in name and ":" not in name
-
-    def looks_like_slot(name: object) -> bool:
-        return isinstance(name, str) and bool(name) and name[0].islower() and " " not in name and ":" not in name
-
-    def add_class_stub(name: str) -> None:
-        classes.setdefault(name, {"description": f"Auto-stub for validation: {name}", "slots": []})
-
-    def add_slot_stub(name: str) -> None:
-        slots.setdefault(name, {"description": f"Auto-stub for validation: {name}", "range": "string"})
-
-    changed = True
-    while changed:
-        changed = False
-
-        for class_name, class_def in list(classes.items()):
-            if not isinstance(class_def, dict):
-                continue
-
-            for parent_key in ("is_a", "mixin", "mixins", "implements"):
-                parent_value = class_def.get(parent_key)
-                values = parent_value if isinstance(parent_value, list) else ([parent_value] if parent_value else [])
-                for parent in values:
-                    if looks_like_class(parent) and parent not in classes and parent not in enums and parent not in types:
-                        add_class_stub(parent)
-                        changed = True
-
-            for slot_name, slot_usage in (class_def.get("slot_usage") or {}).items():
-                if looks_like_slot(slot_name) and slot_name not in slots:
-                    add_slot_stub(slot_name)
-                    changed = True
-                if isinstance(slot_usage, dict):
-                    rng = slot_usage.get("range")
-                    if looks_like_class(rng) and not is_primitive(rng) and rng not in classes and rng not in enums and rng not in types:
-                        add_class_stub(rng)
-                        changed = True
-
-            for slot_name in class_def.get("slots", []) or []:
-                if looks_like_slot(slot_name) and slot_name not in slots:
-                    add_slot_stub(slot_name)
-                    changed = True
-
-        for slot_name, slot_def in list(slots.items()):
-            if not isinstance(slot_def, dict):
-                continue
-
-            parent = slot_def.get("is_a")
-            if looks_like_slot(parent) and parent not in slots:
-                add_slot_stub(parent)
-                changed = True
-
-            rng = slot_def.get("range")
-            if looks_like_class(rng) and not is_primitive(rng) and rng not in classes and rng not in enums and rng not in types:
-                add_class_stub(rng)
-                changed = True
-
-            binding_ranges = slot_def.get("bindings") or []
-            for binding in binding_ranges:
-                if isinstance(binding, dict):
-                    br = binding.get("range")
-                    if looks_like_class(br) and br not in classes and br not in enums and br not in types:
-                        add_class_stub(br)
-                        changed = True
-
-    for slot_name, slot_def in slots.items():
-        if slot_name in qualitative_string_slots and isinstance(slot_def, dict):
-            slot_def["range"] = "string"
-
-    # Ensure quantity-like classes keep their value/unit/raw structure during
-    # validation even when the external imported base classes are not available.
-    qa = classes.get("QuantitativeAttribute")
-    if isinstance(qa, dict):
-        qa_slots = qa.get("slots")
-        if not isinstance(qa_slots, list) or not qa_slots:
-            qa["slots"] = ["value", "unit", "raw"]
-
-    return schema
+def listed_chemical_classes(schema: dict | None = None) -> set[str]:
+    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
+    classes = schema.get("classes") or {}
+    names: set[str] = set()
+    for name, class_def in classes.items():
+        if name in {"ChemicalEntity"}:
+            continue
+        if not isinstance(class_def, dict):
+            continue
+        current = name
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            if current == "ChemicalEntity":
+                names.add(name)
+                break
+            current = (classes.get(current) or {}).get("is_a")
+    names.add("ChemicalEntity")
+    names.add("Substance")
+    names.add("Mixture")
+    names.add("MixtureSubstance")
+    return names
 
 
 def schema_summary(schema: dict) -> dict:

@@ -15,149 +15,113 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.config import *
+from src.linkml.loader import (
+    listed_action_classes,
+    listed_chemical_classes,
+)
 
 
-# Internal action names -> LinkML step classes in dcat_p_lab.yaml
+# Internal action names -> LinkML step classes (identity with Action Data Model)
 ACTION_TO_LINKML_STEP = {
-    "Add": "MaterialAdditionStep",
-    "Grind": "GrindingStep",
-    "Separate": "SeparationStep",
-    "Sieve": "SievingStep",
-    "NoModification": "WaitingStep",
-    "ChangePressure": "AtmosphereChangeStep",
-    "ChangeTemperature": "TemperatureChangeStep",
-    "ChangeRecipient": "RecipientChangeStep",
-    "ChangeAgitation": "StirringStep",
-    "CollectSubProduct": "SubProductCreationStep",
-    "Repeat": "RepetitionBlock",
-    "ContinuousAddition": "ContinuousAdditionStep",
+    "Add": "Add",
+    "Grind": "Grind",
+    "Separate": "Separate",
+    "Sieve": "Sieve",
+    "NoModification": "NoModification",
+    "ChangePressure": "ChangePressure",
+    "ChangeTemperature": "ChangeTemperature",
+    "ChangeRecipient": "ChangeRecipient",
+    "ChangeAgitation": "ChangeAgitation",
+    "CollectSubProduct": "CollectSubProduct",
+    "Repeat": "Repeat",
+    "ContinuousAddition": "ContinuousAddition",
 }
 
 
-# Internal field keys -> LinkML slots in dcat_p_lab.yaml
+# Domain param keys -> schema slots (identity except identifiers that are invalid YAML names)
 FIELD_TO_LINKML_SLOT = {
-    KEY_DURATION: "has_step_duration",
-    KEY_TEMPERATURE: "has_target_temperature",
-    KEY_CHEMICAL: "has_added_material",
-    KEY_ADD_TYPE: "addition_type",
-    KEY_OPEN_FLAME: "has_open_flame",
-    KEY_PHASE: "phase_to_keep",
-    KEY_METHOD: "uses_separation_method",
-    KEY_SIZE_RANGE: "has_minimum_particle_size",
-    KEY_SPEED: "has_stirring_speed",
-    KEY_FLOW_RATE: "has_flow_rate",
-    KEY_PRESSURE: "has_pressure",
-    KEY_PROCESS: "heating_process",
-    KEY_RAMP: "has_heat_ramp",
-    KEY_POWER: "has_microwave_power",
-    KEY_RECIPIENT: "has_recipient_type",
-    KEY_MATERIAL: "has_vessel_material",
-    KEY_VOLUME: "has_vessel_volume",
-    KEY_SUBSTANCE: "has_subproduct",
-    KEY_SUBSTANCE_LIST: "has_added_material",
-    KEY_CONTINUOUS_ADD_TYPE: "continuous_addition_type",
+    KEY_DURATION: KEY_DURATION,
+    KEY_TEMPERATURE: KEY_TEMPERATURE,
+    KEY_CHEMICAL: "chemical",
+    KEY_ADD_TYPE: KEY_ADD_TYPE,
+    KEY_ADD_QUANTITY: KEY_ADD_QUANTITY,
+    KEY_OPEN_FLAME: KEY_OPEN_FLAME,
+    KEY_PHASE: KEY_PHASE,
+    KEY_METHOD: KEY_METHOD,
+    KEY_SIZE_RANGE: KEY_SIZE_RANGE,
+    KEY_SPEED: KEY_SPEED,
+    KEY_FLOW_RATE: KEY_FLOW_RATE,
+    KEY_PRESSURE: KEY_PRESSURE,
+    KEY_PROCESS: KEY_PROCESS,
+    KEY_RAMP: KEY_RAMP,
+    KEY_POWER: KEY_POWER,
+    KEY_RECIPIENT: KEY_RECIPIENT,
+    KEY_MATERIAL: KEY_MATERIAL,
+    KEY_VOLUME: KEY_VOLUME,
+    KEY_SUBSTANCE: "substance",
+    KEY_SUBSTANCE_LIST: "substance_list",
+    KEY_CONTINUOUS_ADD_TYPE: KEY_CONTINUOUS_ADD_TYPE,
+    KEY_AMOUNT: KEY_AMOUNT,
+    KEY_AGITATION_TYPE: KEY_AGITATION_TYPE,
+    KEY_3D_STRUCTURE: "three_d_structure",
 }
 
 
 CHEMICAL_TO_LINKML_CLASS = {
-    "Substance": "ChemicalEntity",
-    "Molecules": "ChemicalEntity",
-    "Material": "MaterialEntity",
-    "Mixture": "ChemicalSubstance",
-    "PerfectSingleCrystalMaterial": "ChemicalEntity",
-    "Polymers": "ChemicalEntity",
-    "Medium": "ChemicalSubstance",
-    "Dispersion": "ChemicalSubstance",
-    "BioProducts": "ChemicalSubstance",
-    "HeterogeneousCatalysts": "Catalyst",
-    # Legacy/older protocol exports kept as fallback for migration compatibility
-    "ComplexMaterial": "MaterialEntity",
-    "HeterogeneousMaterial": "MaterialEntity",
-    "ComplexHeterogeneousMaterial": "MaterialEntity",
+    "ChemicalEntity": "ChemicalEntity",
+    "Substance": "Substance",
+    "MixtureSubstance": "MixtureSubstance",
+    "Mixture": "Mixture",
+    "Molecules": "Molecules",
+    "Polymers": "Polymers",
+    "Medium": "Medium",
+    "Dispersion": "Dispersion",
+    "BioProducts": "BioProducts",
+    "HeterogeneousCatalysts": "HeterogeneousCatalysts",
 }
 
 
 CHEMICAL_FIELD_TO_LINKML_SLOT = {
-    "entity_id": "entity_id",
-    "entity_producer": "entity_producer",
-    "entity_purity": "entity_purity",
-    "Substance": {
-        KEY_FORMULA: "molecular_formula",
-        KEY_SMILES: "smiles",
-        KEY_INCHI: "inchi",
-    },
-    "Material": {
-        KEY_ATOMIC_COMP: "alternative_label",
-        KEY_FORMULA: "molecular_formula",
-    },
-    "Mixture": {
-        KEY_NAME: "alternative_label",
-        KEY_QUANTITY: "has_volume",
-        KEY_CHEMICAL_LIST: "alternative_label",
-    },
-    "PerfectSingleCrystalMaterial": {
-        KEY_FORMULA: "molecular_formula",
-        KEY_CIF: "has_crystallographic_information_file",
-    },
-    "Molecules": {
-        KEY_FORMULA: "molecular_formula",
-        KEY_SMILES: "smiles",
-        KEY_INCHI: "inchi",
-    },
-    "Polymers": {
-        KEY_FORMULA: "molecular_formula",
-        KEY_BIGSMILES: "smiles",
-        KEY_INCHI: "inchi",
-    },
-    "Medium": {
-        KEY_NAME: "alternative_label",
-        KEY_QUANTITY: "has_volume",
-        KEY_CONCENTRATION: "has_concentration",
-        KEY_STATE: "has_physical_state",
-        KEY_FUNCTION: "alternative_label",
-        KEY_PURITY: "alternative_label",
-        KEY_STERILITY: "alternative_label",
-        KEY_SOLUBILITY: "alternative_label",
-    },
-    "Dispersion": {
-        KEY_NAME: "alternative_label",
-        KEY_CHEMICAL_LIST: "alternative_label",
-    },
-    "BioProducts": {
-        KEY_NAME: "alternative_label",
-        KEY_ORIGIN: "alternative_label",
-        KEY_PRODUCTION_PHASE: "alternative_label",
-        KEY_LOCATION: "alternative_label",
-    },
-    "HeterogeneousCatalysts": {
-        KEY_NAME: "alternative_label",
-        KEY_FORMULA: "alternative_label",
-        KEY_3D_STRUCTURE: "alternative_label",
-        KEY_CRYSTALLINITY: "alternative_label",
-        KEY_N2_ADSORPTION_BET_AREA: "alternative_label",
-        KEY_N2_ADSORPTION_MICROPORE_AREA: "alternative_label",
-        KEY_N2_ADSORPTION_MESOPORE_AREA: "alternative_label",
-        KEY_N2_ADSORPTION_TOTAL_VOLUME: "alternative_label",
-        KEY_N2_ADSORPTION_MICROPORE_VOLUME: "alternative_label",
-        KEY_N2_MESOPORE_VOLUME: "alternative_label",
-        KEY_PY_B_150: "alternative_label",
-        KEY_PY_B_450: "alternative_label",
-        KEY_PY_L_150: "alternative_label",
-        KEY_PY_L_450: "alternative_label",
-    },
-    "MixtureSubstance": {
-        KEY_CONCENTRATION: "has_concentration",
-    },
-    "ComplexMaterial": {
-        KEY_BASE_MAT: "alternative_label",
-    },
-    "HeterogeneousMaterial": {
-        KEY_MAT_LIST: "alternative_label",
-    },
-    "ComplexHeterogeneousMaterial": {
-        KEY_BASE_COMPLEX: "alternative_label",
-    },
+    KEY_PREPARATION_PROCEDURE: KEY_PREPARATION_PROCEDURE,
+    KEY_ENTITY_ID: KEY_ENTITY_ID,
+    KEY_PRODUCER: KEY_PRODUCER,
+    KEY_ENTITY_PURITY: KEY_ENTITY_PURITY,
+    KEY_CAS_NUMBER: KEY_CAS_NUMBER,
+    KEY_NAME: KEY_NAME,
+    KEY_FORMULA: KEY_FORMULA,
+    KEY_SMILES: KEY_SMILES,
+    KEY_INCHI: KEY_INCHI,
+    KEY_BIGSMILES: KEY_BIGSMILES,
+    KEY_QUANTITY: KEY_QUANTITY,
+    KEY_CONCENTRATION: KEY_CONCENTRATION,
+    KEY_CHEMICAL_LIST: KEY_CHEMICAL_LIST,
+    KEY_ORIGIN: KEY_ORIGIN,
+    KEY_PRODUCTION_PHASE: KEY_PRODUCTION_PHASE,
+    KEY_LOCATION: KEY_LOCATION,
+    KEY_TEMPERATURE_STABILITY: KEY_TEMPERATURE_STABILITY,
+    KEY_LIGHT_SENSITIVITY: KEY_LIGHT_SENSITIVITY,
+    KEY_OXIDATION_SENSITIVITY: KEY_OXIDATION_SENSITIVITY,
+    KEY_TOXICITY_TO_PRODUCER: KEY_TOXICITY_TO_PRODUCER,
+    KEY_FUNCTION: KEY_FUNCTION,
+    KEY_STATE: KEY_STATE,
+    KEY_PURITY: KEY_PURITY,
+    KEY_STERILITY: KEY_STERILITY,
+    KEY_SOLUBILITY: KEY_SOLUBILITY,
+    KEY_SOLVENT: KEY_SOLVENT,
+    KEY_3D_STRUCTURE: "three_d_structure",
+    KEY_CRYSTALLINITY: KEY_CRYSTALLINITY,
+    KEY_N2_ADSORPTION_BET_AREA: KEY_N2_ADSORPTION_BET_AREA,
+    KEY_N2_ADSORPTION_MICROPORE_AREA: KEY_N2_ADSORPTION_MICROPORE_AREA,
+    KEY_N2_ADSORPTION_MESOPORE_AREA: KEY_N2_ADSORPTION_MESOPORE_AREA,
+    KEY_N2_ADSORPTION_TOTAL_VOLUME: KEY_N2_ADSORPTION_TOTAL_VOLUME,
+    KEY_N2_ADSORPTION_MICROPORE_VOLUME: KEY_N2_ADSORPTION_MICROPORE_VOLUME,
+    KEY_N2_MESOPORE_VOLUME: KEY_N2_MESOPORE_VOLUME,
+    KEY_PY_B_150: KEY_PY_B_150,
+    KEY_PY_B_450: KEY_PY_B_450,
+    KEY_PY_L_150: KEY_PY_L_150,
+    KEY_PY_L_450: KEY_PY_L_450,
 }
+
 
 
 @dataclass(frozen=True)
@@ -365,125 +329,70 @@ def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
     return {"value": numeric_value, "raw": text}
 
 
-def add_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_added_material": params.get(KEY_CHEMICAL),
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
-        "addition_type": params.get(KEY_ADD_TYPE),
-        "has_open_flame": normalize_boolean(params.get(KEY_OPEN_FLAME)),
-    }
-
-
-def change_agitation_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    """Convert ChangeAgitation action parameters to StirringStep LinkML slots."""
-    return {
-        "has_stirring_speed": _quantity_or_raw(params.get(KEY_SPEED)),
-    }
-
-
-def grind_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
-    }
-
-
-def separate_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "phase_to_keep": params.get(KEY_PHASE),
-        "uses_separation_method": params.get(KEY_METHOD),
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
-    }
-
-
-def change_pressure_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_pressure": _quantity_or_raw(params.get(KEY_PRESSURE)),
-    }
-
-
-def change_temperature_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_target_temperature": quantity_to_text(params.get(KEY_TEMPERATURE)),
-        "heating_process": params.get(KEY_PROCESS),
-        "has_heat_ramp": _quantity_or_raw(params.get(KEY_RAMP)),
-        "has_microwave_power": _quantity_or_raw(params.get(KEY_POWER)),
-    }
-
-
-def new_recipient_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_recipient_type": params.get(KEY_RECIPIENT),
-        "has_vessel_material": params.get(KEY_MATERIAL),
-        "has_vessel_volume": _quantity_or_raw(params.get(KEY_VOLUME)),
-    }
-
-
-def sieve_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_minimum_particle_size": params.get(KEY_SIZE_RANGE),
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
-    }
-
-
-def repeat_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "repetition_count": params.get(KEY_AMOUNT),
-    }
-
-
-def no_modification_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_step_duration": _quantity_or_raw(params.get(KEY_DURATION)),
-    }
-
-
-def continuous_addition_to_linkml(params: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "has_added_material": params.get(KEY_SUBSTANCE_LIST),
-        "continuous_addition_type": params.get(KEY_CONTINUOUS_ADD_TYPE),
-        "has_intermittent_amount": build_amount_of_substance(params.get(KEY_AMOUNT)),
-        "has_flow_rate": _quantity_or_raw(params.get(KEY_FLOW_RATE)),
-    }
-
-
-ACTION_TO_ADAPTER = {
-    "Add": add_to_linkml,
-    "Grind": grind_to_linkml,
-    "Separate": separate_to_linkml,
-    "ChangePressure": change_pressure_to_linkml,
-    "ChangeTemperature": change_temperature_to_linkml,
-    "ChangeRecipient": new_recipient_to_linkml,
-    "ChangeAgitation": change_agitation_to_linkml,
-    "Sieve": sieve_to_linkml,
-    "NoModification": no_modification_to_linkml,
-    "Repeat": repeat_to_linkml,
-    "ContinuousAddition": continuous_addition_to_linkml,
-}
-
-
 def get_linkml_step_class(action_name: str) -> str | None:
-    return ACTION_TO_LINKML_STEP.get(canonical_action_name(action_name))
+    action_name = canonical_action_name(action_name)
+    mapped = ACTION_TO_LINKML_STEP.get(action_name)
+    if mapped:
+        return mapped
+    if action_name in listed_action_classes():
+        return action_name
+    return None
 
 
-def get_linkml_slot(field_key: str, action_name: str | None = None) -> str | None:
-    if field_key == KEY_AMOUNT:
-        if action_name == "ContinuousAddition":
-            return "has_intermittent_amount"
-        if action_name == "Repeat":
-            return "repetition_count"
-
-    return FIELD_TO_LINKML_SLOT.get(field_key)
+def get_linkml_slot(field_key: str, action_name: str | None = None) -> str:
+    """Map a domain field onto an Action Data Model slot; unknown keys are kept."""
+    return FIELD_TO_LINKML_SLOT.get(field_key, field_key)
 
 
 def get_linkml_chemical_class(chemical_name: str) -> str | None:
-    return CHEMICAL_TO_LINKML_CLASS.get(canonical_chemical_name(chemical_name))
+    chemical_name = canonical_chemical_name(chemical_name)
+    mapped = CHEMICAL_TO_LINKML_CLASS.get(chemical_name)
+    if mapped:
+        return mapped
+    if chemical_name in listed_chemical_classes():
+        return chemical_name
+    return None
 
 
-def get_linkml_chemical_slot(chemical_name: str, field_key: str) -> str | None:
-    return CHEMICAL_FIELD_TO_LINKML_SLOT.get(chemical_name, {}).get(field_key) or CHEMICAL_FIELD_TO_LINKML_SLOT.get(field_key)
+def get_linkml_chemical_slot(chemical_name: str, field_key: str) -> str:
+    """Map a chemical field onto an Action Data Model slot; unknown keys are kept."""
+    return CHEMICAL_FIELD_TO_LINKML_SLOT.get(field_key, field_key)
+
+
+def chemical_slot_for_action(action_name: str | None) -> str | None:
+    action_name = canonical_action_name(action_name or "")
+    if action_name == "Add":
+        return "chemical"
+    if action_name == "CollectSubProduct":
+        return "substance"
+    if action_name == "ContinuousAddition":
+        return "substance_list"
+    return None
+
+
+COMPLEX_ACTION_MARKER = "ComplexAction"
+CHEMICAL_OBJECT_SLOTS = {"chemical", "substance", "substance_list", "chemical_list", "solvent"}
+# ChemicalEntity classes that declare their own concentration slot. Presence of
+# that key must not be taken as evidence that the record is a MixtureSubstance.
+_ENTITY_OWNED_CONCENTRATION_CLASSES = {"Medium"}
+ENTITY_CLASS_RANGES = {
+    "Action",
+    "ChemicalEntity",
+    "MixtureSubstance",
+    "Substance",
+    "Mixture",
+    "Molecules",
+    "Polymers",
+    "Medium",
+    "Dispersion",
+    "BioProducts",
+    "HeterogeneousCatalysts",
+}
 
 
 LINKML_STEP_TO_ACTION = {
+    **{value: key for key, value in ACTION_TO_LINKML_STEP.items()},
+    # Legacy export class names (import only)
     "MaterialAdditionStep": "Add",
     "GrindingStep": "Grind",
     "SeparationStep": "Separate",
@@ -500,24 +409,49 @@ LINKML_STEP_TO_ACTION = {
 
 
 LINKML_CHEMICAL_TO_SOURCE = {
+    **{value: key for key, value in CHEMICAL_TO_LINKML_CLASS.items()},
     "ChemicalEntity": "Substance",
     "MaterialEntity": "Substance",
     "ChemicalSubstance": "Mixture",
     "Polymer": "Polymers",
+    "Catalyst": "HeterogeneousCatalysts",
 }
 
 
 STEP_SLOT_TO_PARAM = {
+    KEY_DURATION: KEY_DURATION,
+    KEY_TEMPERATURE: KEY_TEMPERATURE,
+    KEY_ADD_QUANTITY: KEY_ADD_QUANTITY,
+    KEY_ADD_TYPE: KEY_ADD_TYPE,
+    KEY_OPEN_FLAME: KEY_OPEN_FLAME,
+    KEY_PHASE: KEY_PHASE,
+    KEY_METHOD: KEY_METHOD,
+    KEY_SIZE_RANGE: KEY_SIZE_RANGE,
+    KEY_AGITATION_TYPE: KEY_AGITATION_TYPE,
+    KEY_SPEED: KEY_SPEED,
+    KEY_FLOW_RATE: KEY_FLOW_RATE,
+    KEY_PRESSURE: KEY_PRESSURE,
+    KEY_PROCESS: KEY_PROCESS,
+    KEY_RAMP: KEY_RAMP,
+    KEY_POWER: KEY_POWER,
+    KEY_RECIPIENT: KEY_RECIPIENT,
+    KEY_MATERIAL: KEY_MATERIAL,
+    KEY_VOLUME: KEY_VOLUME,
+    KEY_CONTINUOUS_ADD_TYPE: KEY_CONTINUOUS_ADD_TYPE,
+    KEY_AMOUNT: KEY_AMOUNT,
+    KEY_SUBSTANCE: KEY_SUBSTANCE,
+    KEY_SUBSTANCE_LIST: KEY_SUBSTANCE_LIST,
+    KEY_CHEMICAL: KEY_CHEMICAL,
+    # Legacy export slot names (import only)
     "has_added_material": KEY_CHEMICAL,
     "has_step_duration": KEY_DURATION,
+    "has_target_temperature": KEY_TEMPERATURE,
     "addition_type": KEY_ADD_TYPE,
     "has_open_flame": KEY_OPEN_FLAME,
-    "phase_to_keep": KEY_PHASE,
     "uses_separation_method": KEY_METHOD,
     "has_minimum_particle_size": KEY_SIZE_RANGE,
     "stirring_type": KEY_AGITATION_TYPE,
     "has_stirring_speed": KEY_SPEED,
-    "has_atmosphere_type": KEY_GASES,
     "has_flow_rate": KEY_FLOW_RATE,
     "has_pressure": KEY_PRESSURE,
     "heating_process": KEY_PROCESS,
@@ -529,17 +463,16 @@ STEP_SLOT_TO_PARAM = {
     "continuous_addition_type": KEY_CONTINUOUS_ADD_TYPE,
     "has_intermittent_amount": KEY_AMOUNT,
     "repetition_count": KEY_AMOUNT,
+    "has_subproduct": KEY_SUBSTANCE,
 }
 
 
 CHEMICAL_SLOT_TO_PARAM = {
-    "entity_id": KEY_ENTITY_ID,
-    "entity_producer": KEY_PRODUCER,
-    "entity_purity": KEY_ENTITY_PURITY,
+    **{value: key for key, value in CHEMICAL_FIELD_TO_LINKML_SLOT.items() if isinstance(value, str)},
+    "three_d_structure": KEY_3D_STRUCTURE,
     "molecular_formula": KEY_FORMULA,
     "smiles": KEY_SMILES,
     "inchi": KEY_INCHI,
-    "has_crystallographic_information_file": KEY_CIF,
     "alternative_label": KEY_NAME,
     "has_volume": KEY_QUANTITY,
     "has_mass": KEY_QUANTITY,
@@ -547,6 +480,218 @@ CHEMICAL_SLOT_TO_PARAM = {
     "has_concentration": KEY_CONCENTRATION,
     "has_physical_state": KEY_STATE,
 }
+
+
+_CHEMICAL_WRAPPER_KEYS = {
+    "chemical",
+    "chemical_type",
+    "params",
+    "block_id",
+    "slots",
+    "linkml_class",
+    "source_chemical",
+    "id",
+    "source_metadata",
+    "attached_chemicals",
+    "class",
+    "type",
+}
+
+EXPORTER_ENVELOPE_KEYS = {
+    "id",
+    "block_id",
+    "source_action",
+    "source_chemical",
+    "linkml_class",
+    "source_metadata",
+    "attached_chemicals",
+    "class",
+    "slots",
+    "flow_id",
+    "flow_type",
+    "is_explicit_first",
+    "chemical_block_id",
+    "part_of_complex_action",
+    "complex_group_id",
+    "complex_action_name",
+    "complex_step_index",
+    "subproduct_branch",
+    "subproduct_branches",
+}
+
+
+def _record_chemical_class(chemical: dict[str, Any]) -> str:
+    if chemical.get("type") == "MixtureSubstance" or chemical.get("linkml_class") == "MixtureSubstance":
+        return "MixtureSubstance"
+    raw = chemical.get("chemical")
+    if isinstance(raw, str) and raw.strip():
+        return canonical_chemical_name(raw) or raw
+    return canonical_chemical_name(
+        chemical.get("chemical_type")
+        or chemical.get("type")
+        or chemical.get("source_chemical")
+        or ""
+    ) or ""
+
+
+def _looks_like_mixture_substance(chemical: dict[str, Any], class_name: str) -> bool:
+    """True for a flat mixture-list item, not a ChemicalEntity that owns concentration."""
+    if class_name == "MixtureSubstance" or isinstance(chemical.get("chemical"), dict):
+        return True
+    if class_name in _ENTITY_OWNED_CONCENTRATION_CLASSES or class_name in {"Mixture", "Dispersion"}:
+        return False
+    return bool(chemical.get("chemical_type")) and KEY_CONCENTRATION in chemical
+
+
+def _nested_chemical_params(chemical: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    nested_params = dict(params)
+    skip = set(_CHEMICAL_WRAPPER_KEYS) | {KEY_CONCENTRATION}
+    for key, value in chemical.items():
+        if key in skip:
+            continue
+        nested_params.setdefault(key, value)
+    nested_params.pop(KEY_CONCENTRATION, None)
+    nested_params.pop("chemical_type", None)
+    nested_params.pop("type", None)
+    return nested_params
+
+
+def _project_mixture_substance(chemical: dict[str, Any], class_name: str) -> dict[str, Any]:
+    """Build a MixtureSubstance with nested ChemicalEntity and required concentration."""
+    params = dict(chemical.get("params") or {})
+    concentration = chemical.get(KEY_CONCENTRATION, params.get(KEY_CONCENTRATION))
+    nested_record = chemical.get("chemical")
+    if isinstance(nested_record, dict):
+        nested = chemical_record_to_instance(nested_record, mixture_item=False)
+    else:
+        nested_type = canonical_chemical_name(
+            (nested_record if isinstance(nested_record, str) else None)
+            or chemical.get("chemical_type")
+            or (class_name if class_name not in {"", "MixtureSubstance"} else None)
+            or params.get("chemical_type")
+            or "Substance"
+        )
+        nested = _finish_chemical_instance(nested_type, _nested_chemical_params(chemical, params))
+    instance: dict[str, Any] = {"type": "MixtureSubstance", "chemical": nested}
+    if not _is_blank(concentration):
+        instance[KEY_CONCENTRATION] = concentration
+    return instance
+
+
+def _finish_chemical_instance(
+    class_name: str,
+    params: dict[str, Any] | None,
+    *,
+    mixture_item: bool = False,
+) -> dict[str, Any]:
+    class_name = canonical_chemical_name(class_name) or class_name
+    record = dict(params or {})
+    if mixture_item or class_name == "MixtureSubstance":
+        if class_name == "MixtureSubstance":
+            record.setdefault("type", "MixtureSubstance")
+        else:
+            record.setdefault("chemical_type", class_name)
+        return _project_mixture_substance(record, class_name)
+
+    instance = {"type": get_linkml_chemical_class(class_name) or class_name}
+    for key, value in (params or {}).items():
+        if _is_blank(value) or key in {"chemical_type", "type"}:
+            continue
+        slot = get_linkml_chemical_slot(class_name, key)
+        if slot == "chemical_list":
+            instance[slot] = chemical_record_to_instance(value, mixture_item=True)
+        elif slot in CHEMICAL_OBJECT_SLOTS:
+            instance[slot] = chemical_record_to_instance(value, mixture_item=False)
+        else:
+            instance[slot] = value
+    return instance
+
+
+def chemical_record_to_instance(chemical: Any, *, mixture_item: bool | None = None) -> Any:
+    """Project a domain or exported chemical record onto an ADM instance.
+
+    ``mixture_item=True`` is used for ``Mixture.chemical_list`` entries, which
+    are MixtureSubstance objects. Other Chemical Entity slots (substance_list,
+    solvent, chemical, substance) keep the concrete entity type, including
+    Medium which has its own optional concentration field.
+    """
+    if chemical is None:
+        return None
+    if isinstance(chemical, list):
+        converted = [
+            chemical_record_to_instance(item, mixture_item=mixture_item) for item in chemical
+        ]
+        return [item for item in converted if item is not None]
+    if not isinstance(chemical, dict):
+        return chemical
+
+    if "slots" in chemical or chemical.get("linkml_class") or chemical.get("source_chemical"):
+        class_name = canonical_chemical_name(
+            chemical.get("linkml_class")
+            or chemical.get("source_chemical")
+            or chemical.get("type")
+            or "Substance"
+        )
+        merged = dict(chemical.get("slots") or {})
+        extra = chemical.get("source_metadata") or {}
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                merged.setdefault(key, value)
+        return _finish_chemical_instance(class_name, merged, mixture_item=bool(mixture_item))
+
+    class_name = _record_chemical_class(chemical)
+    as_mixture = mixture_item is True or (
+        mixture_item is not False and _looks_like_mixture_substance(chemical, class_name)
+    )
+    if as_mixture:
+        return _project_mixture_substance(chemical, class_name)
+
+    params = dict(chemical.get("params") or {})
+    if not params:
+        params = {key: value for key, value in chemical.items() if key not in _CHEMICAL_WRAPPER_KEYS}
+    else:
+        for key, value in chemical.items():
+            if key not in _CHEMICAL_WRAPPER_KEYS:
+                params.setdefault(key, value)
+
+    if not class_name:
+        class_name = "Substance"
+    return _finish_chemical_instance(class_name, params)
+
+
+def flatten_exported_instance(node: Any) -> Any:
+    """Strip exporter envelope keys and keep unknown slots for closed validation."""
+    if isinstance(node, list):
+        return [flatten_exported_instance(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    if any(
+        key in node
+        for key in ("slots", "linkml_class", "source_action", "source_chemical", "attached_chemicals")
+    ):
+        instance: dict[str, Any] = {}
+        type_name = node.get("linkml_class") or node.get("type")
+        if type_name:
+            instance["type"] = type_name
+        for key, value in (node.get("slots") or {}).items():
+            instance[key] = flatten_exported_instance(value)
+        extra = node.get("source_metadata") or {}
+        if isinstance(extra, dict):
+            for key, value in extra.items():
+                instance.setdefault(key, flatten_exported_instance(value))
+        attached = [flatten_exported_instance(chem) for chem in (node.get("attached_chemicals") or [])]
+        if attached:
+            slot_name = chemical_slot_for_action(node.get("source_action"))
+            if slot_name:
+                instance[slot_name] = attached
+        for key, value in node.items():
+            if key in EXPORTER_ENVELOPE_KEYS:
+                continue
+            instance.setdefault(key, flatten_exported_instance(value))
+        return instance
+
+    return {key: flatten_exported_instance(value) for key, value in node.items()}
 
 
 def _slot_value_to_param_value(slot: str, value: Any) -> Any:
@@ -591,11 +736,11 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
 def _convert_linkml_chemical_slots(slots: dict[str, Any], source_chemical: str | None = None) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for slot, value in (slots or {}).items():
-        param_key = CHEMICAL_SLOT_TO_PARAM.get(slot)
+        if slot == "type":
+            continue
+        param_key = CHEMICAL_SLOT_TO_PARAM.get(slot, slot)
         if source_chemical == "Polymers" and slot == "smiles":
             param_key = KEY_BIGSMILES
-        if not param_key:
-            continue
 
         if slot in {"has_volume", "has_mass", "has_amount"}:
             params[param_key] = quantity_to_text(value)
@@ -623,10 +768,14 @@ def _linkml_step_name_to_action(step: dict[str, Any]) -> str:
 def _convert_linkml_step_slots(slots: dict[str, Any]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for slot, value in (slots or {}).items():
-        param_key = STEP_SLOT_TO_PARAM.get(slot)
-        if not param_key:
+        if slot == "type":
             continue
-
+        if slot in CHEMICAL_OBJECT_SLOTS and (
+            isinstance(value, dict)
+            or (isinstance(value, list) and value and isinstance(value[0], dict))
+        ):
+            continue
+        param_key = STEP_SLOT_TO_PARAM.get(slot, slot)
         params[param_key] = _slot_value_to_param_value(slot, value)
 
     return params
@@ -699,10 +848,24 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
 
 
 def normalize_action_to_linkml(action_name: str, params: dict[str, Any]) -> dict[str, Any]:
-    adapter = ACTION_TO_ADAPTER.get(action_name)
-    if not adapter:
-        return {}
-    return adapter(params or {})
+    """Project action params onto Action Data Model slots.
+
+    Unknown keys are preserved so closed-schema validation can reject them
+    instead of silently dropping undeclared content.
+    """
+    slots: dict[str, Any] = {}
+    for key, value in (params or {}).items():
+        if _is_blank(value):
+            continue
+        slot = FIELD_TO_LINKML_SLOT.get(key, key)
+        if key == KEY_OPEN_FLAME:
+            boolean_value = normalize_boolean(value)
+            slots[slot] = "True" if boolean_value is True else ("False" if boolean_value is False else value)
+        elif slot in CHEMICAL_OBJECT_SLOTS:
+            slots[slot] = chemical_record_to_instance(value, mixture_item=(slot == "chemical_list"))
+        else:
+            slots[slot] = value
+    return slots
 
 
 def build_material_entity(value: Any) -> dict[str, Any] | list[dict[str, Any]] | None:
@@ -946,32 +1109,23 @@ MULTIVALUED_SLOTS: set[str] = set()
 
 
 def convert_slots_to_linkml_objects(slots: dict[str, Any]) -> dict[str, Any]:
-    """Convert simple slot values to proper LinkML objects based on slot definitions.
+    """Keep Action Data Model string/enum slots as-is.
 
-    This ensures that complex-typed slots receive structured objects instead of
-    primitive values, making them valid according to the LinkML schema.
+    Legacy export slot names still go through structured builders so old
+    payloads can be read, but new validation instances are not rewritten into
+    MaterialEntity hashes or untyped stubs.
     """
     if not slots:
         return slots
 
     converted = {}
     for slot_name, value in slots.items():
-        if _is_blank(value):
-            converted[slot_name] = value
-            continue
-
         if slot_name in SLOT_BUILDERS:
             _, builder = SLOT_BUILDERS[slot_name]
             built_value = builder(value)
-            # Use the built object if builder succeeded, otherwise keep original
-            final_value = built_value if built_value is not None else value
-            if slot_name in MULTIVALUED_SLOTS and final_value is not None and not isinstance(final_value, list):
-                final_value = [final_value]
-            converted[slot_name] = final_value
+            converted[slot_name] = built_value if built_value is not None else value
         else:
-            # No special builder, keep as-is
             converted[slot_name] = value
-
     return converted
 
 
@@ -983,46 +1137,32 @@ def action_to_linkml_dict(action_name: str, params: dict[str, Any], chemicals: l
         "slots": normalize_action_to_linkml(action_name, params or {}),
     }
     slots = payload.get("slots") or {}
-    # If attached chemical entities exist, prefer them as the source for has_added_material
     if chemicals:
         payload["attached_chemicals"] = chemicals
-        names = [c.get("source_chemical") for c in chemicals if c.get("source_chemical")]
-        if names:
-            slots["has_added_material"] = build_material_entity(names if len(names) > 1 else names[0])
-            payload["slots"] = slots
+        action_name = canonical_action_name(action_name)
+        slot_name = chemical_slot_for_action(action_name)
+        if slot_name:
+            existing = slots.get(slot_name)
+            if action_name != "ContinuousAddition" or existing is None or isinstance(existing, str):
+                slots[slot_name] = chemical_record_to_instance(chemicals)
+        payload["slots"] = slots
     return payload
 
 
 def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[str, Any]:
+    chemical_name = canonical_chemical_name(chemical_name)
     slots: dict[str, Any] = {}
-    source_metadata: dict[str, Any] = {}
     for key, value in (params or {}).items():
         if _is_blank(value):
             continue
-        if key == KEY_QUANTITY:
-            slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
-            if slot:
-                quantity = parse_quantity(value)
-                slots[slot] = quantity.to_dict() if quantity else value
-            continue
-
-        if key == KEY_STATE:
-            slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
-            if slot:
-                slots[slot] = normalize_physical_state(value)
-            continue
-
-        slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key)
-        if slot:
-            slots[slot] = value
+        slot = CHEMICAL_FIELD_TO_LINKML_SLOT.get(key, key)
+        if slot in CHEMICAL_OBJECT_SLOTS:
+            slots[slot] = chemical_record_to_instance(value, mixture_item=(slot == "chemical_list"))
         else:
-            source_metadata[key] = value
+            slots[slot] = value
 
-    payload = {
+    return {
         "source_chemical": chemical_name,
         "linkml_class": get_linkml_chemical_class(chemical_name),
         "slots": slots,
     }
-    if source_metadata:
-        payload["source_metadata"] = source_metadata
-    return payload

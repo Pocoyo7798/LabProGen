@@ -208,3 +208,32 @@ class HeterogeneousCatalysts(ChemicalEntity):
 
 # Backward compatibility alias
 Chemical = ChemicalEntity
+
+
+def selectable_chemical_entity_types() -> list[str]:
+    """Concrete ChemicalEntity classes that can stand alone as chemical objects.
+
+    MixtureSubstance is only valid as a Mixture.chemical_list item, so it is
+    not offered as a top-level ChemicalEntity choice.
+    """
+    names: list[str] = []
+    seen = {ChemicalEntity}
+    stack = list(reversed(ChemicalEntity.__subclasses__()))
+    while stack:
+        cls = stack.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        if cls is not MixtureSubstance:
+            names.append(cls.__name__)
+        stack.extend(reversed(cls.__subclasses__()))
+    return names
+
+
+def embedded_chemical_type_choices(*, for_solvent: bool = False, include_concentration: bool = True) -> list[str]:
+    """Chemical types shown by the embedded chemical picker."""
+    if for_solvent:
+        return ["Substance", "Mixture"]
+    if include_concentration:
+        return ["Molecules", "BioProducts", "Polymers", "Medium", "HeterogeneousCatalysts"]
+    return selectable_chemical_entity_types()

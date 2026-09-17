@@ -13,16 +13,17 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from src.core.config import DEFAULT_PROTOCOL_NAME
+from src.core.config import DEFAULT_PROTOCOL_NAME, canonical_action_name, canonical_chemical_name
 from .adapter import (
-    normalize_action_to_linkml,
-    convert_slots_to_linkml_objects,
+    COMPLEX_ACTION_MARKER,
+    chemical_record_to_instance,
+    chemical_slot_for_action,
+    flatten_exported_instance,
     get_linkml_chemical_class,
-    get_linkml_chemical_slot,
-    get_linkml_slot,
     get_linkml_step_class,
+    normalize_action_to_linkml,
 )
-from .loader import build_validation_schema, load_linkml_schema, schema_summary, ensure_six_meta_path_importer_compatibility
+from .loader import class_slot_constraints, load_linkml_schema, schema_summary
 
 
 @dataclass
@@ -68,63 +69,37 @@ def _clean_dict(d: dict) -> dict:
 
 
 def _convert_chemical(chemical: dict) -> dict:
-    chemical_name = chemical.get("chemical", "")
-    params = chemical.get("params", {}) or {}
-    mapped_slots: dict[str, object] = {}
-    source_metadata: dict[str, object] = {}
-
-    for key, value in params.items():
-        if _is_blank(value):
-            continue
-
-        slot = get_linkml_chemical_slot(chemical_name, key) or get_linkml_slot(key, action_name=None)
-
-        if slot:
-            mapped_slots[slot] = value
-        else:
-            source_metadata[key] = value
-
-    mapped_slots = convert_slots_to_linkml_objects(mapped_slots)
+    chemical_name = canonical_chemical_name(chemical.get("chemical") or chemical.get("chemical_type") or "")
+    params = dict(chemical.get("params", {}) or {})
+    instance = chemical_record_to_instance(chemical)
+    slots = {}
+    if isinstance(instance, dict):
+        slots = {key: value for key, value in instance.items() if key != "type"}
+        chemical_name = instance.get("type") or chemical_name
 
     return _clean_dict(
         {
             "id": chemical.get("block_id") or chemical_name,
             "block_id": chemical.get("block_id"),
             "source_chemical": chemical_name,
-            "linkml_class": get_linkml_chemical_class(chemical_name),
-            "slots": mapped_slots,
-            "source_metadata": source_metadata or None,
+            "linkml_class": get_linkml_chemical_class(chemical_name) or chemical_name,
+            "slots": slots,
         }
     )
 
 
 def _convert_step(step: dict) -> dict:
-    action_name = step.get("action", "")
-    params = step.get("params", {}) or {}
+    action_name = canonical_action_name(step.get("action", "") or "")
+    params = dict(step.get("params", {}) or {})
     mapped_slots: dict[str, object] = normalize_action_to_linkml(action_name, params)
-    source_metadata: dict[str, object] = {}
+    mapped_slots["type"] = get_linkml_step_class(action_name) or action_name
 
-    # Add any unmapped fields from params as additional slots
-    for key, value in params.items():
-        if _is_blank(value):
-            continue
-        if key in {"duration", "temperature", "add_type", "open_flame", "phase_to_keep", "method", "min_size", "max_size", "speed", "flow_rate", "pressure", "process", "ramp", "power", "recipient", "material", "volume", "substance_list", "continuous_add_type", "amount", "chemical"}:
-            continue
-
-        slot = get_linkml_slot(key, action_name=action_name)
-        if slot and slot not in mapped_slots:
-            mapped_slots[slot] = value
-        elif not slot:
-            source_metadata[key] = value
-
-    # Special handling for Repeat and ContinuousAddition
-    if action_name == "Repeat" and "amount" in params:
-        mapped_slots["repetition_count"] = params.get("amount")
-    elif action_name == "ContinuousAddition" and "amount" in params:
-        mapped_slots["has_intermittent_amount"] = normalize_action_to_linkml(action_name, params).get("has_intermittent_amount") or params.get("amount")
-
-    # Convert simple values to proper LinkML objects for complex-typed slots (only once)
-    mapped_slots = convert_slots_to_linkml_objects(mapped_slots)
+    attached = [_convert_chemical(chem) for chem in step.get("chemicals", [])]
+    slot_name = chemical_slot_for_action(action_name)
+    if attached and slot_name:
+        existing = mapped_slots.get(slot_name)
+        if action_name != "ContinuousAddition" or existing is None or isinstance(existing, str):
+            mapped_slots[slot_name] = [chemical_record_to_instance(chem) for chem in attached]
 
     step_payload = {
         "id": step.get("block_id") or action_name,
@@ -132,9 +107,8 @@ def _convert_step(step: dict) -> dict:
         "source_action": action_name,
         "linkml_class": get_linkml_step_class(action_name),
         "slots": mapped_slots,
-        "attached_chemicals": [_convert_chemical(c) for c in step.get("chemicals", [])],
+        "attached_chemicals": attached,
         "subproduct_branch": _convert_step(step["subproduct_branch"]) if isinstance(step.get("subproduct_branch"), dict) else None,
-        "source_metadata": source_metadata or None,
     }
     if step.get("part_of_complex_action"):
         step_payload["part_of_complex_action"] = True
@@ -214,46 +188,8 @@ def _materialize_references(activities: list) -> list:
 
 
 def _normalize_linkml_instance(node: Any) -> Any:
-    """Strip exporter-only metadata and return a strict LinkML instance.
-
-    This keeps the semantic conversion logic in one place and allows the same
-    canonical export data to be validated in strict mode and optionally
-    transformed into an optimized internal representation.
-    """
-    if isinstance(node, list):
-        return [_normalize_linkml_instance(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    normalized: dict[str, Any] = {}
-    slot_values = node.get("slots") if isinstance(node.get("slots"), dict) else {}
-
-    for key, value in node.items():
-        if key in {
-            "id",
-            "block_id",
-            "source_action",
-            "linkml_class",
-            "source_metadata",
-            "source_chemical",
-            "attached_chemicals",
-            "class",
-            "slots",
-            "flow_id",
-            "flow_type",
-            "is_explicit_first",
-            "chemical_block_id",
-            "part_of_complex_action",
-            "complex_group_id",
-            "complex_action_name",
-        }:
-            continue
-        normalized[key] = _normalize_linkml_instance(value)
-
-    for slot_name, slot_value in slot_values.items():
-        normalized[slot_name] = _normalize_linkml_instance(slot_value)
-
-    return normalized
+    """Strip exporter-only metadata and return a strict LinkML instance."""
+    return flatten_exported_instance(node)
 
 
 def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, int, int]:
@@ -277,15 +213,19 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
             converted_steps.append(converted_step)
             total_steps += 1
             total_chemicals += len(step.get("chemicals", []))
-            unmapped_fields += len(converted_step.get("source_metadata", {}) or {})
-            for chem in step.get("chemicals", []):
-                unmapped_fields += len(_convert_chemical(chem).get("source_metadata", {}) or {})
+            instance = flatten_exported_instance(converted_step)
+            class_name = converted_step.get("linkml_class")
+            if class_name and class_name != COMPLEX_ACTION_MARKER:
+                allowed = class_slot_constraints(class_name).get("allowed") or set()
+                unmapped_fields += sum(
+                    1 for key in instance if key != "type" and key not in allowed
+                )
 
         activities.append(
             _clean_dict(
                 {
                     "id": flow.get("flow_id") or flow.get("type") or "activity",
-                    "class": "LabSynthesisActivity",
+                    "class": "LabProcedure",
                     "flow_id": flow.get("flow_id"),
                     "flow_type": flow.get("type"),
                     "is_explicit_first": flow.get("is_explicit_first"),
@@ -299,7 +239,7 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
         "linkml_schema": schema_summary(schema),
         "source_protocol_name": protocol_data.get("protocol_name", DEFAULT_PROTOCOL_NAME),
         "schema_profile": schema.get("name", ""),
-        "class": "LabSynthesisActivity",
+        "class": "LabProcedure",
         "activities": activities,
         "summary": {
             "activity_count": len(activities),
@@ -314,32 +254,29 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
 
 
 def _activity_without_complex_steps(activity: dict) -> dict:
-    """Return an activity copy excluding steps that belong to a complex action."""
+    """Return an activity copy excluding ComplexAction grouping wrappers.
+
+    Member elementary and support actions remain so they can be validated
+    against the Action Data Model. ComplexAction itself is UI grouping only.
+    """
     filtered = copy.deepcopy(activity)
     filtered["has_synthesis_step"] = [
         step
         for step in (activity.get("has_synthesis_step") or [])
-        if not step.get("part_of_complex_action")
+        if (step.get("source_action") or step.get("action")) != COMPLEX_ACTION_MARKER
     ]
     return filtered
 
 
 def _validate_strict_mode(activities: list[dict]) -> None:
     """Enforce strict schema constraints against the canonical export data."""
-    try:
-        ensure_six_meta_path_importer_compatibility()
-        from linkml.validator import validate as linkml_validate
-    except Exception as exc:  # pragma: no cover - dependency error surface
-        raise RuntimeError(f"LinkML validator is unavailable: {exc}") from exc
+    from .validator import validate_exported_activities
 
-    schema = build_validation_schema()
-    for idx, activity in enumerate(activities):
-        instance = _normalize_linkml_instance(_activity_without_complex_steps(activity))
-        report = linkml_validate(instance, schema=schema, target_class="LabSynthesisActivity", strict=True)
-        results = getattr(report, "results", []) or []
-        if results:
-            first = results[0]
-            raise ValueError(f"Strict LinkML validation failed for activity {idx}: {getattr(first, 'message', first)}")
+    messages = validate_exported_activities(activities)
+    errors = [msg for msg in messages if msg.level == "error"]
+    if errors:
+        first = errors[0]
+        raise ValueError(f"Strict LinkML validation failed: {first.message}")
 
 
 def _build_optimized_export(strict_payload: dict) -> dict:

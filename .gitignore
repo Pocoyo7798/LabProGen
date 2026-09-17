@@ -50,3 +50,6 @@ procedure_guide.txt
 # LLM credentials
 config/aiedu_config.json
 aiedu_config.json
+
+# Data model pdf
+Action Data Model Rules and Definitions*.pdf

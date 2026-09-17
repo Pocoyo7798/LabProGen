@@ -1,0 +1,698 @@
+---
+id: https://w3id.org/labprogen/action-data-model
+name: action-data-model
+title: LabProGen Action Data Model
+description: >-
+    Closed LinkML schema for laboratory elementary actions, support actions,
+    and chemical entities. Source of truth: Action Data Model Rules and Definitions.
+    The `closed` flags document the intended additional-property policy; the
+    installed LinkML runtime does not load that metamodel field, so unknown
+    slots are rejected by the project validator.
+license: CC-BY 4.0
+version: "1.0.0"
+
+prefixes:
+  adm: https://w3id.org/labprogen/action-data-model/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: adm
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  LabProcedure:
+    tree_root: true
+    closed: true
+    description: A completed laboratory procedure as an ordered list of actions.
+    slots:
+      - protocol_name
+      - has_synthesis_step
+    slot_usage:
+      has_synthesis_step:
+        required: true
+
+  Action:
+    abstract: true
+    closed: false
+    description: >-
+      Abstract base for elementary and support actions. Left open so a
+      polymorphic LabProcedure step list can carry subclass slots; each
+      concrete action class is closed.
+    slots:
+      - type
+
+  Add:
+    is_a: Action
+    closed: true
+    description: Addition of a chemical entity.
+    slots:
+      - chemical
+      - duration
+      - add_quantity
+      - add_type
+      - open_flame
+    slot_usage:
+      chemical:
+        required: true
+      duration:
+        required: true
+      add_quantity:
+        required: true
+      add_type:
+        required: true
+      open_flame:
+        required: true
+
+  Grind:
+    is_a: Action
+    closed: true
+    description: Triturate a solid substance.
+    slots:
+      - duration
+
+  Separate:
+    is_a: Action
+    closed: true
+    description: Physical separation of two different phases.
+    slots:
+      - phase_to_keep
+      - method
+      - duration
+    slot_usage:
+      phase_to_keep:
+        required: true
+      method:
+        required: true
+
+  Sieve:
+    is_a: Action
+    closed: true
+    description: Screening of solid particles by size.
+    slots:
+      - size_range
+      - duration
+    slot_usage:
+      size_range:
+        required: true
+
+  NoModification:
+    is_a: Action
+    closed: true
+    description: Time passes with nothing happening.
+    slots:
+      - duration
+    slot_usage:
+      duration:
+        required: true
+
+  ChangePressure:
+    is_a: Action
+    closed: true
+    description: Modification of the atmosphere composition.
+    slots:
+      - pressure
+    slot_usage:
+      pressure:
+        required: true
+
+  ChangeTemperature:
+    is_a: Action
+    closed: true
+    description: Temperature modification.
+    slots:
+      - temperature
+      - process
+      - ramp
+      - power
+    slot_usage:
+      temperature:
+        required: true
+      process:
+        required: true
+
+  ChangeAgitation:
+    is_a: Action
+    closed: true
+    description: Agitation of a mixture.
+    slots:
+      - agitation_type
+      - speed
+    slot_usage:
+      agitation_type:
+        required: true
+
+  ChangeRecipient:
+    is_a: Action
+    closed: true
+    description: Modification of the mixture recipient.
+    slots:
+      - recipient
+      - material
+      - volume
+    slot_usage:
+      recipient:
+        required: true
+      material:
+        required: true
+      volume:
+        required: true
+
+  CollectSubProduct:
+    is_a: Action
+    closed: true
+    description: Indication that another product will not follow the main path.
+    slots:
+      - substance
+    slot_usage:
+      substance:
+        required: true
+
+  Repeat:
+    is_a: Action
+    closed: true
+    description: Indication of the number of repetitions of the elementary actions.
+    slots:
+      - amount
+    slot_usage:
+      amount:
+        required: true
+
+  ContinuousAddition:
+    is_a: Action
+    closed: true
+    description: Indication that compounds are entering the mixture repeatedly.
+    slots:
+      - substance_list
+      - continuous_add_type
+      - amount
+      - flow_rate
+    slot_usage:
+      substance_list:
+        required: true
+      continuous_add_type:
+        required: true
+      amount:
+        required: true
+      flow_rate:
+        required: true
+
+  ChemicalEntity:
+    closed: false
+    description: Base class for all chemical entities (first level). Polymorphic; leaf classes are closed.
+    slots:
+      - type
+      - preparation_procedure
+      - entity_id
+      - entity_producer
+      - entity_purity
+      - cas_number
+
+  Substance:
+    is_a: ChemicalEntity
+    closed: true
+    description: Chemical entities that do not have specific descriptors.
+    slots:
+      - name
+    slot_usage:
+      name:
+        required: true
+
+  MixtureSubstance:
+    is_a: ChemicalEntity
+    closed: true
+    description: Chemical entity living in a mixture, with concentration.
+    slots:
+      - chemical
+      - concentration
+    slot_usage:
+      chemical:
+        required: true
+        inlined: true
+        inlined_as_list: false
+        multivalued: false
+      concentration:
+        required: true
+
+  Mixture:
+    is_a: ChemicalEntity
+    closed: true
+    description: A combination of multiple molecules and/or substances.
+    slots:
+      - name
+      - chemical_list
+    slot_usage:
+      name:
+        required: true
+      chemical_list:
+        required: true
+
+  Molecules:
+    is_a: Substance
+    closed: true
+    description: Chemical entities that can be described fully by a chemical formula.
+    slots:
+      - formula
+      - smile
+      - inchi
+    slot_usage:
+      formula:
+        required: true
+      smile:
+        required: true
+
+  Polymers:
+    is_a: Molecules
+    closed: true
+    description: Entities composed of repeating structural units. BigSMILES is used instead of SMILES.
+    slots:
+      - bigsmiles
+    slot_usage:
+      smile:
+        required: false
+      bigsmiles:
+        required: true
+
+  BioProducts:
+    is_a: ChemicalEntity
+    closed: true
+    description: Entities created by biological compounds like metabolites.
+    slots:
+      - name
+      - origin
+      - production_phase
+      - location
+      - temperature_stability
+      - light_sensitivity
+      - oxidation_sensitivity
+      - toxicity_to_producer
+    slot_usage:
+      name:
+        required: true
+      toxicity_to_producer:
+        required: true
+
+  Medium:
+    is_a: Mixture
+    closed: true
+    description: Biological media purchased from a company or obtained from an external lab.
+    slots:
+      - quantity
+      - function
+      - state
+      - concentration
+      - purity
+      - sterility
+      - solubility
+      - temperature_stability
+      - light_sensitivity
+      - oxidation_sensitivity
+    slot_usage:
+      quantity:
+        required: true
+
+  Dispersion:
+    is_a: Mixture
+    closed: true
+    description: Mixture between solute and solvent.
+    slots:
+      - solvent
+    slot_usage:
+      solvent:
+        required: true
+        inlined: true
+        inlined_as_list: false
+        multivalued: false
+
+  HeterogeneousCatalysts:
+    is_a: ChemicalEntity
+    closed: true
+    description: Substances that increase reaction rates with a different phase than the reaction medium.
+    slots:
+      - formula
+      - three_d_structure
+      - crystallinity
+      - n2_adsorption_bet_area
+      - n2_adsorption_micropore_area
+      - n2_adsorption_mesopore_area
+      - n2_adsorption_total_volume
+      - n2_adsorption_micropore_volume
+      - n2_mesopore_volume
+      - py_b_150
+      - py_b_450
+      - py_l_150
+      - py_l_450
+
+slots:
+
+  type:
+    range: string
+    designates_type: true
+    description: Concrete class name used as the LinkML type designator.
+
+  protocol_name:
+    range: string
+
+  has_synthesis_step:
+    range: Action
+    multivalued: true
+    inlined_as_list: true
+
+  chemical:
+    range: ChemicalEntity
+    multivalued: true
+    inlined_as_list: true
+    description: Chemical entity or entities used by an action.
+
+  duration:
+    range: string
+    description: Clock time elapsed.
+
+  add_quantity:
+    range: string
+    description: Amount added (PDF Quantity).
+
+  add_type:
+    range: AdditionTypeEnum
+    description: Type of addition.
+
+  open_flame:
+    range: OpenFlameEnum
+
+  phase_to_keep:
+    range: PhaseToKeepEnum
+
+  method:
+    range: SeparationMethodEnum
+
+  size_range:
+    range: string
+    description: Size range of the particle size.
+
+  pressure:
+    range: string
+
+  temperature:
+    range: string
+
+  process:
+    range: HeatingProcessEnum
+
+  ramp:
+    range: string
+
+  power:
+    range: string
+
+  agitation_type:
+    range: AgitationTypeEnum
+
+  speed:
+    range: string
+
+  recipient:
+    range: RecipientTypeEnum
+
+  material:
+    range: VesselMaterialEnum
+
+  volume:
+    range: string
+
+  substance:
+    range: ChemicalEntity
+    multivalued: true
+    inlined_as_list: true
+
+  amount:
+    range: string
+    description: Number of repetitions or intermittent additions.
+
+  substance_list:
+    range: ChemicalEntity
+    multivalued: true
+    inlined_as_list: true
+
+  continuous_add_type:
+    range: ContinuousAdditionTypeEnum
+
+  flow_rate:
+    range: string
+
+  preparation_procedure:
+    range: string
+
+  entity_id:
+    range: string
+    description: ID from the entity (commercial or internal).
+
+  entity_producer:
+    range: string
+
+  entity_purity:
+    range: string
+
+  cas_number:
+    range: string
+
+  name:
+    range: string
+
+  formula:
+    range: string
+
+  smile:
+    range: string
+    description: SMILE representation of the molecule.
+
+  inchi:
+    range: string
+
+  bigsmiles:
+    range: string
+
+  concentration:
+    range: string
+
+  chemical_list:
+    range: MixtureSubstance
+    multivalued: true
+    inlined_as_list: true
+
+  origin:
+    range: BioProductOriginEnum
+
+  production_phase:
+    range: ProductionPhaseEnum
+
+  location:
+    range: BioProductLocationEnum
+
+  temperature_stability:
+    range: TemperatureStabilityEnum
+
+  light_sensitivity:
+    range: YesNoEnum
+
+  oxidation_sensitivity:
+    range: OxidationSensitivityEnum
+
+  toxicity_to_producer:
+    range: ToxicityToProducerEnum
+
+  quantity:
+    range: string
+
+  function:
+    range: MediumFunctionEnum
+
+  state:
+    range: PhysicalStateEnum
+
+  purity:
+    range: PurityGradeEnum
+
+  sterility:
+    range: SterilityEnum
+
+  solubility:
+    range: string
+
+  solvent:
+    range: ChemicalEntity
+    inlined: true
+
+  three_d_structure:
+    range: string
+    description: Crystal structure (PDF 3D Structure).
+
+  crystallinity:
+    range: string
+
+  n2_adsorption_bet_area:
+    range: string
+
+  n2_adsorption_micropore_area:
+    range: string
+
+  n2_adsorption_mesopore_area:
+    range: string
+
+  n2_adsorption_total_volume:
+    range: string
+
+  n2_adsorption_micropore_volume:
+    range: string
+
+  n2_mesopore_volume:
+    range: string
+
+  py_b_150:
+    range: string
+
+  py_b_450:
+    range: string
+
+  py_l_150:
+    range: string
+
+  py_l_450:
+    range: string
+
+enums:
+
+  AdditionTypeEnum:
+    permissible_values:
+      Normal: {}
+      Dropwise: {}
+      Diffusion: {}
+
+  OpenFlameEnum:
+    permissible_values:
+      "True": {}
+      "False": {}
+
+  PhaseToKeepEnum:
+    permissible_values:
+      Liquid: {}
+      Solid: {}
+      Aqueous: {}
+      Organic: {}
+
+  SeparationMethodEnum:
+    permissible_values:
+      Filtration: {}
+      Centrifugation: {}
+      Decantation: {}
+
+  HeatingProcessEnum:
+    permissible_values:
+      Electrical: {}
+      Microwave: {}
+      Ice-bath: {}
+      Atmospheric: {}
+
+  AgitationTypeEnum:
+    permissible_values:
+      Manual: {}
+      Magnetic: {}
+      Mechanical: {}
+      Rotative: {}
+      "None": {}
+
+  RecipientTypeEnum:
+    permissible_values:
+      Beaker: {}
+      Flask: {}
+      Autoclave: {}
+
+  VesselMaterialEnum:
+    permissible_values:
+      Glass: {}
+      Plastic: {}
+      Ceramic: {}
+
+  ContinuousAdditionTypeEnum:
+    permissible_values:
+      Continuous: {}
+      Intermittent: {}
+
+  BioProductOriginEnum:
+    permissible_values:
+      "primary metabolite": {}
+      "secondary metabolite": {}
+      "recombinant protein": {}
+
+  ProductionPhaseEnum:
+    permissible_values:
+      "associated to growth": {}
+      "not associated to growth": {}
+      mixed: {}
+
+  BioProductLocationEnum:
+    permissible_values:
+      intracellular: {}
+      extracellular: {}
+      "membrane bound": {}
+
+  TemperatureStabilityEnum:
+    permissible_values:
+      thermostable: {}
+      "heat stable": {}
+      "moderately stable": {}
+      "heat labile": {}
+      "very heat labile": {}
+      "cryogenic storage required": {}
+
+  YesNoEnum:
+    permissible_values:
+      yes: {}
+      no: {}
+
+  OxidationSensitivityEnum:
+    permissible_values:
+      "oxidation stable": {}
+      "oxidation sensitive": {}
+      "highly oxidation sensitive": {}
+      "oxygen reactive": {}
+
+  ToxicityToProducerEnum:
+    permissible_values:
+      inhibitory: {}
+      toxic: {}
+      neutral: {}
+
+  MediumFunctionEnum:
+    permissible_values:
+      "Carbon Source": {}
+      "Nitrogen Source": {}
+      Mineral: {}
+      Vitamin: {}
+      "Growth Factor": {}
+      Inducer: {}
+      Precursor: {}
+
+  PhysicalStateEnum:
+    permissible_values:
+      solid: {}
+      liquid: {}
+      "semi-solid": {}
+      lyophilized: {}
+      frozen: {}
+
+  PurityGradeEnum:
+    permissible_values:
+      technical: {}
+      reagent: {}
+      analytical: {}
+      "molecular biology": {}
+      "cell culture grade": {}
+
+  SterilityEnum:
+    permissible_values:
+      sterile: {}
+      "non-sterile": {}
+      "filter-sterilized": {}
+      autoclavable: {}

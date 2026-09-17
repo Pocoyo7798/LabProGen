@@ -52,13 +52,13 @@ def _format_name_list(names: list[str]) -> str:
 def chemical_display_name(chem: dict) -> str:
     """Readable label for an attached chemical (name only, no type detail)."""
     params = chem.get("params") if isinstance(chem.get("params"), dict) else {}
-    name = _s(params.get(KEY_NAME))
+    name = _s(params.get(KEY_NAME)) or _s(chem.get(KEY_NAME))
     if name:
         return name
-    formula = _s(params.get(KEY_FORMULA))
+    formula = _s(params.get(KEY_FORMULA)) or _s(chem.get(KEY_FORMULA))
     if formula:
         return formula
-    return _s(chem.get("chemical")) or "material"
+    return _s(chem.get("chemical") or chem.get("chemical_type")) or "material"
 
 
 def chemical_names_from_step(step: dict) -> list[str]:
@@ -66,9 +66,13 @@ def chemical_names_from_step(step: dict) -> list[str]:
     if chemicals:
         return [chemical_display_name(c) for c in chemicals if isinstance(c, dict)]
 
-    substance = step.get("params", {}).get(KEY_SUBSTANCE)
+    params = step.get("params", {}) if isinstance(step.get("params"), dict) else {}
+    substance = params.get(KEY_SUBSTANCE)
     if isinstance(substance, list):
         return [chemical_display_name(c) for c in substance if isinstance(c, dict)]
+    substances = params.get(KEY_SUBSTANCE_LIST)
+    if isinstance(substances, list):
+        return [chemical_display_name(c) for c in substances if isinstance(c, dict)]
     return []
 
 
@@ -199,11 +203,17 @@ def sentence_for_step(step: dict) -> str:
     if action == "ContinuousAddition":
         mode = _s(params.get(KEY_CONTINUOUS_ADD_TYPE)) or "continuous"
         amount = _s(params.get(KEY_AMOUNT))
-        substances = _s(params.get(KEY_SUBSTANCE_LIST))
+        substances = params.get(KEY_SUBSTANCE_LIST)
+        if isinstance(substances, list):
+            substances_text = _format_name_list(
+                [chemical_display_name(item) for item in substances if isinstance(item, dict)]
+            )
+        else:
+            substances_text = _s(substances)
         flow_rate = _s(params.get(KEY_FLOW_RATE))
         sentence = f"Apply {mode.lower()} addition"
-        if substances:
-            sentence += f" of {substances}"
+        if substances_text:
+            sentence += f" of {substances_text}"
         if amount:
             sentence += f" ({amount} cycles)"
         if flow_rate:

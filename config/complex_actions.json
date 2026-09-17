@@ -1,4 +1,78 @@
 {
   "version": 1,
-  "complex_actions": []
+  "complex_actions": [
+    {
+      "complex_action_name": "complex",
+      "version": 1,
+      "steps": [
+        {
+          "action": "Add",
+          "params": {
+            "duration": "0 s",
+            "add_quantity": "0 g",
+            "add_type": "",
+            "open_flame": ""
+          }
+        },
+        {
+          "action": "Grind",
+          "params": {
+            "duration": ""
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "s",
+          "default_value": "0 s",
+          "value": "0 s"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_quantity",
+          "display_name": "Quantity",
+          "editable": true,
+          "unit": "g",
+          "default_value": "0 g",
+          "value": "0 g"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "add_type",
+          "display_name": "Type",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "Normal"
+        },
+        {
+          "step_index": 0,
+          "action": "Add",
+          "param_key": "open_flame",
+          "display_name": "Open Flame",
+          "editable": true,
+          "unit": "",
+          "default_value": "",
+          "value": "False"
+        },
+        {
+          "step_index": 1,
+          "action": "Grind",
+          "param_key": "duration",
+          "display_name": "Duration",
+          "editable": true,
+          "unit": "s",
+          "default_value": "",
+          "value": "12 s"
+        }
+      ]
+    }
+  ]
 }

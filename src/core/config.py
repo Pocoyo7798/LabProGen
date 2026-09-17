@@ -141,6 +141,8 @@ FIELD_CONFIG = {
         "placeholder": "Number of times...",
         "required": False,
         "required_if": [{"action": "Repeat"}, {"action": "ContinuousAddition"}],
+        "integer": True,
+        "minimum": 1,
     },
 
     # --- Add ---
@@ -180,7 +182,13 @@ FIELD_CONFIG = {
 
     # --- ContinuousAddition ---
     KEY_CONTINUOUS_ADD_TYPE: {"label": "Type", "type": "dropdown", "options": ["Continuous", "Intermittent"], "required": True},
-    KEY_SUBSTANCE_LIST: {"label": "Substance List", "type": "text", "placeholder": "List of chemical entities...", "required": True},
+    KEY_SUBSTANCE_LIST: {
+        "label": "Substance List",
+        "type": "list",
+        "placeholder": "Add chemical entities...",
+        "required": True,
+        "include_concentration": False,
+    },
 
     # --- First level ---
     KEY_PREPARATION_PROCEDURE: {"label": "Preparation Procedure", "type": "text", "placeholder": "Description of preparation...", "required": False},
@@ -220,6 +228,7 @@ FIELD_CONFIG = {
         "type": "list",
         "placeholder": "Manage chemicals...",
         "required": False,
+        "include_concentration": True,
         "required_if": [
             {"action": "Mixture"},
             {"action": "Dispersion"},
@@ -267,6 +276,30 @@ FIELD_CONFIG = {
     KEY_PY_L_150: {"label": "Py-L (150°C)", "type": "text", "placeholder": "Pyridine Lewis 150°C...", "required": False},
     KEY_PY_L_450: {"label": "Py-L (450°C)", "type": "text", "placeholder": "Pyridine Lewis 450°C...", "required": False},
 }
+
+
+CHEMICAL_ENTITY_FIELD_KEYS = frozenset(
+    {
+        KEY_CHEMICAL,
+        KEY_SUBSTANCE,
+        KEY_SUBSTANCE_LIST,
+        KEY_CHEMICAL_LIST,
+        KEY_SOLVENT,
+    }
+)
+ACTIONS_REQUIRING_ATTACHED_CHEMICAL = frozenset({"Add", "CollectSubProduct"})
+
+
+def is_chemical_entity_field(field_key) -> bool:
+    """True for fields whose value is a chemical entity or list of entities."""
+    return str(field_key or "").lower() in CHEMICAL_ENTITY_FIELD_KEYS
+
+
+def action_requires_attached_chemical(action_name, *, part_of_complex_action=False) -> bool:
+    """Canvas-linked chemical entities are required except inside a complex action."""
+    if part_of_complex_action:
+        return False
+    return canonical_action_name(action_name) in ACTIONS_REQUIRING_ATTACHED_CHEMICAL
 
 
 def is_field_required(field_key, params=None, action_name=None):
@@ -335,6 +368,10 @@ def migrate_action_params(action_name, params=None):
         data.setdefault(KEY_PRESSURE, data.get(KEY_PRESSURE) or "101.325 kPa")
     elif action_name == "ContinuousAddition":
         data.setdefault(KEY_FLOW_RATE, "0 mL/min")
+        substances = data.get(KEY_SUBSTANCE_LIST)
+        if not isinstance(substances, list):
+            if substances is None or (isinstance(substances, str) and not str(substances).strip()):
+                data[KEY_SUBSTANCE_LIST] = []
     return data
 
 

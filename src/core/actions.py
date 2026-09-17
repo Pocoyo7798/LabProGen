@@ -142,7 +142,9 @@ class Repeat(Action):
 
 class ContinuousAddition(Action):
     """Support action for controlled repeated or continuous additions."""
-    def __init__(self, substance_list="", type="Continuous", amount="1", flow_rate="0 mL/min", **kwargs):
+    def __init__(self, substance_list=None, type="Continuous", amount="1", flow_rate="0 mL/min", **kwargs):
+        if substance_list is None:
+            substance_list = []
         super().__init__(**{
             KEY_SUBSTANCE_LIST: substance_list,
             KEY_CONTINUOUS_ADD_TYPE: type,

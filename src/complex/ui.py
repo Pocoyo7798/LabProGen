@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
@@ -60,6 +61,28 @@ _EMPTY_STEP_NOTE_STYLE = (
 )
 
 
+def _configure_parameter_dialog_size(
+    dialog: QDialog,
+    scroll: QScrollArea,
+    *,
+    extra_header_height: int = 0,
+) -> None:
+    """Give parameter dialogs a usable default viewport instead of a tiny strip."""
+    min_width = 560
+    min_height = 560 + extra_header_height
+    width = 680
+    height = 760 + extra_header_height
+    screen = QApplication.primaryScreen()
+    if screen is not None:
+        available = screen.availableGeometry()
+        width = min(width, max(min_width, available.width() - 80))
+        height = min(height, max(min_height, available.height() - 80))
+    dialog.setMinimumSize(min_width, min(min_height, height))
+    dialog.resize(width, height)
+    scroll.setMinimumHeight(max(320, height - 280))
+    scroll.setWidgetResizable(True)
+
+
 def _add_action_section(
     layout: QVBoxLayout,
     *,
@@ -103,7 +126,6 @@ class ComplexActionFinalizeDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Define Complex Action")
-        self.setMinimumWidth(560)
         self._steps = steps
         self._registry = registry or get_complex_action_registry()
         self._bindings = build_parameter_bindings(steps)
@@ -129,6 +151,7 @@ class ComplexActionFinalizeDialog(QDialog):
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setSpacing(10)
+        _configure_parameter_dialog_size(self, scroll, extra_header_height=80)
 
         self._display_edits: dict[int, QLineEdit] = {}
         self._value_editors: dict[int, ParameterValueEditor] = {}
@@ -354,7 +377,6 @@ class ComplexActionUseDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(definition.name)
-        self.setMinimumWidth(520)
         self._definition = definition
         self._bindings = build_instance_parameters(
             definition,
@@ -373,6 +395,7 @@ class ComplexActionUseDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
+        _configure_parameter_dialog_size(self, scroll)
 
         self._value_editors: dict[int, ParameterValueEditor] = {}
         sections = iter_instance_dialog_sections(definition)

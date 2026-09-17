@@ -19,15 +19,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from src.core.config import (
-    KEY_CAS_NUMBER,
+    FIELD_CONFIG,
+    KEY_CHEMICAL_LIST,
     KEY_CONCENTRATION,
-    KEY_ENTITY_ID,
-    KEY_ENTITY_PURITY,
     KEY_FORMULA,
     KEY_GASES,
-    KEY_NAME,
-    KEY_PREPARATION_PROCEDURE,
-    KEY_PRODUCER,
 )
 from src.text.procedure_text import format_gas_entry_label
 
@@ -72,8 +68,14 @@ class ChemicalListField:
         self._dialog_parent_override = dialog_parent
         self.param_key = param_key
         self.list_value = value if isinstance(value, list) else (value or [])
+        if not isinstance(self.list_value, list):
+            self.list_value = []
         self._read_only = read_only
         self._is_gas_list = param_key == KEY_GASES
+        config = FIELD_CONFIG.get(str(param_key).lower(), {})
+        self._include_concentration = bool(
+            config.get("include_concentration", param_key == KEY_CHEMICAL_LIST)
+        )
         self.widget = self._build_widget()
 
     def _dialog_parent(self) -> QWidget:
@@ -150,119 +152,30 @@ class ChemicalListField:
             )
 
     def _add_chemical_impl(self) -> None:
-        from .editor import (
-            MixtureChemicalDialog,
-            MixtureChemicalParametersDialog,
-            UnifiedChemicalDetailsDialog,
-            chemical_requires_name,
-            get_chemical_default_params,
-            normalize_preparation_procedure,
-        )
+        from .editor import pick_embedded_chemical
 
-        dlg = MixtureChemicalDialog(self._dialog_parent())
-        if self._open_dialog(dlg) != QDialog.DialogCode.Accepted:
-            return
-
-        details_dialog = UnifiedChemicalDetailsDialog(self._dialog_parent())
-        if self._open_dialog(details_dialog) != QDialog.DialogCode.Accepted:
-            return
-
-        params_dlg = MixtureChemicalParametersDialog(
-            dlg.selected_chemical_type,
+        picked = pick_embedded_chemical(
             self._dialog_parent(),
-            initial_params=get_chemical_default_params(dlg.selected_chemical_type),
+            {},
+            include_concentration=self._include_concentration,
         )
-        if params_dlg.exec() != QDialog.DialogCode.Accepted:
+        if not picked:
             return
-
-        new_chem = {
-            "chemical_type": dlg.selected_chemical_type,
-            **params_dlg.chemical_params,
-            **details_dialog.first_level_fields,
-            KEY_CONCENTRATION: dlg.concentration,
-        }
-        if details_dialog.imported_procedure:
-            new_chem[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
-                details_dialog.imported_procedure
-            )
-
-        chem_name = new_chem.get(KEY_NAME, "").strip()
-        if chemical_requires_name(dlg.selected_chemical_type) and not chem_name:
-            QMessageBox.warning(
-                self._dialog_parent(),
-                "Missing Chemical Name",
-                f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.",
-            )
-            return
-
-        self.list_value.append(new_chem)
+        self.list_value.append(picked)
         self._update_tags()
 
     def _edit_chemical(self, index: int) -> None:
-        from .editor import (
-            MixtureChemicalDialog,
-            MixtureChemicalParametersDialog,
-            UnifiedChemicalDetailsDialog,
-            chemical_requires_name,
-            get_chemical_default_params,
-            normalize_preparation_procedure,
-        )
+        from .editor import pick_embedded_chemical
 
         chem = self.list_value[index]
-
-        dlg = MixtureChemicalDialog(
+        picked = pick_embedded_chemical(
             self._dialog_parent(),
-            initial_type=chem.get("chemical_type", "Substance"),
-            initial_concentration=chem.get(KEY_CONCENTRATION, ""),
+            chem,
+            include_concentration=self._include_concentration,
         )
-        if self._open_dialog(dlg) != QDialog.DialogCode.Accepted:
+        if not picked:
             return
-
-        details_dialog = UnifiedChemicalDetailsDialog(self._dialog_parent())
-        details_dialog.id_edit.setText(chem.get(KEY_ENTITY_ID, ""))
-        details_dialog.producer_edit.setText(chem.get(KEY_PRODUCER, ""))
-        details_dialog.purity_edit.setText(chem.get(KEY_ENTITY_PURITY, ""))
-        details_dialog.cas_edit.setText(chem.get(KEY_CAS_NUMBER, ""))
-        if KEY_PREPARATION_PROCEDURE in chem:
-            details_dialog.imported_procedure = normalize_preparation_procedure(
-                chem[KEY_PREPARATION_PROCEDURE]
-            )
-            details_dialog._set_status("✓ Procedure loaded", "success")
-        if self._open_dialog(details_dialog) != QDialog.DialogCode.Accepted:
-            return
-
-        params_dlg = MixtureChemicalParametersDialog(
-            dlg.selected_chemical_type,
-            self._dialog_parent(),
-            initial_params={
-                **get_chemical_default_params(dlg.selected_chemical_type),
-                **chem,
-            },
-        )
-        if params_dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        updated = {
-            "chemical_type": dlg.selected_chemical_type,
-            **params_dlg.chemical_params,
-            **details_dialog.first_level_fields,
-            KEY_CONCENTRATION: dlg.concentration,
-        }
-        if details_dialog.imported_procedure:
-            updated[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
-                details_dialog.imported_procedure
-            )
-
-        chem_name = updated.get(KEY_NAME, "").strip()
-        if chemical_requires_name(dlg.selected_chemical_type) and not chem_name:
-            QMessageBox.warning(
-                self._dialog_parent(),
-                "Missing Chemical Name",
-                f"Chemical '{dlg.selected_chemical_type}' must have a name field filled.",
-            )
-            return
-
-        self.list_value[index] = updated
+        self.list_value[index] = picked
         self._update_tags()
 
     def _remove_chemical(self, index: int) -> None:
@@ -279,13 +192,19 @@ class ChemicalListField:
         for idx, chem in enumerate(self.list_value):
             if self._is_gas_list:
                 row_text = format_gas_entry_label(chem)
-            else:
+            elif self._include_concentration:
                 chem_type = chem.get("chemical_type", "Unknown")
                 formula = chem.get(KEY_FORMULA, "n/a")
                 conc = chem.get(KEY_CONCENTRATION, "")
                 row_text = f"{chem_type}: {formula}"
                 if conc:
                     row_text += f" ({conc})"
+            else:
+                from src.text.procedure_text import chemical_display_name
+
+                chem_type = chem.get("chemical_type") or chem.get("chemical") or "Unknown"
+                name = chemical_display_name(chem)
+                row_text = f"{chem_type}: {name}" if name else str(chem_type)
 
             row_widget = QWidget()
             row_widget.setFixedHeight(28)

@@ -424,18 +424,27 @@ class UnifiedChemicalDetailsDialog(QDialog):
         self.accept()
 
 
-def pick_embedded_chemical(parent, initial=None, *, for_solvent=False):
+def pick_embedded_chemical(parent, initial=None, *, for_solvent=False, include_concentration=None):
     """Pick one embedded chemical (e.g. mixture list item or dispersion solvent). Returns dict or None."""
     initial = dict(initial or {})
     parent_dialog = parent
-    initial_type = initial.get("chemical_type", "Substance" if for_solvent else "Molecules")
-    initial_concentration = "" if for_solvent else initial.get(KEY_CONCENTRATION, "")
+    if include_concentration is None:
+        include_concentration = not for_solvent
+    initial_type = initial.get("chemical_type")
+    if not initial_type:
+        choices = embedded_chemical_type_choices(
+            for_solvent=for_solvent,
+            include_concentration=include_concentration,
+        )
+        initial_type = choices[0] if choices else "Substance"
+    initial_concentration = "" if not include_concentration else initial.get(KEY_CONCENTRATION, "")
 
     dlg = MixtureChemicalDialog(
         parent_dialog,
         initial_type=initial_type,
         initial_concentration=initial_concentration,
         for_solvent=for_solvent,
+        include_concentration=include_concentration,
     )
     if dlg.exec() != QDialog.Accepted:
         return None
@@ -466,7 +475,7 @@ def pick_embedded_chemical(parent, initial=None, *, for_solvent=False):
         **params_dlg.chemical_params,
         **details_dialog.first_level_fields,
     }
-    if not for_solvent:
+    if include_concentration:
         result[KEY_CONCENTRATION] = dlg.concentration
     if details_dialog.imported_procedure:
         result[KEY_PREPARATION_PROCEDURE] = normalize_preparation_procedure(
@@ -515,14 +524,30 @@ class MixtureChemicalParametersDialog(QDialog):
 
 
 class MixtureChemicalDialog(QDialog):
-    """First step dialog for a MixtureChemical item.
-    
-    Collects only the chemical type and concentration.
+    """First step dialog for an embedded chemical item.
+
+    Collects chemical type, and concentration when the parent is a mixture list.
     """
-    def __init__(self, parent=None, initial_type="Substance", initial_concentration="", for_solvent=False):
+    def __init__(
+        self,
+        parent=None,
+        initial_type="Substance",
+        initial_concentration="",
+        for_solvent=False,
+        include_concentration=None,
+    ):
         super().__init__(parent)
         self.for_solvent = for_solvent
-        self.setWindowTitle("Select Solvent" if for_solvent else "Edit Mixture Chemical")
+        if include_concentration is None:
+            include_concentration = not for_solvent
+        self.include_concentration = include_concentration
+        if for_solvent:
+            title = "Select Solvent"
+        elif include_concentration:
+            title = "Edit Mixture Chemical"
+        else:
+            title = "Select Chemical"
+        self.setWindowTitle(title)
         self.setMinimumWidth(420)
         self.selected_chemical_type = None
         self.concentration = ""
@@ -537,18 +562,18 @@ class MixtureChemicalDialog(QDialog):
 
         self.type_combo = QComboBox()
         self.type_combo.addItem("Select...", "")
-        if for_solvent:
-            self.type_combo.addItem("Substance", "Substance")
-            self.type_combo.addItem("Mixture", "Mixture")
-        else:
-            self.type_combo.addItem("Molecules", "Molecules")
-            self.type_combo.addItem("BioProducts", "BioProducts")
-            self.type_combo.addItem("Polymers", "Polymers")
-            self.type_combo.addItem("Medium", "Medium")
-            self.type_combo.addItem("HeterogeneousCatalysts", "HeterogeneousCatalysts")
+        for type_name in embedded_chemical_type_choices(
+            for_solvent=for_solvent,
+            include_concentration=include_concentration,
+        ):
+            self.type_combo.addItem(type_name, type_name)
         idx = self.type_combo.findData(initial_type)
         if idx < 0:
-            idx = self.type_combo.findData("Substance" if for_solvent else "Molecules")
+            choices = embedded_chemical_type_choices(
+                for_solvent=for_solvent,
+                include_concentration=include_concentration,
+            )
+            idx = self.type_combo.findData(choices[0] if choices else "")
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
         layout.addWidget(self.type_combo)
@@ -556,7 +581,7 @@ class MixtureChemicalDialog(QDialog):
         self.conc_label = None
         self.conc_edit = None
         self.conc_unit = None
-        if not for_solvent:
+        if include_concentration:
             conc_label = QLabel("Concentration")
             conc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1f2937;")
             layout.addWidget(conc_label)
@@ -611,7 +636,7 @@ class MixtureChemicalDialog(QDialog):
         if not self.selected_chemical_type:
             QMessageBox.warning(self, "Missing Required Field", "Please select a chemical type.")
             return
-        if not self.for_solvent and self.conc_edit and self.conc_unit:
+        if self.include_concentration and self.conc_edit and self.conc_unit:
             value = self.conc_edit.text().strip()
             unit = self.conc_unit.currentText().strip()
             if not value:
@@ -1977,7 +2002,7 @@ class Editor(QGraphicsView):
             "CollectSubProduct": {KEY_SUBSTANCE: ""},
             "Repeat": {KEY_AMOUNT: "1"},
             "ContinuousAddition": {
-                KEY_SUBSTANCE_LIST: "",
+                KEY_SUBSTANCE_LIST: [],
                 KEY_CONTINUOUS_ADD_TYPE: "",
                 KEY_AMOUNT: "1",
                 KEY_FLOW_RATE: "0 mL/min",
@@ -3574,11 +3599,27 @@ class Editor(QGraphicsView):
                 print("no blocks to export.")
             return None
 
-        # check for empty subproduct creation blocks
-        empty_subproducts = [b for b in self.blocks if b.action == "CollectSubProduct" and b.chem_below is None]
-        if empty_subproducts:
+        # check for action blocks that require an attached chemical entity
+        empty_chemical_hosts = [
+            block
+            for block in self.blocks
+            if not isinstance(block, ChemicalBlock)
+            and not getattr(block, "is_complex_surrogate", False)
+            and action_requires_attached_chemical(
+                getattr(block, "action", ""),
+                part_of_complex_action=bool(getattr(block, "part_of_complex_action", False)),
+            )
+            and getattr(block, "chem_below", None) is None
+        ]
+        if empty_chemical_hosts:
             if show_feedback:
-                QMessageBox.warning(self, "Export Error", "Every Sub Product Creation must have at least one chemical attached.")
+                names = sorted({str(block.action) for block in empty_chemical_hosts})
+                listed = ", ".join(names)
+                QMessageBox.warning(
+                    self,
+                    "Export Error",
+                    f"Every {listed} action must have at least one chemical entity attached.",
+                )
             return None
 
         self._next_id = len(self.blocks)
