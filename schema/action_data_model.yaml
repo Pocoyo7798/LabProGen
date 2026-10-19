@@ -14,6 +14,17 @@ version: "1.0.0"
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
   linkml: https://w3id.org/linkml/
+  OBI: http://purl.obolibrary.org/obo/OBI_
+  CHMO: http://purl.obolibrary.org/obo/CHMO_
+  PATO: http://purl.obolibrary.org/obo/PATO_
+  CHEBI: http://purl.obolibrary.org/obo/CHEBI_
+  AFE: http://purl.allotrope.org/ontologies/equipment#AFE_
+  AFM: http://purl.allotrope.org/ontologies/material#AFM_
+  AFP: http://purl.allotrope.org/ontologies/process#AFP_
+  AFQ: http://purl.allotrope.org/ontologies/quality#AFQ_
+  AFR: http://purl.allotrope.org/ontologies/result#AFR_
+  AFRL: http://purl.allotrope.org/ontologies/role#AFRL_
+  AFRE: http://purl.allotrope.org/ontologies/realizable#AFRE_
 
 default_prefix: adm
 default_range: string
@@ -38,16 +49,16 @@ classes:
     abstract: true
     closed: false
     description: >-
-      Abstract base for elementary and support actions. Left open so a
-      polymorphic LabProcedure step list can carry subclass slots; each
-      concrete action class is closed.
+      An action is a unit element in a procedure.
+    class_uri: AFRE:0000001
     slots:
       - type
 
   Add:
     is_a: Action
     closed: true
-    description: Addition of a chemical entity.
+    description: Addition of a chemical entity to a container.
+    class_uri: AFO:process#AFP_0003743
     slots:
       - chemical
       - duration
@@ -69,14 +80,19 @@ classes:
   Grind:
     is_a: Action
     closed: true
-    description: Triturate a solid substance.
+    description: Process that reduces the particle size by attrition (friction), impact, or cutting.
+    class_uri: CHMO:0001652
     slots:
       - duration
 
   Separate:
     is_a: Action
     closed: true
-    description: Physical separation of two different phases.
+    description: Action that results in the separation of two or more components according to some property.
+    class_uri: OBI:0600014
+    exact_mappings:
+      - AFP:0000422
+      - CHMO:0000999
     slots:
       - phase_to_keep
       - method
@@ -101,27 +117,63 @@ classes:
   NoModification:
     is_a: Action
     closed: true
-    description: Time passes with nothing happening.
+    description: Absence of an externally imposed intervention.
     slots:
       - duration
     slot_usage:
       duration:
         required: true
-
+  
+  ChangeRecipient:
+    is_a: Action
+    closed: true
+    description: Modification of the mixture recipient that can be used to restrict the location of material entities over time.
+    slots:
+      - recipient
+      - material
+      - volume
+    slot_usage:
+      recipient:
+        required: true
+      material:
+        required: true
+      volume:
+        required: true
+  
+  CollectSubProduct:
+    is_a: Action
+    closed: true
+    description: Indication that another product will not follow the main path.
+    slots:
+      - substance
+    slot_usage:
+      substance:
+        required: true
+  Repeat:
+    is_a: Action
+    closed: true
+    description: Action specification that specifies that indicates repetition of laboratory actions.
+    class_uri: AFRL:0000521
+    slots:
+      - amount
+    slot_usage:
+      amount:
+        required: true
+  
   ChangePressure:
     is_a: Action
     closed: true
-    description: Modification of the atmosphere composition.
+    description: Modification of the amount of force exerted per unit area by the system.
     slots:
       - pressure
     slot_usage:
       pressure:
         required: true
-
+  
   ChangeTemperature:
     is_a: Action
     closed: true
-    description: Temperature modification.
+    description: Modification of the physical quality of the thermal energy of a system.
     slots:
       - temperature
       - process
@@ -136,54 +188,17 @@ classes:
   ChangeAgitation:
     is_a: Action
     closed: true
-    description: Agitation of a mixture.
-    slots:
+    description: Change the motion of the system.
       - agitation_type
       - speed
     slot_usage:
       agitation_type:
         required: true
 
-  ChangeRecipient:
-    is_a: Action
-    closed: true
-    description: Modification of the mixture recipient.
-    slots:
-      - recipient
-      - material
-      - volume
-    slot_usage:
-      recipient:
-        required: true
-      material:
-        required: true
-      volume:
-        required: true
-
-  CollectSubProduct:
-    is_a: Action
-    closed: true
-    description: Indication that another product will not follow the main path.
-    slots:
-      - substance
-    slot_usage:
-      substance:
-        required: true
-
-  Repeat:
-    is_a: Action
-    closed: true
-    description: Indication of the number of repetitions of the elementary actions.
-    slots:
-      - amount
-    slot_usage:
-      amount:
-        required: true
-
   ContinuousAddition:
     is_a: Action
     closed: true
-    description: Indication that compounds are entering the mixture repeatedly.
+    description: Addition of a chemical entity to a container over time.
     slots:
       - substance_list
       - continuous_add_type
@@ -201,7 +216,8 @@ classes:
 
   ChemicalEntity:
     closed: false
-    description: Base class for all chemical entities (first level). Polymorphic; leaf classes are closed.
+    description: Chemical entity is a physical entity of interest in chemistry formed by atoms.
+    class_uri: CHEBI:24431
     slots:
       - type
       - preparation_procedure
