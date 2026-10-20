@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.0.0"
+version: "1.1.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -18,6 +18,7 @@ prefixes:
   CHMO: http://purl.obolibrary.org/obo/CHMO_
   PATO: http://purl.obolibrary.org/obo/PATO_
   CHEBI: http://purl.obolibrary.org/obo/CHEBI_
+  BFO: http://purl.obolibrary.org/obo/BFO_
   AFE: http://purl.allotrope.org/ontologies/equipment#AFE_
   AFM: http://purl.allotrope.org/ontologies/material#AFM_
   AFP: http://purl.allotrope.org/ontologies/process#AFP_
@@ -42,23 +43,63 @@ classes:
       - protocol_name
       - laboratory_actions
     slot_usage:
-      has_synthesis_step:
+      laboratory_actions:
         required: true
 
   Action:
     abstract: true
     closed: false
     description: >-
-      An action is a unit element in a procedure.
+      An action is a unit element in a procedure and is a concretization of an
+      action specification.
     class_uri: AFRE:0000001
     slots:
       - type
+      - id
+
+  # ---------------------------------------------------------------------------
+  # Action categories (abstract grouping classes)
+  # ---------------------------------------------------------------------------
+
+  OneOffAction:
+    is_a: Action
+    abstract: true
+    description: >-
+      Basic laboratory action whose modification of the chemical system
+      persists after the action ends.
+
+  PersistentAction:
+    is_a: Action
+    abstract: true
+    description: >-
+      Basic laboratory action whose modification only exists while the action
+      is maintained.
+
+  IndirectPersistentAction:
+    is_a: PersistentAction
+    abstract: true
+    description: >-
+      Persistent action that does not modify the chemical system directly,
+      changing how other laboratory actions modify the system.
+
+  DirectPersistentAction:
+    is_a: PersistentAction
+    abstract: true
+    description: Persistent action that modifies the chemical system directly.
+
+  # ---------------------------------------------------------------------------
+  # One-off actions
+  # ---------------------------------------------------------------------------
 
   Add:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
     description: Addition of a chemical entity to a container.
-    class_uri: AFO:process#AFP_0003743
+    comments:
+      - >-
+        AFP:0003743 - Adding is loading material into a container where it is
+        combined with existing material. [Allotrope]
+    class_uri: AFP:0003743
     slots:
       - chemical
       - duration
@@ -67,9 +108,8 @@ classes:
     slot_usage:
       chemical:
         required: true
+        description: Chemical entity added to the system.
       duration:
-        required: true
-      add_quantity:
         required: true
       add_type:
         required: true
@@ -77,17 +117,36 @@ classes:
         required: true
 
   Grind:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
-    description: Process that reduces the particle size by attrition (friction), impact, or cutting.
+    description: >-
+      Process that reduces the particle size of a sample by attrition
+      (friction), impact or cutting.
+    comments:
+      - >-
+        CHMO:0001652 - A material processing that reduces the particle size of
+        a sample by attrition (friction), impact or cutting. [CHMO]
     class_uri: CHMO:0001652
     slots:
       - duration
 
   Separate:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
-    description: Action that results in the separation of two or more components according to some property.
+    description: >-
+      Action that results in the separation of two or more components
+      according to some property.
+    comments:
+      - >-
+        CHMO:0000999 - A method that results in the separation of two or more
+        components according to some property. [CHMO]
+      - >-
+        AFP:0000422 - A branching process that isolates flows into distinct
+        component flows. The separated components are distinct from the flow
+        before separation, as well as each other. [NIST]
+      - >-
+        OBI:0600014 - A material processing in which components of an input
+        material become segregated in space. [OBI]
     class_uri: OBI:0600014
     exact_mappings:
       - AFP:0000422
@@ -103,7 +162,7 @@ classes:
         required: true
 
   Sieve:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
     description: Screening of solid particles by size.
     slots:
@@ -114,23 +173,31 @@ classes:
         required: true
 
   NoModification:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
     description: Absence of an externally imposed intervention.
+    aliases:
+      - NoAction
     slots:
       - duration
     slot_usage:
       duration:
         required: true
-  
-  ChangeRecipient:
-    is_a: Action
+
+  ChangeContainer:
+    is_a: OneOffAction
     closed: true
-    description: Modification of the mixture recipient that can be used to restrict the location of material entities over time.
+    description: >-
+      Modification of the mixture recipient that can be used to restrict the
+      location of material entities over time.
+    aliases:
+      - ChangeRecipient
+    class_uri: OBI:0000967
     slots:
       - recipient
       - material
       - volume
+      - container_state
     slot_usage:
       recipient:
         required: true
@@ -138,9 +205,9 @@ classes:
         required: true
       volume:
         required: true
-  
+
   CollectSubProduct:
-    is_a: Action
+    is_a: OneOffAction
     closed: true
     description: Indication that another product will not follow the main path.
     slots:
@@ -148,31 +215,76 @@ classes:
     slot_usage:
       substance:
         required: true
+
+  # ---------------------------------------------------------------------------
+  # Indirect persistent actions
+  # ---------------------------------------------------------------------------
+
   Repeat:
-    is_a: Action
+    is_a: IndirectPersistentAction
     closed: true
-    description: Action specification that specifies that indicates repetition of laboratory actions.
+    description: >-
+      Action specification that indicates repetition of laboratory actions.
+    comments:
+      - >-
+        AFRL:0000521 - A repeated action role is a contextual role of an action
+        specification that specifies the repeated action in a repeated action
+        specification. [Allotrope]
     class_uri: AFRL:0000521
     slots:
       - amount
     slot_usage:
       amount:
         required: true
-  
+        description: Number of repetitions.
+
+  # ---------------------------------------------------------------------------
+  # Direct persistent actions
+  # ---------------------------------------------------------------------------
+
   ChangePressure:
-    is_a: Action
+    is_a: DirectPersistentAction
     closed: true
-    description: Modification of the amount of force exerted per unit area by the system.
+    description: >-
+      Modification of the amount of force exerted per unit area by the system.
+    comments:
+      - >-
+        AFQ:0000337 - A pressure configuration is a device configuration of a
+        pressure controlling or monitoring device, that controls or monitors
+        the target pressure at the site of some system component. [Allotrope]
+      - >-
+        AFR:0002731 - A pressure setting is a setting that specifies some
+        pressure configuration of a pressure controlling or monitoring device,
+        that controls or monitors the target pressure at the site of some
+        system component. [Allotrope]
+    class_uri: AFQ:0000337
+    exact_mappings:
+      - AFR:0002731
     slots:
       - pressure
     slot_usage:
       pressure:
         required: true
-  
+
   ChangeTemperature:
-    is_a: Action
+    is_a: DirectPersistentAction
     closed: true
-    description: Modification of the physical quality of the thermal energy of a system.
+    description: >-
+      Modification of the physical quality of the thermal energy of a system.
+    comments:
+      - >-
+        AFR:0001255 - A temperature setting is a setting that specifies some
+        temperature configuration of a temperature controlling or monitoring
+        device, that controls or monitors the target temperature at the site of
+        some system component. [Allotrope]
+      - >-
+        AFQ:0000203 - A temperature configuration is a device configuration of
+        a temperature controlling or monitoring device, that controls or
+        monitors the target temperature at the site of some system component.
+        [Allotrope]
+    class_uri: AFR:0001255
+    exact_mappings:
+      - AFQ:0000203
     slots:
       - temperature
       - process
@@ -185,9 +297,15 @@ classes:
         required: true
 
   ChangeAgitation:
-    is_a: Action
+    is_a: DirectPersistentAction
     closed: true
     description: Change the motion of the system.
+    comments:
+      - >-
+        AFE:0001265 - An agitator is a device or mechanism to put something
+        into motion. [Allotrope]
+    class_uri: AFE:0001265
+    slots:
       - agitation_type
       - speed
     slot_usage:
@@ -195,7 +313,7 @@ classes:
         required: true
 
   ContinuousAddition:
-    is_a: Action
+    is_a: DirectPersistentAction
     closed: true
     description: Addition of a chemical entity to a container over time.
     slots:
@@ -203,13 +321,15 @@ classes:
       - continuous_add_type
       - amount
       - flow_rate
+      - entry_point
     slot_usage:
       substance_list:
         required: true
       continuous_add_type:
         required: true
       amount:
-        required: true
+        required: false
+        description: Number of additions if the addition type is Intermittent.
       flow_rate:
         required: true
 
@@ -284,7 +404,7 @@ classes:
         required: true
 
   Polymers:
-    is_a: Molecules
+    is_a: Molecule
     closed: true
     description: A molecule of high relative molecular mass, the structure of which essentially comprises the multiple repetition of units derived, actually or conceptually, from molecules of low relative molecular mass.
     class_uri: CHEBI:33839
@@ -320,7 +440,6 @@ classes:
     closed: true
     description: Biological media purchased from a company or obtained from an external lab.
     slots:
-      - quantity
       - function
       - state
       - concentration
@@ -330,9 +449,6 @@ classes:
       - temperature_stability
       - light_sensitivity
       - oxidation_sensitivity
-    slot_usage:
-      quantity:
-        required: true
 
   Dispersion:
     is_a: Mixture
@@ -368,10 +484,18 @@ classes:
 
 slots:
 
+  # ---------------------------------------------------------------------------
+  # Action slots
+  # ---------------------------------------------------------------------------
+
   type:
     range: string
     designates_type: true
     description: Concrete class name used as the LinkML type designator.
+
+  id:
+    range: string
+    description: Identifier of the action.
 
   protocol_name:
     range: string
@@ -397,51 +521,87 @@ slots:
 
   open_flame:
     range: OpenFlameEnum
+    description: Whether an open flame is present during the addition (True or False).
 
   phase_to_keep:
     range: PhaseToKeepEnum
+    description: The phase that will continue to be changed.
 
   method:
     range: SeparationMethodEnum
+    description: Type of separation.
 
   size_range:
     range: string
-    description: Size range of the particle size.
+    description: Size range of the particles.
 
   pressure:
     range: string
+    description: Amount of force exerted per unit area by the system.
+    comments:
+      - >-
+        AFR:0001918 - Pressure is a quality quantification facet that
+        quantifies the amount of force exerted per unit area. [PATO]
+    slot_uri: AFR:0001918
 
   temperature:
     range: string
+    description: The physical quality of the thermal energy of a system.
+    comments:
+      - PATO:0000146 - A physical quality of the thermal energy of a system. [PATO]
+    slot_uri: PATO:0000146
 
   process:
     range: HeatingProcessEnum
+    description: Type of temperature modification.
 
   ramp:
     range: string
+    description: Quantifies the change in temperature over time in the system.
+    comments:
+      - >-
+        AFR:0002393 - A temperature rate is a quality quantification facet that
+        quantifies the change in temperature over time in some material.
+        [Allotrope]
+    slot_uri: AFR:0002393
 
   power:
     range: string
 
   agitation_type:
     range: AgitationTypeEnum
+    description: Stirring type.
 
   speed:
     range: string
+    description: >-
+      Angular velocity of the rotating, agitating component responsible for
+      the agitation.
+    slot_uri: AFR:0002101
 
   recipient:
     range: RecipientTypeEnum
+    description: Type of recipient.
+    slot_uri: OBI:0000967
 
   material:
     range: VesselMaterialEnum
+    description: Material of the recipient.
 
   volume:
     range: string
+    description: Volume of the recipient.
+    slot_uri: AFR:0001843
+
+  container_state:
+    range: ContainerStateEnum
+    description: Closure state of the recipient.
 
   substance:
     range: ChemicalEntity
     multivalued: true
     inlined_as_list: true
+    description: Chemical entity.
 
   amount:
     range: string
@@ -451,16 +611,38 @@ slots:
     range: ChemicalEntity
     multivalued: true
     inlined_as_list: true
+    description: List of chemical entities.
 
   continuous_add_type:
     range: ContinuousAdditionTypeEnum
+    description: Addition type.
 
   flow_rate:
     range: string
+    description: Quantifies the motion in time.
+    comments:
+      - >-
+        PATO:0001574 - A physical quality inhering in a bearer by virtue of the
+        bearer's motion characteristic. [PATO]
+      - >-
+        AFR:0001881 - Flow rate is a quality quantification facet that
+        quantifies the motion of material through a surface per time.
+        [Allotrope]
+    slot_uri: PATO:0001574
+    exact_mappings:
+      - AFR:0001881
+
+  entry_point:
+    range: EntryPointEnum
+    description: Where the entrance occurs.
+
+  # ---------------------------------------------------------------------------
+  # Chemical entity slots
+  # ---------------------------------------------------------------------------
 
   preparation_procedure:
     range: string
-  
+
   quantity:
     range: string
     description: Amount added. e.g. g, ml, L, uL, mg
@@ -498,7 +680,7 @@ slots:
     range: string
 
   chemical_list:
-    range: MixtureSubstance
+    range: MixtureConstituent
     multivalued: true
     inlined_as_list: true
 
@@ -522,9 +704,6 @@ slots:
 
   toxicity_to_producer:
     range: ToxicityToProducerEnum
-
-  quantity:
-    range: string
 
   function:
     range: MediumFunctionEnum
@@ -584,16 +763,20 @@ slots:
 
 enums:
 
+  # ---------------------------------------------------------------------------
+  # Action enums
+  # ---------------------------------------------------------------------------
+
   AdditionTypeEnum:
-      permissible_values:
-        Normal:
-          description: Addition of the full amount at once.
-        Dropwise:
-          description: Slow addition of a liquid drop by drop.
-          meaning: CHMO:0001544
-        Diffusion:
-          description: Addition by slow diffusion, e.g. vapour or layering diffusion.
-  
+    permissible_values:
+      Normal:
+        description: Addition of the full amount at once.
+      Dropwise:
+        description: Slow addition of a liquid drop by drop.
+        meaning: CHMO:0001544
+      Diffusion:
+        description: Addition by slow diffusion, e.g. vapour or layering diffusion.
+
   OpenFlameEnum:
     permissible_values:
       "True": {}
@@ -608,21 +791,34 @@ enums:
 
   SeparationMethodEnum:
     permissible_values:
-      Filtration: {}
-      Centrifugation: {}
+      Filtration:
+        meaning: CHMO:0001640
+        exact_mappings:
+          - AFP:0001530
+      Centrifugation:
+        meaning: OBI:0302886
       Decantation: {}
+      Evaporation:
+        meaning: CHMO:0001574
 
   HeatingProcessEnum:
     permissible_values:
-      Electrical: {}
-      Microwave: {}
-      Ice-bath: {}
-      Atmospheric: {}
+      Plate-heater:
+        meaning: AFE:0002267
+      Microwave:
+        meaning: CHMO:0002444
+      Ice-bath:
+        meaning: OBI:0003689
+      Water-bath:
+        meaning: OBI:0400155
+      Atmospheric:
+        meaning: AFR:0002157
 
   AgitationTypeEnum:
     permissible_values:
       Manual: {}
-      Magnetic: {}
+      Magnetic:
+        meaning: AFP:0000039
       Mechanical: {}
       Rotative: {}
       "None": {}
@@ -631,7 +827,8 @@ enums:
     permissible_values:
       Beaker: {}
       Flask: {}
-      Autoclave: {}
+      Autoclave:
+        meaning: CHMO:0002166
 
   VesselMaterialEnum:
     permissible_values:
@@ -639,10 +836,27 @@ enums:
       Plastic: {}
       Ceramic: {}
 
+  ContainerStateEnum:
+    permissible_values:
+      sealed: {}
+      closed: {}
+      open: {}
+
   ContinuousAdditionTypeEnum:
     permissible_values:
-      Continuous: {}
-      Intermittent: {}
+      Continuous:
+        meaning: PATO:0000689
+      Intermittent:
+        meaning: PATO:0000690
+
+  EntryPointEnum:
+    permissible_values:
+      Top: {}
+      Bottom: {}
+
+  # ---------------------------------------------------------------------------
+  # Chemical entity enums
+  # ---------------------------------------------------------------------------
 
   BioProductOriginEnum:
     permissible_values:
@@ -673,8 +887,8 @@ enums:
 
   YesNoEnum:
     permissible_values:
-      yes: {}
-      no: {}
+      "yes": {}
+      "no": {}
 
   OxidationSensitivityEnum:
     permissible_values:
