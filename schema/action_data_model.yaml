@@ -40,7 +40,7 @@ classes:
     description: A completed laboratory procedure as an ordered list of actions.
     slots:
       - protocol_name
-      - has_synthesis_step
+      - laboratory_actions
     slot_usage:
       has_synthesis_step:
         required: true
@@ -62,7 +62,6 @@ classes:
     slots:
       - chemical
       - duration
-      - add_quantity
       - add_type
       - open_flame
     slot_usage:
@@ -218,28 +217,32 @@ classes:
     closed: false
     description: Chemical entity is a physical entity of interest in chemistry formed by atoms.
     class_uri: CHEBI:24431
+    exact_mappings:
+      - BFO:0000040
+      - AFM:0000275
     slots:
       - type
+      - quantity
       - preparation_procedure
       - entity_id
       - entity_producer
-      - entity_purity
       - cas_number
 
   Substance:
     is_a: ChemicalEntity
     closed: true
-    description: Chemical entities that do not have specific descriptors.
+    description: Group of chemical entities all of the same kind.
     slots:
       - name
+      - entity_purity
     slot_usage:
       name:
         required: true
 
-  MixtureSubstance:
+  MixtureConstituent:
     is_a: ChemicalEntity
     closed: true
-    description: Chemical entity living in a mixture, with concentration.
+    description: Class to store information about Chemical Entities that live in mixtures
     slots:
       - chemical
       - concentration
@@ -255,7 +258,7 @@ classes:
   Mixture:
     is_a: ChemicalEntity
     closed: true
-    description: A combination of multiple molecules and/or substances.
+    description: Group of two or more Substances.
     slots:
       - name
       - chemical_list
@@ -265,10 +268,11 @@ classes:
       chemical_list:
         required: true
 
-  Molecules:
+  Molecule:
     is_a: Substance
     closed: true
-    description: Chemical entities that can be described fully by a chemical formula.
+    description: Polyatomic chemical entity that is electrically neutral.
+    class_uri: CHEBI:25367
     slots:
       - formula
       - smile
@@ -282,7 +286,8 @@ classes:
   Polymers:
     is_a: Molecules
     closed: true
-    description: Entities composed of repeating structural units. BigSMILES is used instead of SMILES.
+    description: A molecule of high relative molecular mass, the structure of which essentially comprises the multiple repetition of units derived, actually or conceptually, from molecules of low relative molecular mass.
+    class_uri: CHEBI:33839
     slots:
       - bigsmiles
     slot_usage:
@@ -371,7 +376,7 @@ slots:
   protocol_name:
     range: string
 
-  has_synthesis_step:
+  laboratory_actions:
     range: Action
     multivalued: true
     inlined_as_list: true
@@ -385,10 +390,6 @@ slots:
   duration:
     range: string
     description: Clock time elapsed.
-
-  add_quantity:
-    range: string
-    description: Amount added (PDF Quantity).
 
   add_type:
     range: AdditionTypeEnum
@@ -459,6 +460,10 @@ slots:
 
   preparation_procedure:
     range: string
+  
+  quantity:
+    range: string
+    description: Amount added. e.g. g, ml, L, uL, mg
 
   entity_id:
     range: string
@@ -580,11 +585,15 @@ slots:
 enums:
 
   AdditionTypeEnum:
-    permissible_values:
-      Normal: {}
-      Dropwise: {}
-      Diffusion: {}
-
+      permissible_values:
+        Normal:
+          description: Addition of the full amount at once.
+        Dropwise:
+          description: Slow addition of a liquid drop by drop.
+          meaning: CHMO:0001544
+        Diffusion:
+          description: Addition by slow diffusion, e.g. vapour or layering diffusion.
+  
   OpenFlameEnum:
     permissible_values:
       "True": {}
