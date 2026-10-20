@@ -29,6 +29,23 @@ python main.py
 
 If you already have the environment created, activate it with `source .venv/bin/activate` (Linux/macOS) and run `python main.py`.
 
+## Schema map
+
+Browse the data schema interactively, with relation diagrams and every class, slot and option list:
+
+**[Open the schema map](https://<your-github-username>.github.io/LabProGen/)**
+
+The page is rebuilt and republished automatically by GitHub Actions whenever
+`schema/action_data_model.yaml` changes on `main`.
+
+To build it locally:
+
+```bash
+pip install pyyaml
+python scripts/build_schema_map.py   # writes site/index.html
+```
+
+
 ## 1. Overview
 This application allows you to build logical flowcharts for experiments. Each block represents either a physical action (e.g., stirring, heating) or a chemical entity (e.g., substances, solutions). The system automatically handles snapping, alignment, and logic rules to ensure your protocol is consistent.
 

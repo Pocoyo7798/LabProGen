@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LabProGen Schema Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: lab-notebook reference sheet — header, three relation maps, then a class index beside a detail sheet */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eef2ef; --fg:#18211d; --muted:#5a6862; --line:#d7dfda;
+  --action:#1d7468; --action-soft:#dcefeb;
+  --chem:#9a5b12; --chem-soft:#f6e8d6;
+  --helper:#4d5f86; --helper-soft:#e2e7f2;
+  --proc:#18211d; --proc-soft:#e6ebe8;
+  --req:#b4372b;
+  --f-display:"Fraunces", Georgia, "Times New Roman", serif;
+  --f-body:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111614; --surface:#18201d; --sunk:#141a18; --fg:#e4ebe7; --muted:#97a69f; --line:#2b3531;
+  --action:#5cc2b2; --action-soft:#183531; --chem:#e3a557; --chem-soft:#3a2a16;
+  --helper:#9aaedb; --helper-soft:#222b3d; --proc:#e4ebe7; --proc-soft:#26302c; --req:#ef7a6c;
+  color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#111614; --surface:#18201d; --sunk:#141a18; --fg:#e4ebe7; --muted:#97a69f; --line:#2b3531;
+  --action:#5cc2b2; --action-soft:#183531; --chem:#e3a557; --chem-soft:#3a2a16;
+  --helper:#9aaedb; --helper-soft:#222b3d; --proc:#e4ebe7; --proc-soft:#26302c; --req:#ef7a6c;
+  color-scheme:dark }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding-block:32px 64px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font-family:var(--f-display);font-weight:600;font-size:clamp(1.8rem,4vw,2.6rem);line-height:1.1;letter-spacing:-.01em}
+h2{font-family:var(--f-display);font-weight:500;font-size:1.45rem}
+h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.eyebrow{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);letter-spacing:.02em}
+.mono{font-family:var(--f-mono)}
+header{display:flex;flex-direction:column;gap:12px}
+.lede{color:var(--muted);max-width:68ch;margin:0}
+.stats{display:flex;flex-wrap:wrap;gap:8px 20px;font-variant-numeric:tabular-nums;font-size:.92rem}
+.stats b{font-family:var(--f-mono);font-weight:500}
+.legend{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:500;
+  border:1px solid transparent;white-space:nowrap}
+.chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.g-action{color:var(--action);background:var(--action-soft)}
+.g-chemical{color:var(--chem);background:var(--chem-soft)}
+.g-helper{color:var(--helper);background:var(--helper-soft)}
+.g-procedure{color:var(--proc);background:var(--proc-soft)}
+section{display:flex;flex-direction:column;gap:16px}
+.sec-head{display:flex;flex-direction:column;gap:4px}
+.sec-head p{margin:0;color:var(--muted);max-width:70ch}
+.maps{display:grid;gap:16px}
+.map{background:var(--surface);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-width:0}
+.map-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.map-h span{font-size:.85rem;color:var(--muted)}
+.map-body{overflow-x:auto;padding:12px}
+.map-body pre{margin:0;min-width:640px;display:flex;justify-content:center}
+.explorer{display:grid;grid-template-columns:280px minmax(0,1fr);gap:20px;align-items:start}
+nav.index{position:sticky;top:calc(env(safe-area-inset-top, 0px) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  display:flex;flex-direction:column;max-height:calc(100vh - 24px);min-width:0}
+.search{padding:12px;border-bottom:1px solid var(--line)}
+.search input{width:100%;font:inherit;font-size:.9rem;padding:8px 10px;border-radius:7px;border:1px solid var(--line);background:var(--sunk);color:var(--fg)}
+.search input:focus-visible{outline:2px solid var(--action);outline-offset:1px}
+.tree{overflow-y:auto;padding:8px 6px 14px;display:flex;flex-direction:column;gap:2px}
+.tree h3{padding:12px 10px 4px}
+.tnode{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 10px;border-radius:6px;font-family:var(--f-mono);font-size:.82rem;
+  color:var(--fg);min-width:0}
+.tnode .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.tnode .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tnode.abs .lbl{font-style:italic;color:var(--muted)}
+.tnode:hover{background:var(--sunk)}
+.tnode:focus-visible{outline:2px solid var(--action)}
+.tnode[aria-current="true"]{background:var(--sunk);box-shadow:inset 2px 0 0 var(--fg)}
+.tnode .n{margin-left:auto;color:var(--muted);font-size:.72rem;font-variant-numeric:tabular-nums}
+.sheet{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px clamp(16px,3vw,28px);display:flex;flex-direction:column;gap:18px;min-width:0}
+.sheet-top{display:flex;flex-direction:column;gap:8px}
+.title-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.title-row h2{font-family:var(--f-mono);font-weight:500;font-size:1.5rem;word-break:break-word}
+.tag{font-size:.72rem;font-family:var(--f-mono);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--muted)}
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-family:var(--f-mono);font-size:.8rem;color:var(--muted)}
+.golink{all:unset;cursor:pointer;font-family:var(--f-mono);color:var(--fg);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.golink:hover{text-decoration-color:currentColor}
+.golink:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+.desc{margin:0;max-width:72ch}
+.facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 16px;font-size:.88rem;margin:0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;display:flex;flex-wrap:wrap;gap:6px 10px;font-family:var(--f-mono);font-size:.82rem;min-width:0;word-break:break-word}
+details.defs{border:1px solid var(--line);border-radius:8px;background:var(--sunk)}
+details.defs summary{cursor:pointer;padding:8px 12px;font-size:.85rem;color:var(--muted)}
+details.defs ul{margin:0;padding:0 14px 12px 30px;display:flex;flex-direction:column;gap:6px;font-size:.86rem}
+.slots-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted);cursor:pointer}
+.toggle input{accent-color:var(--action)}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:8px 12px;background:var(--sunk);border-bottom:1px solid var(--line)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.slot{font-family:var(--f-mono);white-space:nowrap}
+td.slot small{display:block;color:var(--muted);font-size:.72rem}
+tr.inh td{background:color-mix(in srgb, var(--sunk) 60%, transparent)}
+.rng{display:inline-flex;align-items:center;gap:5px;font-family:var(--f-mono);font-size:.8rem;white-space:nowrap}
+.rng.type{color:var(--muted)}
+.flag{display:inline-block;font-size:.68rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:1px 6px;margin:0 4px 2px 0}
+.flag.req{color:var(--req);border:1px solid currentColor}
+.flag.list{color:var(--muted);border:1px solid var(--line)}
+.uri{display:block;font-family:var(--f-mono);font-size:.74rem;color:var(--muted);margin-top:3px}
+.empty{color:var(--muted);font-size:.9rem}
+.opts{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px}
+.opt{display:grid;grid-template-columns:minmax(140px,max-content) minmax(0,1fr);gap:4px 16px;padding:9px 12px;border-bottom:1px solid var(--line);font-size:.88rem}
+.opt:last-child{border-bottom:0}
+.opt code{font-family:var(--f-mono);font-size:.82rem}
+.opt .m{font-family:var(--f-mono);font-size:.74rem;color:var(--muted)}
+.list-inline{display:flex;flex-wrap:wrap;gap:6px 12px}
+footer{color:var(--muted);font-size:.82rem;border-top:1px solid var(--line);padding-top:16px}
+@media (max-width:820px){
+  .explorer{grid-template-columns:minmax(0,1fr)}
+  nav.index{position:static;max-height:340px}
+  .opt{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1 id="h1"></h1>
+    <p class="lede">How the schema is organized: which classes inherit from which, which slots link one class to another, and every property each class carries, with its type, whether it is required, and its ontology mapping.</p>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+      <span class="chip g-procedure">Procedure</span>
+      <span class="chip g-action">Actions</span>
+      <span class="chip g-chemical">Chemical entities</span>
+      <span class="chip g-helper">Helper classes</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <h2>Relations</h2>
+      <p>Hollow arrows point to the parent class. Plain arrows are slots that hold another class, labelled with the slot name; <span class="mono">*</span> means a list.</p>
+    </div>
+    <div class="maps">
+      <div class="map"><div class="map-h"><h3>How actions use chemicals</h3><span>Procedure → actions → chemical entities</span></div>
+        <div class="map-body"><pre class="mmd" id="m-links"></pre></div></div>
+      <div class="map"><div class="map-h"><h3>Action hierarchy</h3><span>Abstract groups and the concrete actions under them</span></div>
+        <div class="map-body"><pre class="mmd" id="m-actions"></pre></div></div>
+      <div class="map"><div class="map-h"><h3>Chemical entities</h3><span>Inheritance plus the classes they contain</span></div>
+        <div class="map-body"><pre class="mmd" id="m-chem"></pre></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Classes and properties</h2>
+      <p>Pick a class to see its slots, including the ones it inherits. Click any class or option list in the Type column to jump to it.</p>
+    </div>
+    <div class="explorer">
+      <nav class="index" aria-label="Classes">
+        <div class="search"><input id="q" type="search" placeholder="Filter classes or slots" aria-label="Filter classes or slots"></div>
+        <div class="tree" id="tree"></div>
+      </nav>
+      <article class="sheet" id="sheet" aria-live="polite"></article>
+    </div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script id="schema" type="application/json">__SCHEMA_JSON__</script>
+<script id="mm" type="application/json">__MERMAID_JSON__</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+(function(){
+const D=JSON.parse(document.getElementById('schema').textContent);
+const C=D.classes,E=D.enums;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const GL={procedure:'Procedure',action:'Action',chemical:'Chemical entity',helper:'Helper class'};
+const COLOR={procedure:'var(--proc)',action:'var(--action)',chemical:'var(--chem)',helper:'var(--helper)'};
+
+$('#eyebrow').textContent='LinkML schema · '+D.meta.id;
+$('#h1').textContent=D.meta.name;
+$('#stats').innerHTML=`<span>Version <b>${esc(D.meta.version)}</b></span><span><b>${D.meta.nclasses}</b> classes</span><span><b>${D.meta.nslots}</b> slots</span><span><b>${D.meta.nenums}</b> option lists</span>`;
+$('#foot').textContent='Generated automatically from '+D.meta.source+' (version '+D.meta.version+') on '+D.meta.built+'. Abstract classes are shown in italics and cannot be used directly in data.';
+
+// diagrams
+const M=JSON.parse(document.getElementById('mm').textContent);
+$('#m-links').textContent=M.links; $('#m-actions').textContent=M.actions; $('#m-chem').textContent=M.chemical;
+function drawMaps(){
+  if(!window.mermaid){document.querySelectorAll('.mmd').forEach(p=>{p.style.whiteSpace='pre';p.style.fontFamily='var(--f-mono)';p.style.fontSize='.8rem';});return;}
+  const attr=document.documentElement.getAttribute('data-theme');
+  const dark=attr?attr==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try{
+    mermaid.initialize({startOnLoad:false,theme:dark?'dark':'neutral',securityLevel:'strict',classDiagram:{useMaxWidth:false}});
+    mermaid.run({nodes:document.querySelectorAll('.mmd')}).catch(()=>{});
+  }catch(e){}
+}
+drawMaps();
+
+// children + reverse relations
+const kids={},usedBy={};
+for(const n of D.order){const p=C[n].is_a; if(p)(kids[p]=kids[p]||[]).push(n);}
+for(const [a,b,s,mv] of D.rels)(usedBy[b]=usedBy[b]||[]).push([a,s,mv]);
+const depth=n=>{let d=0,c=C[n];while(c.is_a){d++;c=C[c.is_a];}return d;};
+
+// tree
+const GROUPS=[['procedure','Procedure'],['action','Actions'],['chemical','Chemical entities'],['helper','Helper classes']];
+function ordered(group){
+  const roots=D.order.filter(n=>C[n].group===group&&(!C[n].is_a||C[C[n].is_a].group!==group));
+  const out=[];const walk=n=>{out.push(n);(kids[n]||[]).filter(k=>C[k].group===group).forEach(walk);};
+  roots.forEach(walk);return out;
+}
+function renderTree(filter){
+  const f=(filter||'').trim().toLowerCase();
+  let html='';
+  for(const [g,label] of GROUPS){
+    const names=ordered(g).filter(n=>!f||n.toLowerCase().includes(f)||C[n].slots.some(s=>s.name.toLowerCase().includes(f)));
+    if(!names.length)continue;
+    html+=`<h3>${label}</h3>`;
+    for(const n of names){
+      const own=C[n].slots.filter(s=>s.owner===n).length;
+      const pad=f?10:10+Math.min(depth(n),4)*14;
+      html+=`<button class="tnode${C[n].abstract?' abs':''}" data-go="${n}" style="padding-left:${pad}px" aria-current="${n===current}"><span class="dot" style="background:${COLOR[g]}"></span><span class="lbl">${n}</span><span class="n" title="Own slots">${own||''}</span></button>`;
+    }
+  }
+  if(!html)html='<p class="empty" style="padding:10px">No class or slot matches that filter.</p>';
+  $('#tree').innerHTML=html;
+}
+
+let current=null, showInherited=true;
+try{ const v=localStorage.getItem('lpg-inherited'); if(v!==null) showInherited=v==='1'; }catch(e){}
+
+function rangeCell(s){
+  if(s.kind==='class') return `<button class="golink rng" data-go="${s.range}"><span class="dot" style="width:7px;height:7px;border-radius:50%;background:${COLOR[C[s.range].group]}"></span>${s.range}</button>`;
+  if(s.kind==='enum') return `<button class="golink rng" data-go="${s.range}">${s.range}</button>`;
+  return `<span class="rng type">${esc(s.range)}</span>`;
+}
+function classLink(n){return `<button class="golink" data-go="${n}">${n}</button>`;}
+
+function showClass(n){
+  const c=C[n];
+  const chain=[];let p=c.is_a;while(p){chain.push(p);p=C[p].is_a;}
+  const rows=c.slots.filter(s=>showInherited||s.owner===n);
+  const inheritedCount=c.slots.filter(s=>s.owner!==n).length;
+  const map=[];
+  if(c.class_uri)map.push(['Class URI',`<span>${esc(c.class_uri)}</span>`]);
+  if(c.exact.length)map.push(['Exact mappings',c.exact.map(esc).join(', ')]);
+  if(c.related.length)map.push(['Related mappings',c.related.map(esc).join(', ')]);
+  if(c.aliases.length)map.push(['Also known as',c.aliases.map(esc).join(', ')]);
+  if(kids[n])map.push(['Subclasses',`<span class="list-inline">${kids[n].map(classLink).join('')}</span>`]);
+  if(usedBy[n])map.push(['Held by',`<span class="list-inline">${usedBy[n].map(([a,s])=>`<span>${classLink(a)}<span style="color:var(--muted)">.${s}</span></span>`).join('')}</span>`]);
+  $('#sheet').innerHTML=`
+   <div class="sheet-top">
+     <div class="title-row"><h2>${n}</h2><span class="chip g-${c.group}">${GL[c.group]}</span>${c.abstract?'<span class="tag">abstract</span>':''}${c.tree_root?'<span class="tag">root of a data file</span>':''}</div>
+     ${chain.length?`<div class="crumbs">is a ${chain.map(classLink).join(' <span aria-hidden="true">›</span> ')}</div>`:''}
+   </div>
+   ${c.description?`<p class="desc">${esc(c.description)}</p>`:''}
+   ${map.length?`<dl class="facts">${map.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>`:''}
+   ${c.comments.length?`<details class="defs"><summary>Ontology definitions (${c.comments.length})</summary><ul>${c.comments.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>`:''}
+   <div class="slots-head"><h3>Slots · ${c.slots.length}${inheritedCount?` (${inheritedCount} inherited)`:''}</h3>
+     ${inheritedCount?`<label class="toggle"><input type="checkbox" id="inh" ${showInherited?'checked':''}> Show inherited slots</label>`:''}</div>
+   ${rows.length?`<div class="table-wrap"><table><thead><tr><th>Slot</th><th>Type</th><th>Description</th></tr></thead><tbody>
+     ${rows.map(s=>`<tr class="${s.owner!==n?'inh':''}"><td class="slot">${s.name}${s.owner!==n?`<small>from ${s.owner}</small>`:''}</td>
+       <td>${s.required?'<span class="flag req">required</span>':''}${s.multivalued?'<span class="flag list">list</span>':''}<div>${rangeCell(s)}</div></td>
+       <td>${esc(s.description)||'<span class="empty">No description yet</span>'}${s.slot_uri?`<span class="uri">${esc(s.slot_uri)}${s.mappings.length?' · '+s.mappings.map(esc).join(', '):''}</span>`:''}</td></tr>`).join('')}
+   </tbody></table></div>`:`<p class="empty">${c.slots.length?'All slots are inherited. Turn on “Show inherited slots” to see them.':'This class has no slots.'}</p>`}`;
+  const t=$('#inh'); if(t)t.addEventListener('change',e=>{showInherited=e.target.checked;try{localStorage.setItem('lpg-inherited',showInherited?'1':'0')}catch(_){};showClass(n);});
+}
+function showEnum(n){
+  const e=E[n];
+  const users=[];for(const k of D.order)for(const s of C[k].slots)if(s.range===n&&s.owner===k)users.push([k,s.name]);
+  $('#sheet').innerHTML=`
+   <div class="sheet-top"><div class="title-row"><h2>${n}</h2><span class="tag">option list</span></div></div>
+   ${users.length?`<dl class="facts"><dt>Used by</dt><dd><span class="list-inline">${users.map(([k,s])=>`<span>${classLink(k)}<span style="color:var(--muted)">.${s}</span></span>`).join('')}</span></dd></dl>`:''}
+   <h3>Options · ${e.values.length}</h3>
+   <div class="opts">${e.values.map(v=>`<div class="opt"><code>${esc(v.v)}</code><div>${v.description?esc(v.description):'<span class="empty">—</span>'}${v.meaning?`<div class="m">${esc(v.meaning)}</div>`:''}</div></div>`).join('')}</div>`;
+}
+function go(n,push){
+  if(!C[n]&&!E[n])n='LabProcedure';
+  current=n;
+  C[n]?showClass(n):showEnum(n);
+  renderTree($('#q').value);
+  if(push){try{history.replaceState(null,'','#'+n)}catch(_){}}
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(!b)return;go(b.dataset.go,true);
+  if(window.matchMedia('(max-width:820px)').matches&&b.closest('nav'))$('#sheet').scrollIntoView({behavior:'smooth',block:'start'});});
+$('#q').addEventListener('input',e=>renderTree(e.target.value));
+go(decodeURIComponent((location.hash||'').slice(1))||'LabProcedure',false);
+})();
+</script>
+</body>
+</html>
