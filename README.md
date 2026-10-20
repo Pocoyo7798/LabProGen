@@ -33,7 +33,7 @@ If you already have the environment created, activate it with `source .venv/bin/
 
 Browse the data schema interactively, with relation diagrams and every class, slot and option list:
 
-**[Open the schema map](https://<your-github-username>.github.io/LabProGen/)**
+**[Open the schema map](https://<pocoyo7798>.github.io/LabProGen/)**
 
 The page is rebuilt and republished automatically by GitHub Actions whenever
 `schema/action_data_model.yaml` changes on `main`.
