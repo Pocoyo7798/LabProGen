@@ -1,0 +1,59 @@
+# Rebuilds the interactive schema map and publishes it to GitHub Pages
+# every time the schema (or the map's own code) changes on main.
+name: Publish schema map
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "schema/**"
+      - "scripts/build_schema_map.py"
+      - "scripts/schema_map_template.html"
+      - ".github/workflows/schema-map.yml"
+  workflow_dispatch: # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Build the schema map
+        run: python scripts/build_schema_map.py --schema schema/action_data_model.yaml --out site/index.html
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the page
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
