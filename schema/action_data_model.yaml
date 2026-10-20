@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.1.0"
+version: "1.5.1"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -19,6 +19,8 @@ prefixes:
   PATO: http://purl.obolibrary.org/obo/PATO_
   CHEBI: http://purl.obolibrary.org/obo/CHEBI_
   BFO: http://purl.obolibrary.org/obo/BFO_
+  EDAM: http://edamontology.org/
+  chemrof: https://w3id.org/chemrof/
   AFE: http://purl.allotrope.org/ontologies/equipment#AFE_
   AFM: http://purl.allotrope.org/ontologies/material#AFM_
   AFP: http://purl.allotrope.org/ontologies/process#AFP_
@@ -336,6 +338,18 @@ classes:
   ChemicalEntity:
     closed: false
     description: Chemical entity is a physical entity of interest in chemistry formed by atoms.
+    comments:
+      - >-
+        CHEBI:24431 - A chemical entity is a physical entity of interest in
+        chemistry including molecular entities, parts thereof, and chemical
+        substances. [ChEBI]
+      - >-
+        BFO:0000040 - An independent continuant that is spatially extended
+        whose identity is independent of that of other entities and can be
+        maintained through time. [BFO]
+      - >-
+        AFM:0000275 - A material entity that occupies space and possesses a
+        rest mass. [Allotrope]
     class_uri: CHEBI:24431
     exact_mappings:
       - BFO:0000040
@@ -352,6 +366,11 @@ classes:
     is_a: ChemicalEntity
     closed: true
     description: Group of chemical entities all of the same kind.
+    comments:
+      - >-
+        CHEBI:60003 - A pure substance is a chemical substance composed of
+        multiple molecules, which are all of the same kind. [ChEBI]
+    class_uri: CHEBI:60003
     slots:
       - name
       - entity_purity
@@ -362,7 +381,7 @@ classes:
   MixtureConstituent:
     is_a: ChemicalEntity
     closed: true
-    description: Class to store information about Chemical Entities that live in mixtures
+    description: Class to store information about Substances that live in mixtures.
     slots:
       - chemical
       - concentration
@@ -372,6 +391,7 @@ classes:
         inlined: true
         inlined_as_list: false
         multivalued: false
+        description: Chemical entity.
       concentration:
         required: true
 
@@ -379,12 +399,18 @@ classes:
     is_a: ChemicalEntity
     closed: true
     description: Group of two or more Substances.
+    comments:
+      - >-
+        CHEBI:60004 - A mixture is a chemical substance composed of multiple
+        molecules, at least two of which are of a different kind. [ChEBI]
+    class_uri: CHEBI:60004
     slots:
       - name
       - chemical_list
     slot_usage:
       name:
         required: true
+        description: Mixture name.
       chemical_list:
         required: true
 
@@ -392,6 +418,10 @@ classes:
     is_a: Substance
     closed: true
     description: Polyatomic chemical entity that is electrically neutral.
+    comments:
+      - >-
+        CHEBI:25367 - A molecule is a polyatomic molecular entity that is an
+        electrically neutral entity consisting of more than one atom. [ChEBI]
     class_uri: CHEBI:25367
     slots:
       - formula
@@ -403,18 +433,69 @@ classes:
       smile:
         required: true
 
-  Polymers:
-    is_a: Molecule
+  Polymer:
+    is_a: Substance
     closed: true
-    description: A molecule of high relative molecular mass, the structure of which essentially comprises the multiple repetition of units derived, actually or conceptually, from molecules of low relative molecular mass.
-    class_uri: CHEBI:33839
+    description: >-
+      Material composed of macromolecules that may differ in composition,
+      chain length and degree of branching.
+    comments:
+      - >-
+        CHEBI:60027 - A polymer is a mixture, which is composed of
+        macromolecules of different kinds and which may be differentiated by
+        composition, length, degree of branching etc. [ChEBI]
+      - >-
+        CHEBI:33839 - A macromolecule is a molecule of high relative molecular
+        mass, the structure of which essentially comprises the multiple
+        repetition of units derived, actually or conceptually, from molecules
+        of low relative molecular mass. [ChEBI]
+    aliases:
+      - Polymers
+    class_uri: CHEBI:60027
+    related_mappings:
+      - CHEBI:33839
     slots:
       - bigsmiles
+      - repeat_units
+      - number_average_molar_mass
+      - weight_average_molar_mass
+      - dispersity
+      - melting_temperature
+      - glass_transition_temperature
     slot_usage:
-      smile:
+      name:
         required: false
-      bigsmiles:
+
+  Copolymer:
+    is_a: Polymer
+    closed: true
+    description: Polymer derived from more than one species of monomer.
+    slots:
+      - copolymer_type
+    slot_usage:
+      repeat_units:
+        minimum_cardinality: 2
+
+  RepeatUnit:
+    closed: true
+    description: >-
+      Constitutional repeating unit of a polymer chain. A structural fragment,
+      not a material, so it is not a ChemicalEntity.
+    slots:
+      - name
+      - formula
+      - smile
+      - proportion
+    slot_usage:
+      formula:
         required: true
+        description: Formula of the repeating unit.
+      smile:
+        description: >-
+          SMILES of the repeating unit with attachment points marked by *,
+          e.g. *CC(*)c1ccccc1 for polystyrene.
+      name:
+        description: Name of the repeating unit or its monomer.
 
   BioProducts:
     is_a: ChemicalEntity
@@ -431,9 +512,7 @@ classes:
       - toxicity_to_producer
     slot_usage:
       name:
-        required: true
-      toxicity_to_producer:
-        required: true
+        description: Name of the product.
 
   Medium:
     is_a: Mixture
@@ -442,13 +521,19 @@ classes:
     slots:
       - function
       - state
-      - concentration
       - purity
       - sterility
       - solubility
       - temperature_stability
       - light_sensitivity
       - oxidation_sensitivity
+    slot_usage:
+      name:
+        required: false
+      chemical_list:
+        required: false
+      quantity:
+        description: Mass, volume, or moles.
 
   Dispersion:
     is_a: Mixture
@@ -457,8 +542,11 @@ classes:
     slots:
       - solvent
     slot_usage:
+      name:
+        required: false
+      chemical_list:
+        required: false
       solvent:
-        required: true
         inlined: true
         inlined_as_list: false
         multivalued: false
@@ -481,6 +569,76 @@ classes:
       - py_b_450
       - py_l_150
       - py_l_450
+    slot_usage:
+      formula:
+        description: Chemical formula of the substance.
+
+  # ---------------------------------------------------------------------------
+  # Cells
+  # ---------------------------------------------------------------------------
+
+  Cell:
+    is_a: ChemicalEntity
+    closed: true
+    description: >-
+      Biological cells used in a procedure, such as a microbial culture, a cell
+      line or a primary cell isolate, described as a sample.
+    slots:
+      # 1. Biological identity and origin
+      - biological_category
+      - species_name
+      - taxon_id
+      - strain_designation
+      - culture_collection_accession
+      - cell_type
+      - sample_origin
+      - tissue_or_organ
+      - batch_lot
+      - biological_composition
+      - genetic_modification_status
+      - genetic_modifications
+      - identity_authentication
+      # 2. Cell sample characteristics
+      - sample_presentation
+      - preservation_state
+      - preservation_protocol
+      - optical_density
+      - viability
+      - growth_phase
+      - culture_age
+      - culture_age_reference
+      - passage_number
+      - passage_counting_convention
+      - confluence
+      - differentiation_status
+      - contamination_status
+      # 3. Physicochemical descriptors of the cell preparation
+      - suspension_medium
+      - extracellular_ph
+      - osmolality
+      - conductivity
+      - supplements
+      - cryoprotectants
+      - dissolved_oxygen
+    slot_usage:
+      entity_id:
+        description: Catalogue reference of the cells.
+      entity_producer:
+        description: Supplier, culture collection or laboratory that provided the cells.
+      preparation_procedure:
+        description: Link to the protocol used to obtain the material.
+
+  # ---------------------------------------------------------------------------
+  # Helper classes (not materials)
+  # ---------------------------------------------------------------------------
+
+  GeneticModification:
+    closed: true
+    description: One genetic alteration carried by the cells.
+    slots:
+      - modification_description
+      - construct
+      - sequence_references
 
 slots:
 
@@ -642,6 +800,13 @@ slots:
 
   preparation_procedure:
     range: string
+    description: Entity formed by a group of actions organized in order of execution.
+    comments:
+      - >-
+        AFRE:0000002 - A procedure is a plan containing multiple activities
+        that are intended to be executed in an order following a procedure
+        specification. [Allotrope]
+    slot_uri: AFRE:0000002
 
   quantity:
     range: string
@@ -653,76 +818,169 @@ slots:
 
   entity_producer:
     range: string
+    description: Supplier; institution that created the entity.
 
   entity_purity:
     range: string
+    description: Proportion of the bearer against undesired components.
+    comments:
+      - >-
+        AFQ:0000209 - Purity is a composition quality inhering in a bearer by
+        virtue of the bearer lacking undesired components. [Allotrope]
+    slot_uri: AFQ:0000209
 
   cas_number:
     range: string
+    description: >-
+      CAS registry number of a chemical compound; a unique numerical identifier
+      of chemicals in the scientific literature, as assigned by the Chemical
+      Abstracts Service.
+    slot_uri: EDAM:data_1002
 
   name:
     range: string
 
   formula:
     range: string
+    description: Identifies each element present in the molecule.
+    comments:
+      - >-
+        AFR:0001952 - A molecular formula is a molecular entity facet which
+        identifies each constituent element by its chemical symbol and
+        indicates the number of atoms of each element found in each discrete
+        molecular entity of that compound. [CHEMINF]
+    slot_uri: AFR:0001952
 
   smile:
     range: string
-    description: SMILE representation of the molecule.
+    description: >-
+      A SMILES molecular structure is a molecular structure specified in
+      Simplified Molecular Input Line Entry System (SMILES) line notation.
+    slot_uri: AFR:0002295
+    exact_mappings:
+      - chemrof:smiles_string
 
   inchi:
     range: string
+    description: >-
+      An InChI molecular structure is a molecular structure specified in IUPAC
+      International Chemical Identifier (InChI) line notation.
+    slot_uri: AFR:0002296
+    exact_mappings:
+      - chemrof:inchi_string
 
   bigsmiles:
     range: string
+    description: BigSMILES representation; for polymers BigSMILES should be used instead of normal SMILES.
 
   concentration:
     range: string
+    description: >-
+      Proportion of the bearer relative to other mixed substances,
+      e.g. m/m, vol/vol, M, g/L.
+    comments:
+      - >-
+        AFR:0002036 - A concentration (datum) is a quantification facet that
+        quantifies a quality inhering in a substance by virtue of the amount of
+        the bearer there is mixed with another substance. [Allotrope]
+    slot_uri: AFR:0002036
+
+  repeat_units:
+    range: RepeatUnit
+    multivalued: true
+    inlined_as_list: true
+    description: Repeating units that make up the polymer chain.
+
+  proportion:
+    range: string
+    description: >-
+      Proportion of the repeating unit in the polymer, with its basis,
+      e.g. 50 mol%, 30 wt%.
+
+  copolymer_type:
+    range: CopolymerTypeEnum
+    description: Arrangement of the repeating units along the chain.
+
+  number_average_molar_mass:
+    range: string
+    description: Number-average molar mass (Mn), e.g. 25000 g/mol.
+
+  weight_average_molar_mass:
+    range: string
+    description: Weight-average molar mass (Mw), e.g. 40000 g/mol.
+
+  dispersity:
+    range: string
+    description: Dispersity (Mw/Mn) of the molar mass distribution.
+
+  melting_temperature:
+    range: string
+    description: >-
+      Fusion (melting) temperature (Tm). Not applicable to fully amorphous
+      polymers.
+
+  glass_transition_temperature:
+    range: string
+    description: Glass transition temperature (Tg).
 
   chemical_list:
     range: MixtureConstituent
     multivalued: true
     inlined_as_list: true
+    description: List of MixtureConstituent objects used.
 
   origin:
     range: BioProductOriginEnum
+    description: Metabolic origin of the product.
 
   production_phase:
     range: ProductionPhaseEnum
+    description: Relation between product formation and cell growth.
 
   location:
     range: BioProductLocationEnum
+    description: Location of the product relative to the producing cell.
 
   temperature_stability:
     range: TemperatureStabilityEnum
+    description: Stability of the entity at different temperatures.
 
   light_sensitivity:
     range: YesNoEnum
+    description: Whether the entity is sensitive to light (yes or no).
 
   oxidation_sensitivity:
     range: OxidationSensitivityEnum
+    description: Sensitivity of the entity to air or oxygen.
 
   toxicity_to_producer:
     range: ToxicityToProducerEnum
+    description: Effect of the product on the organism that produces it.
 
   function:
     range: MediumFunctionEnum
+    description: Function to the cell culture.
 
   state:
     range: PhysicalStateEnum
+    description: Physical state of the medium.
 
   purity:
     range: PurityGradeEnum
+    description: Purity grade of the medium.
 
   sterility:
     range: SterilityEnum
+    description: Sterility condition of the medium.
 
   solubility:
     range: string
+    description: Solubility of the medium, e.g. water solubility, pH-dependent solubility.
 
   solvent:
     range: ChemicalEntity
     inlined: true
+    description: Substance or Mixture used as a solvent.
 
   three_d_structure:
     range: string
@@ -730,36 +988,219 @@ slots:
 
   crystallinity:
     range: string
+    description: Percentage of crystal phase, obtained through XRD data.
 
   n2_adsorption_bet_area:
     range: string
+    description: Surface area measured using the BET method with N2 adsorption results (m2/g).
 
   n2_adsorption_micropore_area:
     range: string
+    description: Micropore area measured using the t-plot method with N2 adsorption results (m2/g).
 
   n2_adsorption_mesopore_area:
     range: string
+    description: Mesopore area measured combining the BET method and t-plot method with N2 adsorption results (m2/g).
 
   n2_adsorption_total_volume:
     range: string
+    description: Total volume of N2 adsorbed during the test.
 
   n2_adsorption_micropore_volume:
     range: string
+    description: Micropore volume of N2 adsorbed obtained through the t-plot method.
 
   n2_mesopore_volume:
     range: string
+    description: Mesopore volume of N2 adsorbed obtained combining the t-plot method results and the total adsorbed volume.
 
   py_b_150:
     range: string
+    description: Amount of adsorbed pyridine in Brønsted acid sites at 150 °C.
 
   py_b_450:
     range: string
+    description: Amount of adsorbed pyridine in Brønsted acid sites at 450 °C.
 
   py_l_150:
     range: string
+    description: Amount of adsorbed pyridine in Lewis acid sites at 150 °C.
 
   py_l_450:
     range: string
+    description: Amount of adsorbed pyridine in Lewis acid sites at 450 °C.
+
+  # ---------------------------------------------------------------------------
+  # Cell slots
+  # ---------------------------------------------------------------------------
+
+  # 1. Biological identity and origin
+
+  biological_category:
+    range: BiologicalCategoryEnum
+    description: Broad biological category of the cells.
+
+  species_name:
+    range: string
+    description: Scientific name of the species.
+
+  taxon_id:
+    range: string
+    description: Taxonomic identifier, where available, e.g. NCBITaxon:562.
+
+  strain_designation:
+    range: string
+    description: Full designation of the strain, isolate or cell line.
+
+  culture_collection_accession:
+    range: string
+    description: >-
+      Culture collection identifier or accession number, where applicable,
+      e.g. ATCC 25922.
+
+  cell_type:
+    range: string
+    description: >-
+      Cell type, using a controlled term where available, e.g. fibroblast,
+      hepatocyte or epithelial cell.
+
+  sample_origin:
+    range: SampleOriginEnum
+    description: Where the cell sample came from.
+
+  tissue_or_organ:
+    range: string
+    description: Tissue or organ of origin, when the cells were isolated from one.
+
+  batch_lot:
+    range: string
+    description: Batch or lot number of the material.
+
+  biological_composition:
+    range: BiologicalCompositionEnum
+    description: Whether the sample is a single culture, a defined co-culture or an undefined community.
+
+  genetic_modification_status:
+    range: GeneticModificationStatusEnum
+    description: Whether the cells carry genetic modifications.
+
+  genetic_modifications:
+    range: GeneticModification
+    multivalued: true
+    inlined_as_list: true
+    description: Alterations, constructs and sequence references, if the cells are modified.
+
+  identity_authentication:
+    range: IdentityAuthenticationStatusEnum
+    description: Whether the identity of the cells has been authenticated.
+
+  # 2. Cell sample characteristics
+
+  sample_presentation:
+    range: SamplePresentationEnum
+    description: Physical form in which the cells are presented.
+
+  preservation_state:
+    range: PreservationStateEnum
+    description: Treatment or preservation state of the cells.
+
+  preservation_protocol:
+    range: string
+    description: Link to the protocol used for treatment or preservation.
+
+  optical_density:
+    range: string
+    description: Optical density (dimensionless), with wavelength, e.g. OD600; optical path length or correction and dilution where relevant.
+
+  viability:
+    range: string
+    description: Percentage of cells classified as viable (%).
+
+  growth_phase:
+    range: GrowthPhaseEnum
+    description: Growth phase of the culture.
+
+  culture_age:
+    range: string
+    description: Time elapsed since a defined event (h or days); see culture_age_reference.
+
+  culture_age_reference:
+    range: CultureAgeReferenceEnum
+    description: Event from which the culture age is counted.
+
+  passage_number:
+    range: integer
+    description: Number of passages. Particularly applicable to cell cultures.
+
+  passage_counting_convention:
+    range: string
+    description: Convention used to count passages.
+
+  confluence:
+    range: string
+    description: Percentage of surface area occupied (%). Applicable to adherent cultures.
+
+  differentiation_status:
+    range: DifferentiationStatusEnum
+    description: Differentiation status of the cells.
+
+  contamination_status:
+    range: ContaminationStatusEnum
+    description: Contamination status of the cell sample.
+
+  # 3. Physicochemical descriptors of the cell preparation
+
+  suspension_medium:
+    range: ChemicalEntity
+    inlined: true
+    description: >-
+      Suspension medium or buffer, e.g. a Medium or Mixture with its name,
+      commercial reference or composition.
+
+  extracellular_ph:
+    range: string
+    description: Extracellular pH (dimensionless), with the temperature at which it was measured.
+
+  osmolality:
+    range: string
+    description: Medium osmolality (mOsm/kg).
+
+  conductivity:
+    range: string
+    description: Medium conductivity (mS/cm), with the temperature.
+
+  supplements:
+    range: MixtureConstituent
+    multivalued: true
+    inlined_as_list: true
+    description: >-
+      Substrates, salts and supplements, each with its identity and
+      concentration (mmol/L, g/L, or % with an explicit basis).
+
+  cryoprotectants:
+    range: MixtureConstituent
+    multivalued: true
+    inlined_as_list: true
+    description: Cryoprotectants, each with its identity and concentration (% v/v, % w/v or mol/L).
+
+  dissolved_oxygen:
+    range: string
+    description: Dissolved oxygen (mg/L, µmol/L or % saturation), with temperature and saturation reference where applicable.
+
+  # Genetic modification slots
+
+  modification_description:
+    range: string
+    description: Description of the genetic alteration.
+
+  construct:
+    range: string
+    description: Genetic construct used, e.g. plasmid name.
+
+  sequence_references:
+    range: string
+    multivalued: true
+    description: Sequence references for the modification, e.g. GenBank accessions.
 
 enums:
 
@@ -858,6 +1299,17 @@ enums:
   # Chemical entity enums
   # ---------------------------------------------------------------------------
 
+  CopolymerTypeEnum:
+    permissible_values:
+      random:
+        description: Repeating units distributed randomly (statistically) along the chain.
+      alternating:
+        description: Repeating units alternate regularly along the chain.
+      block:
+        description: Long sequences (blocks) of each repeating unit.
+      graft:
+        description: Side chains of one unit grafted onto a backbone of another.
+
   BioProductOriginEnum:
     permissible_values:
       "primary metabolite": {}
@@ -878,12 +1330,18 @@ enums:
 
   TemperatureStabilityEnum:
     permissible_values:
-      thermostable: {}
-      "heat stable": {}
-      "moderately stable": {}
-      "heat labile": {}
-      "very heat labile": {}
-      "cryogenic storage required": {}
+      thermostable:
+        description: Stable at high temperatures (>60 °C).
+      "heat stable":
+        description: Stable during autoclaving (121 °C, 20 min).
+      "moderately stable":
+        description: Stable at room temperature but not at autoclave temperatures.
+      "heat labile":
+        description: Degrades above 40-50 °C.
+      "very heat labile":
+        description: Degrades above room temperature.
+      "cryogenic storage required":
+        description: Degrades even when frozen at -20 °C.
 
   YesNoEnum:
     permissible_values:
@@ -892,10 +1350,14 @@ enums:
 
   OxidationSensitivityEnum:
     permissible_values:
-      "oxidation stable": {}
-      "oxidation sensitive": {}
-      "highly oxidation sensitive": {}
-      "oxygen reactive": {}
+      "oxidation stable":
+        description: Not affected by air/oxygen.
+      "oxidation sensitive":
+        description: Degrades slowly in air.
+      "highly oxidation sensitive":
+        description: Degrades rapidly in air.
+      "oxygen reactive":
+        description: Reacts immediately with oxygen.
 
   ToxicityToProducerEnum:
     permissible_values:
@@ -915,11 +1377,16 @@ enums:
 
   PhysicalStateEnum:
     permissible_values:
-      solid: {}
-      liquid: {}
-      "semi-solid": {}
-      lyophilized: {}
-      frozen: {}
+      solid:
+        description: Powder, crystalline, or granular form.
+      liquid:
+        description: Aqueous or organic liquid.
+      "semi-solid":
+        description: Gel, paste, or viscous suspension.
+      lyophilized:
+        description: Freeze-dried powder (common for proteins, sera).
+      frozen:
+        description: Stored below 0 °C (common for sera, certain vitamins).
 
   PurityGradeEnum:
     permissible_values:
@@ -935,3 +1402,90 @@ enums:
       "non-sterile": {}
       "filter-sterilized": {}
       autoclavable: {}
+
+  # ---------------------------------------------------------------------------
+  # Cell enums
+  # ---------------------------------------------------------------------------
+
+  BiologicalCategoryEnum:
+    permissible_values:
+      bacterium: {}
+      archaea: {}
+      yeast: {}
+      "filamentous fungus": {}
+      microalga: {}
+      "animal cell": {}
+      "plant cell": {}
+      other: {}
+
+  SampleOriginEnum:
+    permissible_values:
+      "culture collection": {}
+      supplier: {}
+      laboratory: {}
+      "environmental isolation": {}
+      "tissue or organ": {}
+
+  BiologicalCompositionEnum:
+    permissible_values:
+      "single strain or cell line culture": {}
+      "defined co-culture": {}
+      "undefined community": {}
+
+  GeneticModificationStatusEnum:
+    permissible_values:
+      "no known modification": {}
+      "genetically modified": {}
+      unknown: {}
+
+  IdentityAuthenticationStatusEnum:
+    permissible_values:
+      confirmed: {}
+      "not assessed": {}
+      inconclusive: {}
+
+  SamplePresentationEnum:
+    permissible_values:
+      "cell suspension": {}
+      pellet: {}
+      monolayer: {}
+      "aggregate or spheroid": {}
+      biofilm: {}
+      "immobilized cells": {}
+
+  PreservationStateEnum:
+    permissible_values:
+      fresh: {}
+      refrigerated: {}
+      frozen: {}
+      cryopreserved: {}
+      lyophilized: {}
+      fixed: {}
+      inactivated: {}
+
+  GrowthPhaseEnum:
+    permissible_values:
+      lag: {}
+      exponential: {}
+      stationary: {}
+      decline: {}
+      "not determined": {}
+
+  CultureAgeReferenceEnum:
+    permissible_values:
+      inoculation: {}
+      subculture: {}
+      thawing: {}
+
+  DifferentiationStatusEnum:
+    permissible_values:
+      undifferentiated: {}
+      "partially differentiated": {}
+      differentiated: {}
+      "not assessed": {}
+
+  ContaminationStatusEnum:
+    permissible_values:
+      "not detected": {}
+      detected: {}
+      "not tested": {}
