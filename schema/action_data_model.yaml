@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.10.0"
+version: "1.11.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -493,6 +493,20 @@ classes:
         required: true
       smile:
         required: true
+
+  UndefinedMolecule:
+    is_a: Molecule
+    closed: true
+    description: >-
+      Molecule that is not fully defined, e.g. its name or structure is not
+      known. Same descriptors as Molecule, all optional.
+    slot_usage:
+      name:
+        required: false
+      formula:
+        required: false
+      smile:
+        required: false
 
   # Polymers: the same descriptors apply to an individual polymer (Substance)
   # and to a polymer mixture such as a blend or composite (Mixture).
