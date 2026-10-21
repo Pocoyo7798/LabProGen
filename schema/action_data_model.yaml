@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.9.0"
+version: "1.10.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -154,12 +154,9 @@ classes:
       - AFP:0000422
       - CHMO:0000999
     slots:
-      - phase_to_keep
       - method
       - duration
     slot_usage:
-      phase_to_keep:
-        required: true
       method:
         required: true
 
@@ -168,9 +165,12 @@ classes:
   SeparationMethod:
     abstract: true
     closed: false
-    description: Method used to carry out a separation.
+    description: >-
+      Method used to carry out a separation. Each method limits which phase or
+      fraction can be kept.
     slots:
       - type
+      - phase_to_keep
 
   Filtration:
     is_a: SeparationMethod
@@ -181,6 +181,10 @@ classes:
       - AFP:0001530
     slots:
       - filter_pore_size
+    slot_usage:
+      phase_to_keep:
+        required: true
+        range: SolidLiquidPhaseEnum
 
   Centrifugation:
     is_a: SeparationMethod
@@ -190,6 +194,9 @@ classes:
     slots:
       - speed
     slot_usage:
+      phase_to_keep:
+        required: true
+        range: SolidLiquidPhaseEnum
       speed:
         description: Rotation speed of the centrifuge rotor, e.g. 4000 rpm.
 
@@ -202,6 +209,9 @@ classes:
     slots:
       - size_range
     slot_usage:
+      phase_to_keep:
+        required: true
+        range: SievingFractionEnum
       size_range:
         required: true
 
@@ -209,12 +219,20 @@ classes:
     is_a: SeparationMethod
     closed: true
     description: Separation by pouring off the liquid above a settled solid or denser liquid.
+    slot_usage:
+      phase_to_keep:
+        required: true
+        range: LiquidLayerEnum
 
   Evaporation:
     is_a: SeparationMethod
     closed: true
     description: Separation by vaporizing the volatile components.
     class_uri: CHMO:0001574
+    slot_usage:
+      phase_to_keep:
+        required: true
+        range: SolidLiquidGasPhaseEnum
 
   NoAction:
     is_a: OneOffAction
@@ -1410,6 +1428,35 @@ enums:
         description: Sieving fraction retained between two sieves.
       Oversize:
         description: Sieving fraction retained on the sieve (or the coarsest sieve).
+
+  SolidLiquidPhaseEnum:
+    description: Phases that can be kept after filtration or centrifugation.
+    permissible_values:
+      Solid: {}
+      Liquid: {}
+
+  SolidLiquidGasPhaseEnum:
+    description: Phases that can be kept after evaporation.
+    permissible_values:
+      Solid: {}
+      Liquid: {}
+      Gas: {}
+
+  LiquidLayerEnum:
+    description: Liquid layers that can be kept after decantation.
+    permissible_values:
+      Organic: {}
+      Aqueous: {}
+
+  SievingFractionEnum:
+    description: Fractions that can be kept after sieving.
+    permissible_values:
+      Undersize:
+        description: Fraction that passed through the sieve (or the finest sieve).
+      "Intermediate fraction":
+        description: Fraction retained between two sieves.
+      Oversize:
+        description: Fraction retained on the sieve (or the coarsest sieve).
 
   HeatingProcessEnum:
     permissible_values:
