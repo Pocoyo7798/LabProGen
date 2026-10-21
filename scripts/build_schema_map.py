@@ -167,8 +167,20 @@ def build_mermaid(data):
                 lines.append(f"  <<mixin>> {n}")
         return "\n".join(lines)
 
-    action_names = {n for n in C if C[n]["group"] == "action"}
-    chem_names = {n for n in C if C[n]["group"] in ("chemical", "helper", "mixin")}
+    def ancestors(n):
+        out = []
+        while n:
+            out.append(n)
+            n = C[n]["is_a"]
+        return out
+
+    # Helper classes held by an action (e.g. separation methods), with their
+    # subclasses, are drawn in the action diagram rather than the chemical one.
+    action_targets = {b for a, b, s, mv in R if C[a]["group"] == "action" and C[b]["group"] == "helper"}
+    action_helpers = {n for n in C if C[n]["group"] == "helper" and set(ancestors(n)) & action_targets}
+    action_names = {n for n in C if C[n]["group"] == "action"} | action_helpers
+    action_rels = [r for r in R if r[0] in action_names and r[1] in action_names]
+    chem_names = {n for n in C if C[n]["group"] in ("chemical", "helper", "mixin")} - action_helpers
     chem_rels = [r for r in R if r[0] in chem_names]
     link_rels = [r for r in R if C[r[0]]["group"] in ("procedure", "action")]
     link_names = {r[0] for r in link_rels} | {r[1] for r in link_rels}
@@ -177,7 +189,7 @@ def build_mermaid(data):
     links += [f"  class {n}" for n in order if n in link_names]
     return {
         "links": "\n".join(links),
-        "actions": diagram(action_names, [], "TB"),
+        "actions": diagram(action_names, action_rels, "TB"),
         "chemical": diagram(chem_names, chem_rels, "TB"),
     }
 

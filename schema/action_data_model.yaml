@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.7.0"
+version: "1.9.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -163,23 +163,65 @@ classes:
       method:
         required: true
 
-  Sieve:
-    is_a: OneOffAction
+  # Separation methods: used inside Separate.method, each with its own slots.
+
+  SeparationMethod:
+    abstract: true
+    closed: false
+    description: Method used to carry out a separation.
+    slots:
+      - type
+
+  Filtration:
+    is_a: SeparationMethod
+    closed: true
+    description: Separation of solids from a fluid by passing the fluid through a filter.
+    class_uri: CHMO:0001640
+    exact_mappings:
+      - AFP:0001530
+    slots:
+      - filter_pore_size
+
+  Centrifugation:
+    is_a: SeparationMethod
+    closed: true
+    description: Separation of components by rotation at high speed.
+    class_uri: OBI:0302886
+    slots:
+      - speed
+    slot_usage:
+      speed:
+        description: Rotation speed of the centrifuge rotor, e.g. 4000 rpm.
+
+  Sieving:
+    is_a: SeparationMethod
     closed: true
     description: Screening of solid particles by size.
+    aliases:
+      - Sieve
     slots:
       - size_range
-      - duration
     slot_usage:
       size_range:
         required: true
 
-  NoModification:
+  Decantation:
+    is_a: SeparationMethod
+    closed: true
+    description: Separation by pouring off the liquid above a settled solid or denser liquid.
+
+  Evaporation:
+    is_a: SeparationMethod
+    closed: true
+    description: Separation by vaporizing the volatile components.
+    class_uri: CHMO:0001574
+
+  NoAction:
     is_a: OneOffAction
     closed: true
     description: Absence of an externally imposed intervention.
     aliases:
-      - NoAction
+      - NoModification
     slots:
       - duration
     slot_usage:
@@ -537,6 +579,10 @@ classes:
           e.g. *CC(*)c1ccccc1 for polystyrene.
       name:
         description: Name of the repeating unit or its monomer.
+      proportion:
+        description: >-
+          Proportion of the repeating unit in the polymer, with its basis,
+          e.g. 50 mol%, 30 wt%.
 
   # Bioproducts: an isolated product (Substance) or a product still in a
   # mixture such as a crude extract or broth (Mixture).
@@ -600,32 +646,15 @@ classes:
       quantity:
         description: Mass, volume, or moles.
 
-  Dispersion:
-    is_a: Mixture
-    closed: true
-    description: Mixture between solute and solvent.
-    slots:
-      - solvent
-    slot_usage:
-      name:
-        required: false
-      chemical_list:
-        required: false
-      solvent:
-        inlined: true
-        inlined_as_list: false
-        multivalued: false
+  # Porous materials: an individual material (Substance) or a physical
+  # mixture or supported material characterized as a whole (Mixture).
 
-  # Heterogeneous catalysts: an individual material (Substance) or a physical
-  # mixture or supported catalyst characterized as a whole (Mixture).
-
-  HeterogeneousCatalystProperties:
+  PorousMaterialProperties:
     mixin: true
     description: >-
-      Characterization descriptors of a heterogeneous catalyst, whether a
-      substance or a mixture.
+      Characterization descriptors of a porous material, whether a substance
+      or a mixture.
     slots:
-      - three_d_structure
       - crystallinity
       - n2_adsorption_bet_area
       - n2_adsorption_micropore_area
@@ -638,12 +667,22 @@ classes:
       - py_l_150
       - py_l_450
 
-  HeterogeneousCatalysts:
+  ZeoliteProperties:
+    is_a: PorousMaterialProperties
+    mixin: true
+    description: Additional descriptors of zeolites.
+    slots:
+      - si_al_ratio
+      - frameworks
+
+  PorousMaterial:
     is_a: Substance
     mixins:
-      - HeterogeneousCatalystProperties
+      - PorousMaterialProperties
     closed: true
-    description: Substances that increase reaction rates with a different phase than the reaction medium.
+    description: Solid material containing pores, characterized as an individual material.
+    aliases:
+      - HeterogeneousCatalysts
     slots:
       - formula
     slot_usage:
@@ -652,19 +691,59 @@ classes:
       formula:
         description: Chemical formula of the substance.
 
-  HeterogeneousCatalystsMixture:
-    is_a: Mixture
+  Zeolite:
+    is_a: PorousMaterial
     mixins:
-      - HeterogeneousCatalystProperties
+      - ZeoliteProperties
     closed: true
     description: >-
-      Physical mixture or supported catalyst characterized as a whole, e.g.
-      5 wt% Pt/Al2O3.
+      Crystalline microporous aluminosilicate (or related) material built from
+      one or more framework types.
+
+  PorousMaterialMixture:
+    is_a: Mixture
+    mixins:
+      - PorousMaterialProperties
+    closed: true
+    description: >-
+      Physical mixture or supported material characterized as a whole as a
+      porous material, e.g. 5 wt% Pt/Al2O3.
+    aliases:
+      - HeterogeneousCatalystsMixture
     slot_usage:
       name:
         required: false
       chemical_list:
         required: false
+
+  ZeoliteMixture:
+    is_a: PorousMaterialMixture
+    mixins:
+      - ZeoliteProperties
+    closed: true
+    description: >-
+      Mixture characterized as a zeolite as a whole, e.g. a zeolite with a
+      binder or a physical mixture of zeolites.
+
+  Framework:
+    closed: true
+    description: >-
+      Framework type present in a zeolite. A single-framework zeolite has one
+      entry; an intergrowth or mixture of frameworks has one entry per
+      framework, each with its proportion.
+    slots:
+      - framework_code
+      - name
+      - proportion
+    slot_usage:
+      framework_code:
+        required: true
+      name:
+        description: Name of the framework or material type, e.g. ZSM-5.
+      proportion:
+        description: >-
+          Proportion of this framework in the material, with its basis,
+          e.g. 70 wt%. Omit for a single framework.
 
   # ---------------------------------------------------------------------------
   # Cells
@@ -778,11 +857,16 @@ slots:
 
   phase_to_keep:
     range: PhaseToKeepEnum
-    description: The phase that will continue to be changed.
+    description: The phase or fraction that will continue to be changed.
 
   method:
-    range: SeparationMethodEnum
-    description: Type of separation.
+    range: SeparationMethod
+    inlined: true
+    description: Separation method, with its own descriptors.
+
+  filter_pore_size:
+    range: string
+    description: Pore size of the filter, e.g. 0.45 µm.
 
   size_range:
     range: string
@@ -977,8 +1061,24 @@ slots:
   proportion:
     range: string
     description: >-
-      Proportion of the repeating unit in the polymer, with its basis,
+      Proportion of a unit within the whole, with its basis,
       e.g. 50 mol%, 30 wt%.
+
+  si_al_ratio:
+    range: string
+    description: Si/Al molar ratio of the zeolite, e.g. 15.
+
+  frameworks:
+    range: Framework
+    multivalued: true
+    inlined_as_list: true
+    description: Framework type or types present in the zeolite.
+
+  framework_code:
+    range: string
+    description: >-
+      Three-letter framework type code assigned by the International Zeolite
+      Association (IZA), e.g. MFI, FAU, CHA.
 
   copolymer_type:
     range: CopolymerTypeEnum
@@ -1059,15 +1159,6 @@ slots:
   solubility:
     range: string
     description: Solubility of the medium, e.g. water solubility, pH-dependent solubility.
-
-  solvent:
-    range: ChemicalEntity
-    inlined: true
-    description: Substance or Mixture used as a solvent.
-
-  three_d_structure:
-    range: string
-    description: Crystal structure (PDF 3D Structure).
 
   crystallinity:
     range: string
@@ -1310,20 +1401,15 @@ enums:
     permissible_values:
       Liquid: {}
       Solid: {}
+      Gas: {}
       Aqueous: {}
       Organic: {}
-
-  SeparationMethodEnum:
-    permissible_values:
-      Filtration:
-        meaning: CHMO:0001640
-        exact_mappings:
-          - AFP:0001530
-      Centrifugation:
-        meaning: OBI:0302886
-      Decantation: {}
-      Evaporation:
-        meaning: CHMO:0001574
+      Undersize:
+        description: Sieving fraction that passed through the sieve (or the finest sieve).
+      "Intermediate fraction":
+        description: Sieving fraction retained between two sieves.
+      Oversize:
+        description: Sieving fraction retained on the sieve (or the coarsest sieve).
 
   HeatingProcessEnum:
     permissible_values:
