@@ -38,18 +38,30 @@ def build_data(schema, source_name):
             name = (classes_in[name] or {}).get("is_a")
         return out
 
-    def owners(name):
-        """Classes (ancestors and their mixins) that contribute slots, oldest first."""
+    def owners(name, _seen=None):
+        """Classes that contribute slots (ancestors, their mixins and the mixins'
+        own ancestors), oldest first."""
+        seen = set() if _seen is None else _seen
         order = []
         for c in reversed(chain(name)):
             for m in (classes_in[c] or {}).get("mixins") or []:
-                if m in classes_in and m not in order:
-                    order.append(m)
-            order.append(c)
+                if m in classes_in and m not in seen:
+                    for o in owners(m, seen):
+                        if o not in order:
+                            order.append(o)
+            if c not in seen:
+                seen.add(c)
+                order.append(c)
         return order
+
+    def contributors(name):
+        """Every class whose slot_usage applies to this class, nearest first."""
+        return list(reversed(owners(name)))
 
     def group(name):
         ch = chain(name)
+        if (classes_in[name] or {}).get("mixin"):
+            return "mixin"
         if "Action" in ch:
             return "action"
         if "ChemicalEntity" in ch:
@@ -80,7 +92,7 @@ def build_data(schema, source_name):
                     "mappings": base.get("exact_mappings") or [],
                 }
                 # slot_usage overrides, applied from the oldest ancestor to the class itself
-                for k in reversed(ch):
+                for k in reversed(contributors(name)):
                     su = ((classes_in[k] or {}).get("slot_usage") or {}).get(s) or {}
                     for key in ("range", "required", "multivalued", "description"):
                         if key in su:
@@ -91,6 +103,7 @@ def build_data(schema, source_name):
         classes[name] = {
             "name": name,
             "is_a": c.get("is_a") if c.get("is_a") in classes_in else None,
+            "mixins": [m for m in c.get("mixins") or [] if m in classes_in],
             "abstract": bool(c.get("abstract")),
             "mixin": bool(c.get("mixin")),
             "description": (c.get("description") or "").strip(),
@@ -140,16 +153,22 @@ def build_mermaid(data):
         for n in names:
             if C[n]["is_a"] in names:
                 lines.append(f"  {C[n]['is_a']} <|-- {n}")
+        for n in names:
+            for m in C[n].get("mixins") or []:
+                if m in names:
+                    lines.append(f"  {m} <|.. {n}")
         for a, b, s, mv in rels:
             lines.append(f'  {a} --> "{"*" if mv else "1"}" {b} : {s}')
         for n in names:
             lines.append(f"  class {n}")
             if C[n]["abstract"]:
                 lines.append(f"  <<abstract>> {n}")
+            if C[n]["mixin"]:
+                lines.append(f"  <<mixin>> {n}")
         return "\n".join(lines)
 
     action_names = {n for n in C if C[n]["group"] == "action"}
-    chem_names = {n for n in C if C[n]["group"] in ("chemical", "helper")}
+    chem_names = {n for n in C if C[n]["group"] in ("chemical", "helper", "mixin")}
     chem_rels = [r for r in R if r[0] in chem_names]
     link_rels = [r for r in R if C[r[0]]["group"] in ("procedure", "action")]
     link_names = {r[0] for r in link_rels} | {r[1] for r in link_rels}

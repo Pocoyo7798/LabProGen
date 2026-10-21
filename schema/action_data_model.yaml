@@ -9,7 +9,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.5.1"
+version: "1.7.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -213,9 +213,9 @@ classes:
     closed: true
     description: Indication that another product will not follow the main path.
     slots:
-      - substance
+      - phase_to_keep
     slot_usage:
-      substance:
+      phase_to_keep:
         required: true
 
   # ---------------------------------------------------------------------------
@@ -319,14 +319,15 @@ classes:
     closed: true
     description: Addition of a chemical entity to a container over time.
     slots:
-      - substance_list
+      - chemical
       - continuous_add_type
       - amount
       - flow_rate
       - entry_point
     slot_usage:
-      substance_list:
+      chemical:
         required: true
+        description: Chemical entity or entities added to the system over time.
       continuous_add_type:
         required: true
       amount:
@@ -433,8 +434,32 @@ classes:
       smile:
         required: true
 
+  # Polymers: the same descriptors apply to an individual polymer (Substance)
+  # and to a polymer mixture such as a blend or composite (Mixture).
+
+  PolymerProperties:
+    mixin: true
+    description: Descriptors shared by polymers, whether a substance or a mixture.
+    slots:
+      - bigsmiles
+      - repeat_units
+      - number_average_molar_mass
+      - weight_average_molar_mass
+      - dispersity
+      - melting_temperature
+      - glass_transition_temperature
+
+  CopolymerProperties:
+    is_a: PolymerProperties
+    mixin: true
+    description: Additional descriptors of copolymers.
+    slots:
+      - copolymer_type
+
   Polymer:
     is_a: Substance
+    mixins:
+      - PolymerProperties
     closed: true
     description: >-
       Material composed of macromolecules that may differ in composition,
@@ -454,24 +479,40 @@ classes:
     class_uri: CHEBI:60027
     related_mappings:
       - CHEBI:33839
-    slots:
-      - bigsmiles
-      - repeat_units
-      - number_average_molar_mass
-      - weight_average_molar_mass
-      - dispersity
-      - melting_temperature
-      - glass_transition_temperature
     slot_usage:
       name:
         required: false
 
   Copolymer:
     is_a: Polymer
+    mixins:
+      - CopolymerProperties
     closed: true
     description: Polymer derived from more than one species of monomer.
-    slots:
-      - copolymer_type
+    slot_usage:
+      repeat_units:
+        minimum_cardinality: 2
+
+  PolymerMixture:
+    is_a: Mixture
+    mixins:
+      - PolymerProperties
+    closed: true
+    description: >-
+      Mixture characterized as a polymer as a whole, e.g. a polymer blend or
+      composite.
+    slot_usage:
+      name:
+        required: false
+      chemical_list:
+        required: false
+
+  CopolymerMixture:
+    is_a: PolymerMixture
+    mixins:
+      - CopolymerProperties
+    closed: true
+    description: Polymer mixture characterized as a copolymer as a whole.
     slot_usage:
       repeat_units:
         minimum_cardinality: 2
@@ -497,12 +538,13 @@ classes:
       name:
         description: Name of the repeating unit or its monomer.
 
-  BioProducts:
-    is_a: ChemicalEntity
-    closed: true
-    description: Entities created by biological compounds like metabolites.
+  # Bioproducts: an isolated product (Substance) or a product still in a
+  # mixture such as a crude extract or broth (Mixture).
+
+  BioProductProperties:
+    mixin: true
+    description: Descriptors shared by bioproducts, whether a substance or a mixture.
     slots:
-      - name
       - origin
       - production_phase
       - location
@@ -510,9 +552,32 @@ classes:
       - light_sensitivity
       - oxidation_sensitivity
       - toxicity_to_producer
+
+  BioProducts:
+    is_a: Substance
+    mixins:
+      - BioProductProperties
+    closed: true
+    description: Entities created by biological compounds like metabolites.
     slot_usage:
       name:
+        required: false
         description: Name of the product.
+
+  BioProductsMixture:
+    is_a: Mixture
+    mixins:
+      - BioProductProperties
+    closed: true
+    description: >-
+      Mixture characterized as a bioproduct as a whole, e.g. a crude extract
+      or fermentation broth.
+    slot_usage:
+      name:
+        required: false
+        description: Name of the product.
+      chemical_list:
+        required: false
 
   Medium:
     is_a: Mixture
@@ -551,12 +616,15 @@ classes:
         inlined_as_list: false
         multivalued: false
 
-  HeterogeneousCatalysts:
-    is_a: ChemicalEntity
-    closed: true
-    description: Substances that increase reaction rates with a different phase than the reaction medium.
+  # Heterogeneous catalysts: an individual material (Substance) or a physical
+  # mixture or supported catalyst characterized as a whole (Mixture).
+
+  HeterogeneousCatalystProperties:
+    mixin: true
+    description: >-
+      Characterization descriptors of a heterogeneous catalyst, whether a
+      substance or a mixture.
     slots:
-      - formula
       - three_d_structure
       - crystallinity
       - n2_adsorption_bet_area
@@ -569,16 +637,41 @@ classes:
       - py_b_450
       - py_l_150
       - py_l_450
+
+  HeterogeneousCatalysts:
+    is_a: Substance
+    mixins:
+      - HeterogeneousCatalystProperties
+    closed: true
+    description: Substances that increase reaction rates with a different phase than the reaction medium.
+    slots:
+      - formula
     slot_usage:
+      name:
+        required: false
       formula:
         description: Chemical formula of the substance.
+
+  HeterogeneousCatalystsMixture:
+    is_a: Mixture
+    mixins:
+      - HeterogeneousCatalystProperties
+    closed: true
+    description: >-
+      Physical mixture or supported catalyst characterized as a whole, e.g.
+      5 wt% Pt/Al2O3.
+    slot_usage:
+      name:
+        required: false
+      chemical_list:
+        required: false
 
   # ---------------------------------------------------------------------------
   # Cells
   # ---------------------------------------------------------------------------
 
   Cell:
-    is_a: ChemicalEntity
+    is_a: Substance
     closed: true
     description: >-
       Biological cells used in a procedure, such as a microbial culture, a cell
@@ -621,6 +714,8 @@ classes:
       - cryoprotectants
       - dissolved_oxygen
     slot_usage:
+      name:
+        required: false
       entity_id:
         description: Catalogue reference of the cells.
       entity_producer:
@@ -755,21 +850,9 @@ slots:
     range: ContainerStateEnum
     description: Closure state of the recipient.
 
-  substance:
-    range: ChemicalEntity
-    multivalued: true
-    inlined_as_list: true
-    description: Chemical entity.
-
   amount:
     range: string
     description: Number of repetitions or intermittent additions.
-
-  substance_list:
-    range: ChemicalEntity
-    multivalued: true
-    inlined_as_list: true
-    description: List of chemical entities.
 
   continuous_add_type:
     range: ContinuousAdditionTypeEnum

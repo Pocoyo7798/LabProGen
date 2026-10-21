@@ -16,6 +16,7 @@
   --chem:#9a5b12; --chem-soft:#f6e8d6;
   --helper:#4d5f86; --helper-soft:#e2e7f2;
   --proc:#18211d; --proc-soft:#e6ebe8;
+  --mixin:#7a4f8f; --mixin-soft:#efe4f4;
   --req:#b4372b;
   --f-display:"Fraunces", Georgia, "Times New Roman", serif;
   --f-body:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -25,11 +26,13 @@
   --bg:#111614; --surface:#18201d; --sunk:#141a18; --fg:#e4ebe7; --muted:#97a69f; --line:#2b3531;
   --action:#5cc2b2; --action-soft:#183531; --chem:#e3a557; --chem-soft:#3a2a16;
   --helper:#9aaedb; --helper-soft:#222b3d; --proc:#e4ebe7; --proc-soft:#26302c; --req:#ef7a6c;
+  --mixin:#cfa3e3; --mixin-soft:#33233b;
   color-scheme:dark }}
 :root[data-theme="dark"]{
   --bg:#111614; --surface:#18201d; --sunk:#141a18; --fg:#e4ebe7; --muted:#97a69f; --line:#2b3531;
   --action:#5cc2b2; --action-soft:#183531; --chem:#e3a557; --chem-soft:#3a2a16;
   --helper:#9aaedb; --helper-soft:#222b3d; --proc:#e4ebe7; --proc-soft:#26302c; --req:#ef7a6c;
+  --mixin:#cfa3e3; --mixin-soft:#33233b;
   color-scheme:dark }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55}
@@ -54,6 +57,7 @@ header{display:flex;flex-direction:column;gap:12px}
 .g-chemical{color:var(--chem);background:var(--chem-soft)}
 .g-helper{color:var(--helper);background:var(--helper-soft)}
 .g-procedure{color:var(--proc);background:var(--proc-soft)}
+.g-mixin{color:var(--mixin);background:var(--mixin-soft)}
 section{display:flex;flex-direction:column;gap:16px}
 .sec-head{display:flex;flex-direction:column;gap:4px}
 .sec-head p{margin:0;color:var(--muted);max-width:70ch}
@@ -62,7 +66,8 @@ section{display:flex;flex-direction:column;gap:16px}
 .map-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .map-h span{font-size:.85rem;color:var(--muted)}
 .map-body{overflow-x:auto;padding:12px}
-.map-body pre{margin:0;min-width:640px;display:flex;justify-content:center}
+.map-body pre{margin:0;width:max-content;min-width:100%;text-align:center}
+.map-body pre svg{display:inline-block}
 .explorer{display:grid;grid-template-columns:280px minmax(0,1fr);gap:20px;align-items:start}
 nav.index{position:sticky;top:calc(env(safe-area-inset-top, 0px) + 12px);background:var(--surface);border:1px solid var(--line);border-radius:10px;
   display:flex;flex-direction:column;max-height:calc(100vh - 24px);min-width:0}
@@ -141,6 +146,7 @@ footer{color:var(--muted);font-size:.82rem;border-top:1px solid var(--line);padd
       <span class="chip g-procedure">Procedure</span>
       <span class="chip g-action">Actions</span>
       <span class="chip g-chemical">Chemical entities</span>
+      <span class="chip g-mixin">Shared property sets (mixins)</span>
       <span class="chip g-helper">Helper classes</span>
     </div>
   </header>
@@ -148,14 +154,14 @@ footer{color:var(--muted);font-size:.82rem;border-top:1px solid var(--line);padd
   <section>
     <div class="sec-head">
       <h2>Relations</h2>
-      <p>Hollow arrows point to the parent class. Plain arrows are slots that hold another class, labelled with the slot name; <span class="mono">*</span> means a list.</p>
+      <p>Solid hollow arrows point to the parent class; dashed hollow arrows point to a shared property set (mixin) the class takes its slots from. Plain arrows are slots that hold another class, labelled with the slot name; <span class="mono">*</span> means a list.</p>
     </div>
     <div class="maps">
       <div class="map"><div class="map-h"><h3>How actions use chemicals</h3><span>Procedure → actions → chemical entities</span></div>
         <div class="map-body"><pre class="mmd" id="m-links"></pre></div></div>
       <div class="map"><div class="map-h"><h3>Action hierarchy</h3><span>Abstract groups and the concrete actions under them</span></div>
         <div class="map-body"><pre class="mmd" id="m-actions"></pre></div></div>
-      <div class="map"><div class="map-h"><h3>Chemical entities</h3><span>Inheritance plus the classes they contain</span></div>
+      <div class="map"><div class="map-h"><h3>Chemical entities</h3><span>Inheritance, shared property sets and the classes they contain</span></div>
         <div class="map-body"><pre class="mmd" id="m-chem"></pre></div></div>
     </div>
   </section>
@@ -186,8 +192,8 @@ const D=JSON.parse(document.getElementById('schema').textContent);
 const C=D.classes,E=D.enums;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const GL={procedure:'Procedure',action:'Action',chemical:'Chemical entity',helper:'Helper class'};
-const COLOR={procedure:'var(--proc)',action:'var(--action)',chemical:'var(--chem)',helper:'var(--helper)'};
+const GL={procedure:'Procedure',action:'Action',chemical:'Chemical entity',helper:'Helper class',mixin:'Shared property set'};
+const COLOR={procedure:'var(--proc)',action:'var(--action)',chemical:'var(--chem)',helper:'var(--helper)',mixin:'var(--mixin)'};
 
 $('#eyebrow').textContent='LinkML schema · '+D.meta.id;
 $('#h1').textContent=D.meta.name;
@@ -202,8 +208,16 @@ function drawMaps(){
   const attr=document.documentElement.getAttribute('data-theme');
   const dark=attr?attr==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
   try{
-    mermaid.initialize({startOnLoad:false,theme:dark?'dark':'neutral',securityLevel:'strict',classDiagram:{useMaxWidth:false}});
-    mermaid.run({nodes:document.querySelectorAll('.mmd')}).catch(()=>{});
+    mermaid.initialize({startOnLoad:false,theme:dark?'dark':'neutral',securityLevel:'strict',class:{useMaxWidth:false},classDiagram:{useMaxWidth:false}});
+    mermaid.run({nodes:document.querySelectorAll('.mmd')}).then(()=>{
+      // Keep wide diagrams legible: never shrink below 80% of natural size; the box scrolls sideways instead.
+      document.querySelectorAll('.mmd svg').forEach(svg=>{
+        const vb=svg.viewBox&&svg.viewBox.baseVal; if(!vb||!vb.width)return;
+        const box=svg.closest('.map-body'); const avail=box?box.clientWidth-24:vb.width;
+        const w=Math.min(vb.width,Math.max(avail,vb.width*0.8));
+        svg.setAttribute('width',Math.round(w)); svg.style.maxWidth='none'; svg.style.height='auto';
+      });
+    }).catch(()=>{});
   }catch(e){}
 }
 drawMaps();
@@ -215,7 +229,7 @@ for(const [a,b,s,mv] of D.rels)(usedBy[b]=usedBy[b]||[]).push([a,s,mv]);
 const depth=n=>{let d=0,c=C[n];while(c.is_a){d++;c=C[c.is_a];}return d;};
 
 // tree
-const GROUPS=[['procedure','Procedure'],['action','Actions'],['chemical','Chemical entities'],['helper','Helper classes']];
+const GROUPS=[['procedure','Procedure'],['action','Actions'],['chemical','Chemical entities'],['mixin','Shared property sets'],['helper','Helper classes']];
 function ordered(group){
   const roots=D.order.filter(n=>C[n].group===group&&(!C[n].is_a||C[C[n].is_a].group!==group));
   const out=[];const walk=n=>{out.push(n);(kids[n]||[]).filter(k=>C[k].group===group).forEach(walk);};
@@ -231,7 +245,7 @@ function renderTree(filter){
     for(const n of names){
       const own=C[n].slots.filter(s=>s.owner===n).length;
       const pad=f?10:10+Math.min(depth(n),4)*14;
-      html+=`<button class="tnode${C[n].abstract?' abs':''}" data-go="${n}" style="padding-left:${pad}px" aria-current="${n===current}"><span class="dot" style="background:${COLOR[g]}"></span><span class="lbl">${n}</span><span class="n" title="Own slots">${own||''}</span></button>`;
+      html+=`<button class="tnode${(C[n].abstract||C[n].mixin)?' abs':''}" data-go="${n}" style="padding-left:${pad}px" aria-current="${n===current}"><span class="dot" style="background:${COLOR[g]}"></span><span class="lbl">${n}</span><span class="n" title="Own slots">${own||''}</span></button>`;
     }
   }
   if(!html)html='<p class="empty" style="padding:10px">No class or slot matches that filter.</p>';
@@ -258,11 +272,14 @@ function showClass(n){
   if(c.exact.length)map.push(['Exact mappings',c.exact.map(esc).join(', ')]);
   if(c.related.length)map.push(['Related mappings',c.related.map(esc).join(', ')]);
   if(c.aliases.length)map.push(['Also known as',c.aliases.map(esc).join(', ')]);
+  if(c.mixins&&c.mixins.length)map.push(['Takes slots from',`<span class="list-inline">${c.mixins.map(classLink).join('')}</span>`]);
+  const users=D.order.filter(k=>(C[k].mixins||[]).includes(n));
+  if(users.length)map.push(['Used by',`<span class="list-inline">${users.map(classLink).join('')}</span>`]);
   if(kids[n])map.push(['Subclasses',`<span class="list-inline">${kids[n].map(classLink).join('')}</span>`]);
   if(usedBy[n])map.push(['Held by',`<span class="list-inline">${usedBy[n].map(([a,s])=>`<span>${classLink(a)}<span style="color:var(--muted)">.${s}</span></span>`).join('')}</span>`]);
   $('#sheet').innerHTML=`
    <div class="sheet-top">
-     <div class="title-row"><h2>${n}</h2><span class="chip g-${c.group}">${GL[c.group]}</span>${c.abstract?'<span class="tag">abstract</span>':''}${c.tree_root?'<span class="tag">root of a data file</span>':''}</div>
+     <div class="title-row"><h2>${n}</h2><span class="chip g-${c.group}">${GL[c.group]}</span>${c.abstract?'<span class="tag">abstract</span>':''}${c.mixin?'<span class="tag">mixin</span>':''}${c.tree_root?'<span class="tag">root of a data file</span>':''}</div>
      ${chain.length?`<div class="crumbs">is a ${chain.map(classLink).join(' <span aria-hidden="true">›</span> ')}</div>`:''}
    </div>
    ${c.description?`<p class="desc">${esc(c.description)}</p>`:''}
