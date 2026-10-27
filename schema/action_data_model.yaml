@@ -1,4 +1,10 @@
 ---
+# Derived from Hendrik Borgelt's dcat-ap-plus-labdata (CC BY 4.0):
+# https://github.com/HendrikBorgelt/dcat-ap-plus-labdata
+# Upstream lineage: ChemDCAT-AP / DCAT-AP-PLUS. Adapted and expanded by Pedro
+# Tavares for LabProGen. Credits, notices and specification provenance are in
+# schema/README.md, including the maintainer-supplied document attribution.
+# The root MIT license does not replace this schema's CC BY 4.0 license.
 id: https://w3id.org/labprogen/action-data-model
 name: action-data-model
 title: LabProGen Action Data Model

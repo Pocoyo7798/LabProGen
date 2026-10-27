@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "labprogen"
+version = "0.1.0"
+description = "A graphical editor for chemical laboratory protocols"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+# Original code and arrow are MIT; the derived schema retains CC BY 4.0.
+license = "MIT AND CC-BY-4.0"
+license-files = [
+    "LICENSE",
+    "LICENSES/*.txt",
+    "schema/README.md",
+    "resources/README.md",
+    "docs/licensing.md",
+]
+dependencies = [
+    "PySide6==6.10.2",
+    "PyYAML>=6.0.2",
+    "linkml>=1.8",
+    "requests>=2.31.0",
+    "platformdirs>=4,<5",
+]
+
+[project.urls]
+Repository = "https://github.com/Pocoyo7798/LabProGen"
+Issues = "https://github.com/Pocoyo7798/LabProGen/issues"
+
+[project.scripts]
+labprogen = "labprogen.app:main"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+build = ["build>=1.2", "pyinstaller>=6.12,<7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["labprogen"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config/complex_actions.json" = "labprogen/data/config/complex_actions.json"
+"config/aiedu_config.example.json" = "labprogen/data/config/aiedu_config.example.json"
+"schema" = "labprogen/data/schema"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/LICENSE",
+    "/LICENSES",
+    "/labprogen",
+    "/config/complex_actions.json",
+    "/config/aiedu_config.example.json",
+    "/schema",
+    "/resources",
+    "/tests",
+    "/tools",
+    "/scripts",
+    "/main.py",
+    "/main.spec",
+    "/rth_fix_metadata.py",
+    "/requirements.txt",
+    "/uv.lock",
+    "/docs",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

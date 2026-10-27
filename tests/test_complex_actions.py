@@ -1,4 +1,4 @@
-from src.complex.actions import (
+from labprogen.complex.actions import (
     COMPLEX_ACTION_MARKER,
     ComplexActionDefinition,
     ComplexActionGroup,
@@ -29,12 +29,12 @@ from src.complex.actions import (
 
 
 def test_sequence_signature():
-    steps = [{"action": "NoModification"}, {"action": "Grind"}]
-    assert sequence_signature(steps) == ("NoModification", "Grind")
+    steps = [{"action": "NoAction"}, {"action": "Grind"}]
+    assert sequence_signature(steps) == ("NoAction", "Grind")
 
 
 def test_build_parameter_bindings_includes_wait_duration():
-    steps = [{"action": "NoModification", "params": {"duration": "10 min"}}]
+    steps = [{"action": "NoAction", "params": {"duration": "10 min"}}]
     bindings = build_parameter_bindings(steps)
     assert len(bindings) == 1
     assert bindings[0].param_key == "duration"
@@ -45,11 +45,11 @@ def test_registry_rejects_duplicate_name():
     registry = ComplexActionRegistry()
     definition = ComplexActionDefinition(
         name="Heat and Wait",
-        steps=[{"action": "NoModification", "params": {"duration": "5 min"}}],
+        steps=[{"action": "NoAction", "params": {"duration": "5 min"}}],
         parameters=[
             ComplexActionParameter(
                 step_index=0,
-                action="NoModification",
+                action="NoAction",
                 param_key="duration",
                 display_name="Duration",
                 value="5 min",
@@ -68,7 +68,7 @@ def test_registry_rejects_duplicate_name():
 
 def test_registry_rejects_duplicate_sequence():
     registry = ComplexActionRegistry()
-    steps = [{"action": "NoModification", "params": {"duration": "1 min"}}]
+    steps = [{"action": "NoAction", "params": {"duration": "1 min"}}]
     registry.register(
         ComplexActionDefinition(
             name="First",
@@ -133,11 +133,11 @@ def test_required_validation_uses_real_param_key_not_display_name():
 
 
 def test_expand_complex_action_applies_locked_values():
-    steps = [{"action": "NoModification", "params": {"duration": "10 min"}}]
+    steps = [{"action": "NoAction", "params": {"duration": "10 min"}}]
     parameters = [
         ComplexActionParameter(
             step_index=0,
-            action="NoModification",
+            action="NoAction",
             param_key="duration",
             display_name="Hold",
             editable=False,
@@ -164,11 +164,11 @@ def test_definition_json_roundtrip():
 def test_definition_json_roundtrip_preserves_editable_flag():
     definition = ComplexActionDefinition(
         name="Hold",
-        steps=[{"action": "NoModification", "params": {"duration": "5 min"}}],
+        steps=[{"action": "NoAction", "params": {"duration": "5 min"}}],
         parameters=[
             ComplexActionParameter(
                 step_index=0,
-                action="NoModification",
+                action="NoAction",
                 param_key="duration",
                 display_name="Duration",
                 editable=False,
@@ -181,14 +181,14 @@ def test_definition_json_roundtrip_preserves_editable_flag():
 
 
 def test_find_sequence_ranges():
-    from src.complex.actions import ComplexActionDefinition, find_sequence_ranges
+    from labprogen.complex.actions import ComplexActionDefinition, find_sequence_ranges
 
     definition = ComplexActionDefinition(
         name="Pair",
-        steps=[{"action": "NoModification"}, {"action": "Grind"}],
+        steps=[{"action": "NoAction"}, {"action": "Grind"}],
     )
     ranges = find_sequence_ranges(
-        ["Add", "NoModification", "Grind", "NoModification", "Grind", "Sieve"],
+        ["Add", "NoAction", "Grind", "NoAction", "Grind", "Sieve"],
         definition,
     )
     assert ranges == [(1, 3), (3, 5)]
@@ -197,11 +197,11 @@ def test_find_sequence_ranges():
 def test_validate_instance_allows_reused_definition_name():
     definition = ComplexActionDefinition(
         name="Hold",
-        steps=[{"action": "NoModification", "params": {"duration": "10 min"}}],
+        steps=[{"action": "NoAction", "params": {"duration": "10 min"}}],
         parameters=[
             ComplexActionParameter(
                 step_index=0,
-                action="NoModification",
+                action="NoAction",
                 param_key="duration",
                 display_name="Duration",
                 value="15 min",
@@ -227,7 +227,7 @@ def test_collect_horizontal_flow_steps_avoids_cycles():
             self.chem_below = None
             self.subproduct_below = None
 
-    m0 = _Block("NoModification", group_id="g1", step_index=0)
+    m0 = _Block("NoAction", group_id="g1", step_index=0)
     m1 = _Block("Grind", group_id="g1", step_index=1)
     m0.next_block = m1
     m1.next_block = m0  # cycle
@@ -248,10 +248,10 @@ def test_collect_horizontal_flow_steps_avoids_cycles():
         exported.append(block.action)
         return [{"action": block.action}]
 
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     content = Editor._collect_horizontal_flow_steps(_Editor(), m0, get_step_data, set())
-    assert exported == ["NoModification", "Grind"]
+    assert exported == ["NoAction", "Grind"]
     assert len(content) == 2
 
 
@@ -283,7 +283,7 @@ def test_is_horizontal_flow_head_for_complex_member():
         def get_complex_action_group(self, block):
             return self.complex_action_groups.get(block.complex_group_id)
 
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._is_horizontal_flow_head(editor, head) is True
@@ -323,7 +323,7 @@ def test_wire_surrogate_into_chain_restores_external_links():
         member_blocks=[first, second],
         surrogate_block=surrogate,
     )
-    from src.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
+    from labprogen.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
 
     _wire_surrogate_into_chain(group)
     assert left.next_block is surrogate
@@ -370,7 +370,7 @@ def test_complex_group_horizontal_span():
         def rect(self):
             return self._rect
 
-    from src.complex.protocol import _complex_group_horizontal_span
+    from labprogen.complex.protocol import _complex_group_horizontal_span
 
     b0 = _Block(50)
     b1 = _Block(170)
@@ -453,7 +453,7 @@ def test_layout_collapsed_group_pulls_right_tail():
         def push_chain(self, start_block, shift_x):
             start_block.setPos(start_block.pos().x() + shift_x, start_block.pos().y())
 
-    from src.complex.protocol import _layout_collapsed_group
+    from labprogen.complex.protocol import _layout_collapsed_group
 
     _layout_collapsed_group(_Editor(), group)
     assert surrogate.rect().width() == 260.0
@@ -473,7 +473,7 @@ def test_collect_horizontal_flow_steps_expands_collapsed_surrogate():
             self.chem_below = None
             self.subproduct_below = None
 
-    m0 = _Block("NoModification", group_id="g1")
+    m0 = _Block("NoAction", group_id="g1")
     m1 = _Block("Grind", group_id="g1")
     m0.next_block = m1
     m1.prev_block = m0
@@ -503,26 +503,26 @@ def test_collect_horizontal_flow_steps_expands_collapsed_surrogate():
         exported.append(block.action)
         return [{"action": block.action}]
 
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     content = Editor._collect_horizontal_flow_steps(_Editor(), surrogate, get_step_data, set())
-    assert exported[:2] == ["NoModification", "Grind"]
-    assert [step["action"] for step in content][:2] == ["NoModification", "Grind"]
+    assert exported[:2] == ["NoAction", "Grind"]
+    assert [step["action"] for step in content][:2] == ["NoAction", "Grind"]
 
 
 def test_activity_without_complex_steps_keeps_adm_members():
-    from src.linkml.exporter import _activity_without_complex_steps
+    from labprogen.linkml.exporter import _activity_without_complex_steps
 
     activity = {
-        "has_synthesis_step": [
+        "laboratory_actions": [
             {"source_action": "ComplexAction"},
-            {"source_action": "NoModification", "part_of_complex_action": True},
+            {"source_action": "NoAction", "part_of_complex_action": True},
             {"source_action": "Add"},
         ]
     }
     filtered = _activity_without_complex_steps(activity)
-    assert [step["source_action"] for step in filtered["has_synthesis_step"]] == [
-        "NoModification",
+    assert [step["source_action"] for step in filtered["laboratory_actions"]] == [
+        "NoAction",
         "Add",
     ]
 
@@ -554,7 +554,7 @@ def test_can_be_left_neighbor_of_complex_group_last_member():
         def _groups_share_block(self, group, block):
             return block.complex_group_id == group.group_id
 
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._can_be_left_neighbor_of_group(editor, last, moving) is True
@@ -584,7 +584,7 @@ def test_wire_surrogate_tolerates_legacy_group_without_chain_flag():
     )
     del group.chain_wired_collapsed
 
-    from src.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
+    from labprogen.complex.protocol import _wire_surrogate_into_chain, _unwire_surrogate_from_chain
 
     _wire_surrogate_into_chain(group)
     assert group.chain_wired_collapsed is True
@@ -614,7 +614,7 @@ def test_allowed_complex_link_zone_blocks_internal_insertion():
             member_blocks=[first, last],
         )
     }
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     editor = _Editor()
     assert Editor._allowed_complex_link_zone(editor, first, "LEFT") is True
@@ -647,7 +647,7 @@ def test_position_complex_group_preserves_relative_layout():
             self._pos = _Pos(x, 10)
             self.prev_block = prev
             self.next_block = next_block
-            self.action = "NoModification"
+            self.action = "NoAction"
 
         def pos(self):
             return self._pos
@@ -671,7 +671,7 @@ def test_position_complex_group_preserves_relative_layout():
         def reflow_entire_cluster(self, block):
             raise AssertionError("reflow should not run when source layout is available")
 
-    from src.complex.protocol import _position_complex_group
+    from labprogen.complex.protocol import _position_complex_group
 
     m0 = _Block(0)
     m1 = _Block(0, prev=m0)
@@ -700,7 +700,7 @@ def test_nested_complex_step_signature():
 def test_build_parameter_bindings_skips_nested_complex_step():
     inner = parameters_to_block_params("InnerAdds", [])
     steps = [
-        {"action": "NoModification", "params": {"duration": "5 min"}},
+        {"action": "NoAction", "params": {"duration": "5 min"}},
         {"action": COMPLEX_ACTION_MARKER, "params": inner},
     ]
     bindings = build_parameter_bindings(steps)
@@ -739,9 +739,9 @@ def test_expand_definition_steps_flattens_nested_complex():
         "action": COMPLEX_ACTION_MARKER,
         "params": parameters_to_block_params("InnerAddsNestedExpand", inner.parameters),
     }
-    outer_steps = [{"action": "NoModification", "params": {"duration": "10 min"}}, nested_step]
+    outer_steps = [{"action": "NoAction", "params": {"duration": "10 min"}}, nested_step]
     expanded = expand_definition_steps(outer_steps, [])
-    assert [step["action"] for step in expanded] == ["NoModification", "Add", "Add"]
+    assert [step["action"] for step in expanded] == ["NoAction", "Add", "Add"]
     assert expanded[1]["params"]["duration"] == "1 min"
     assert expanded[2]["params"]["add_quantity"] == "4 g"
 
@@ -772,7 +772,7 @@ def test_collect_flow_steps_groups_nested_complex_on_canvas():
         prev=add1,
     )
     add1.next_block = add2
-    wait = _Block("NoModification", params={"duration": "5 min"}, prev=add2)
+    wait = _Block("NoAction", params={"duration": "5 min"}, prev=add2)
     add2.next_block = wait
 
     group = ComplexActionGroup(
@@ -805,7 +805,7 @@ def test_collect_flow_steps_groups_nested_complex_on_canvas():
     assert len(steps) == 2
     assert steps[0]["action"] == COMPLEX_ACTION_MARKER
     assert steps[0]["params"][KEY_COMPLEX_ACTION_NAME] == "InnerAdds"
-    assert steps[1]["action"] == "NoModification"
+    assert steps[1]["action"] == "NoAction"
     bindings = build_parameter_bindings(steps)
     assert len(bindings) == 1
     assert bindings[0].step_index == 1
@@ -850,7 +850,7 @@ def test_complex_action_step_from_group_syncs_member_params():
 
 
 def test_chemical_attach_rules_for_complex_actions():
-    from src.ui.editor import Editor
+    from labprogen.ui.editor import Editor
 
     editor = Editor.__new__(Editor)
 
@@ -885,7 +885,7 @@ def test_build_instance_parameters_includes_nested_complex_bindings():
         name="dentroInstanceTest",
         steps=[
             {"action": "Repeat", "params": {"amount": "1"}},
-            {"action": "NoModification", "params": {"duration": "10 min"}},
+            {"action": "NoAction", "params": {"duration": "10 min"}},
         ],
         parameters=[
             ComplexActionParameter(
@@ -898,7 +898,7 @@ def test_build_instance_parameters_includes_nested_complex_bindings():
             ),
             ComplexActionParameter(
                 step_index=1,
-                action="NoModification",
+                action="NoAction",
                 param_key="duration",
                 display_name="Duration",
                 editable=False,
@@ -934,7 +934,7 @@ def test_build_instance_parameters_includes_nested_complex_bindings():
 
 def test_validate_instance_parameters_allows_existing_registry_definition():
     registry = get_complex_action_registry()
-    steps = [{"action": "NoModification", "params": {"duration": "5 min"}}]
+    steps = [{"action": "NoAction", "params": {"duration": "5 min"}}]
     definition = ComplexActionDefinition(
         name="LoadedComplexAction",
         steps=steps,
@@ -947,10 +947,10 @@ def test_validate_instance_parameters_allows_existing_registry_definition():
 
 
 def test_complex_action_skips_chemical_entity_requirements():
-    from src.core.config import action_requires_attached_chemical
+    from labprogen.core.config import action_requires_attached_chemical
 
     assert action_requires_attached_chemical("Add") is True
-    assert action_requires_attached_chemical("CollectSubProduct") is True
+    assert action_requires_attached_chemical("CollectSubProduct") is False
     assert action_requires_attached_chemical("Add", part_of_complex_action=True) is False
     assert action_requires_attached_chemical("Grind") is False
 
@@ -990,7 +990,7 @@ def test_iter_instance_dialog_sections_expands_nested_complex():
         name="dentroDialogSections",
         steps=[
             {"action": "Repeat", "params": {"amount": "1"}},
-            {"action": "NoModification", "params": {"duration": "10 min"}},
+            {"action": "NoAction", "params": {"duration": "10 min"}},
         ],
         parameters=[
             ComplexActionParameter(
@@ -1003,7 +1003,7 @@ def test_iter_instance_dialog_sections_expands_nested_complex():
             ),
             ComplexActionParameter(
                 step_index=1,
-                action="NoModification",
+                action="NoAction",
                 param_key="duration",
                 display_name="Duration",
                 editable=False,
@@ -1033,7 +1033,7 @@ def test_iter_instance_dialog_sections_expands_nested_complex():
         "Add",
         "ChangeTemperature",
         "Repeat",
-        "NoModification",
+        "NoAction",
     ]
     assert [section.display_index for section in sections] == [0, 1, 2, 3]
 
@@ -1044,7 +1044,7 @@ def test_iter_instance_dialog_sections_expands_nested_complex():
 
 
 def test_parse_complex_actions_payload_supports_single_and_multi_formats():
-    single = {"complex_action_name": "A", "steps": [{"action": "NoModification"}]}
+    single = {"complex_action_name": "A", "steps": [{"action": "NoAction"}]}
     multi = {"version": 1, "complex_actions": [single]}
     raw_list = [single]
 
@@ -1056,7 +1056,7 @@ def test_parse_complex_actions_payload_supports_single_and_multi_formats():
 def test_register_and_append_definitions_to_config(tmp_path):
     registry = ComplexActionRegistry()
     config_path = tmp_path / "complex_actions.json"
-    steps = [{"action": "NoModification", "params": {"duration": "1 min"}}]
+    steps = [{"action": "NoAction", "params": {"duration": "1 min"}}]
     first = ComplexActionDefinition(
         name="Alpha",
         steps=steps,

@@ -1,8 +1,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from src.core.config import KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
-from src.pubchem.api import (
+from labprogen.core.config import KEY_FORMULA, KEY_INCHI, KEY_NAME, KEY_SMILES
+from labprogen.pubchem.api import (
     CompoundSearchPage,
     PubChemCompoundRecord,
     build_compound_autocomplete_url,
@@ -130,7 +130,7 @@ def test_map_pubchem_to_form_fields_filters_visible():
         record,
         "Water",
         visible_keys={KEY_NAME, KEY_FORMULA, KEY_SMILES},
-        chemical_type="Molecules",
+        chemical_type="Molecule",
     )
     assert mapped[KEY_NAME] == "Water"
     assert mapped[KEY_FORMULA] == "H2O"
@@ -154,7 +154,7 @@ def test_map_pubchem_only_fills_visible_keys():
     assert mapped == {KEY_NAME: "Water", KEY_FORMULA: "H2O"}
 
 
-@patch("src.pubchem.api.urllib.request.urlopen")
+@patch("labprogen.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_parses_json(mock_urlopen):
     payload = json.dumps(SAMPLE_RESPONSE).encode("utf-8")
     mock_response = MagicMock()
@@ -166,7 +166,7 @@ def test_fetch_compound_autocomplete_parses_json(mock_urlopen):
     assert terms == ["Water", "water", "Water-18O"]
 
 
-@patch("src.pubchem.api.urllib.request.urlopen")
+@patch("labprogen.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_page(mock_urlopen):
     payload = json.dumps(SAMPLE_RESPONSE).encode("utf-8")
     mock_response = MagicMock()
@@ -179,8 +179,8 @@ def test_fetch_compound_autocomplete_page(mock_urlopen):
     assert page.terms[0] == "Water"
 
 
-@patch("src.pubchem.api.fetch_compound_properties_by_cids")
-@patch("src.pubchem.api.fetch_compound_search_cids_page")
+@patch("labprogen.pubchem.api.fetch_compound_properties_by_cids")
+@patch("labprogen.pubchem.api.fetch_compound_search_cids_page")
 def test_fetch_compound_search_batch_uses_sdq_page(mock_cids_page, mock_props):
     mock_cids_page.return_value = CompoundSearchPage(
         cids=[962, 16217612, 129010977],
@@ -201,7 +201,7 @@ def test_fetch_compound_search_batch_uses_sdq_page(mock_cids_page, mock_props):
     assert len(records) == 3
 
 
-@patch("src.pubchem.api.urllib.request.urlopen")
+@patch("labprogen.pubchem.api.urllib.request.urlopen")
 def test_fetch_compound_autocomplete_network_error(mock_urlopen):
     mock_urlopen.side_effect = OSError("network down")
     assert fetch_compound_autocomplete("water") == []

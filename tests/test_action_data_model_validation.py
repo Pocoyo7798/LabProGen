@@ -1,27 +1,26 @@
 import copy
 import unittest
 
-from src.core.chemicals import (
+from labprogen.core.chemicals import (
     embedded_chemical_type_choices,
     selectable_chemical_entity_types,
 )
-from src.core.config import FIELD_CONFIG, KEY_SUBSTANCE_LIST, migrate_action_params
-from src.linkml.adapter import chemical_record_to_instance
-from src.linkml.exporter import convert_protocol_to_linkml
-from src.linkml.loader import listed_action_classes, listed_chemical_classes, load_linkml_schema
-from src.linkml.validator import validate_linkml_protocol
+from labprogen.core.config import FIELD_CONFIG, KEY_SUBSTANCE_LIST, migrate_action_params
+from labprogen.linkml.adapter import chemical_record_to_instance
+from labprogen.linkml.exporter import convert_protocol_to_linkml
+from labprogen.linkml.loader import ACTION_DATA_MODEL_SCHEMA, listed_action_classes, listed_chemical_classes, load_linkml_schema
+from labprogen.linkml.validator import validate_linkml_protocol
 
 
 PDF_ACTIONS = {
     "Add",
     "Grind",
     "Separate",
-    "Sieve",
-    "NoModification",
+    "NoAction",
     "ChangePressure",
     "ChangeTemperature",
     "ChangeAgitation",
-    "ChangeRecipient",
+    "ChangeContainer",
     "CollectSubProduct",
     "Repeat",
     "ContinuousAddition",
@@ -30,14 +29,13 @@ PDF_ACTIONS = {
 PDF_CHEMICALS = {
     "ChemicalEntity",
     "Substance",
-    "MixtureSubstance",
+    "MixtureConstituent",
     "Mixture",
     "BioProducts",
-    "Molecules",
-    "Polymers",
+    "Molecule",
+    "Polymer",
     "Medium",
-    "Dispersion",
-    "HeterogeneousCatalysts",
+    "PorousMaterial",
 }
 
 
@@ -68,7 +66,7 @@ def _valid_protocol():
                     },
                     {
                         "block_id": "wait1",
-                        "action": "NoModification",
+                        "action": "NoAction",
                         "params": {"duration": "10 min"},
                         "chemicals": [],
                     },
@@ -77,7 +75,7 @@ def _valid_protocol():
                         "action": "ChangeTemperature",
                         "params": {
                             "temperature": "80 °C",
-                            "process": "Electrical",
+                            "process": "Plate-heater",
                         },
                         "chemicals": [],
                     },
@@ -110,17 +108,16 @@ def _minimal_chemical_entity(type_name: str) -> dict:
             "name": "brine",
             "chemical_list": [_mixture_item()],
         },
-        "Molecules": {
-            "chemical_type": "Molecules",
+        "Molecule": {
+            "chemical_type": "Molecule",
             "name": "ethanol",
             "formula": "C2H6O",
             "smile": "CCO",
         },
-        "Polymers": {
-            "chemical_type": "Polymers",
+        "Polymer": {
+            "chemical_type": "Polymer",
             "name": "PEG",
-            "formula": "(C2H4O)n",
-            "bigsmiles": "[*]OCC[*]",
+                        "bigsmiles": "[*]OCC[*]",
         },
         "Medium": {
             "chemical_type": "Medium",
@@ -139,11 +136,14 @@ def _minimal_chemical_entity(type_name: str) -> dict:
             "name": "enzyme",
             "toxicity_to_producer": "neutral",
         },
-        "HeterogeneousCatalysts": {
-            "chemical_type": "HeterogeneousCatalysts",
+        "PorousMaterial": {
+            "chemical_type": "PorousMaterial",
             "formula": "TiO2",
         },
     }
+    for name in ("Copolymer", "PolymerMixture", "CopolymerMixture", "BioProductsMixture",
+                 "PorousMaterialMixture", "Zeolite", "ZeoliteMixture", "Cell"):
+        samples.setdefault(name, {"chemical_type": name})
     return samples[type_name]
 
 
@@ -173,11 +173,11 @@ def _continuous_addition_protocol(substance_list):
 
 
 class TestActionDataModelValidation(unittest.TestCase):
-    def test_schema_contains_pdf_actions_and_chemicals_only(self):
-        schema = load_linkml_schema()
+    def test_current_schema_actions_and_chemicals(self):
+        schema = load_linkml_schema(ACTION_DATA_MODEL_SCHEMA)
         self.assertEqual(schema.get("name"), "action-data-model")
-        self.assertEqual(listed_action_classes(), PDF_ACTIONS)
-        self.assertTrue(PDF_CHEMICALS.issubset(listed_chemical_classes()))
+        self.assertEqual(listed_action_classes(schema), PDF_ACTIONS)
+        self.assertTrue(PDF_CHEMICALS.issubset(listed_chemical_classes(schema)))
         self.assertNotIn("WashingStep", schema.get("classes", {}))
         self.assertNotIn("SolutionPreparationStep", schema.get("classes", {}))
         self.assertNotIn("Material", schema.get("classes", {}))
@@ -245,9 +245,9 @@ class TestActionDataModelValidation(unittest.TestCase):
         protocol = copy.deepcopy(_valid_protocol())
         protocol["flows"][0]["steps"][0]["params"]["not_in_schema"] = "1"
         payload, _, _, _, unmapped = __import__(
-            "src.linkml.exporter", fromlist=["_build_protocol_export"]
+            "labprogen.linkml.exporter", fromlist=["_build_protocol_export"]
         )._build_protocol_export(protocol)
-        step = payload["activities"][0]["has_synthesis_step"][0]
+        step = payload["activities"][0]["laboratory_actions"][0]
         self.assertIn("not_in_schema", step.get("slots", {}))
         self.assertGreaterEqual(unmapped, 1)
 
@@ -266,7 +266,7 @@ class TestActionDataModelValidation(unittest.TestCase):
                                 "substance_list": [
                                     {"chemical_type": "Substance", "name": "water"},
                                     {
-                                        "chemical": "Molecules",
+                                        "chemical": "Molecule",
                                         "params": {
                                             "name": "ethanol",
                                             "formula": "C2H6O",
@@ -287,12 +287,12 @@ class TestActionDataModelValidation(unittest.TestCase):
         errors = [msg for msg in validate_linkml_protocol(protocol) if msg.level == "error"]
         self.assertEqual(errors, [])
         payload = convert_protocol_to_linkml(protocol, mode="strict")
-        slots = payload["activities"][0]["has_synthesis_step"][0]["slots"]
-        substances = slots["substance_list"]
+        slots = payload["activities"][0]["laboratory_actions"][0]["slots"]
+        substances = slots["chemical"]
         self.assertEqual(len(substances), 2)
         self.assertEqual(substances[0]["type"], "Substance")
         self.assertEqual(substances[0]["name"], "water")
-        self.assertEqual(substances[1]["type"], "Molecules")
+        self.assertEqual(substances[1]["type"], "Molecule")
         self.assertEqual(substances[1]["smile"], "CCO")
 
     def test_continuous_addition_plain_text_substance_list_is_rejected(self):
@@ -328,26 +328,17 @@ class TestActionDataModelValidation(unittest.TestCase):
 
     def test_migrate_empty_substance_list_string_to_list(self):
         migrated = migrate_action_params("ContinuousAddition", {KEY_SUBSTANCE_LIST: ""})
-        self.assertEqual(migrated[KEY_SUBSTANCE_LIST], [])
+        self.assertEqual(migrated["chemical"], [])
         kept = migrate_action_params("ContinuousAddition", {KEY_SUBSTANCE_LIST: "water"})
-        self.assertEqual(kept[KEY_SUBSTANCE_LIST], "water")
+        self.assertEqual(kept["chemical"], "water")
 
     def test_substance_list_picker_offers_all_chemical_entity_types(self):
         selectable = selectable_chemical_entity_types()
-        self.assertEqual(
-            set(selectable),
-            {
-                "Substance",
-                "Mixture",
-                "Molecules",
-                "Polymers",
-                "Medium",
-                "Dispersion",
-                "BioProducts",
-                "HeterogeneousCatalysts",
-            },
-        )
-        self.assertNotIn("MixtureSubstance", selectable)
+        self.assertEqual(len(selectable), 15)
+        self.assertIn("Cell", selectable)
+        self.assertIn("Copolymer", selectable)
+        self.assertNotIn("Dispersion", selectable)
+        self.assertNotIn("MixtureConstituent", selectable)
         self.assertNotIn("ChemicalEntity", selectable)
         self.assertEqual(
             embedded_chemical_type_choices(for_solvent=False, include_concentration=False),
@@ -356,7 +347,7 @@ class TestActionDataModelValidation(unittest.TestCase):
         mixture_choices = embedded_chemical_type_choices(
             for_solvent=False, include_concentration=True
         )
-        self.assertNotEqual(set(mixture_choices), set(selectable))
+        self.assertEqual(set(mixture_choices), set(selectable))
 
     def test_all_chemical_entity_types_are_valid_in_substance_list(self):
         for type_name in selectable_chemical_entity_types():
@@ -364,7 +355,7 @@ class TestActionDataModelValidation(unittest.TestCase):
             errors = [msg for msg in validate_linkml_protocol(protocol) if msg.level == "error"]
             self.assertEqual(errors, [], msg=f"{type_name} was rejected: {errors}")
             payload = convert_protocol_to_linkml(protocol, mode="strict")
-            exported = payload["activities"][0]["has_synthesis_step"][0]["slots"]["substance_list"]
+            exported = payload["activities"][0]["laboratory_actions"][0]["slots"]["chemical"]
             self.assertEqual(exported[0]["type"], type_name)
 
     def test_medium_with_empty_concentration_key_stays_medium(self):
@@ -375,10 +366,9 @@ class TestActionDataModelValidation(unittest.TestCase):
             "concentration": "",
             "chemical_list": [
                 {
-                    "chemical_type": "Polymers",
+                    "chemical_type": "Polymer",
                     "name": "PEG",
-                    "formula": "(C2H4O)n",
-                    "bigsmiles": "[*]OCC[*]",
+                                        "bigsmiles": "[*]OCC[*]",
                     "concentration": "1 g/L",
                 }
             ],
@@ -387,9 +377,9 @@ class TestActionDataModelValidation(unittest.TestCase):
         self.assertEqual(instance["type"], "Medium")
         self.assertNotIn("concentration", instance)
         nested = instance["chemical_list"][0]
-        self.assertEqual(nested["type"], "MixtureSubstance")
+        self.assertEqual(nested["type"], "MixtureConstituent")
         self.assertEqual(nested["concentration"], "1 g/L")
-        self.assertEqual(nested["chemical"]["type"], "Polymers")
+        self.assertEqual(nested["chemical"]["type"], "Polymer")
 
     def test_substance_list_medium_preserves_nested_polymer_concentration(self):
         polymer_concentration = "12 g/L"
@@ -402,10 +392,9 @@ class TestActionDataModelValidation(unittest.TestCase):
                     "concentration": "",
                     "chemical_list": [
                         {
-                            "chemical_type": "Polymers",
+                            "chemical_type": "Polymer",
                             "name": "PEG",
-                            "formula": "(C2H4O)n",
-                            "bigsmiles": "[*]OCC[*]",
+                                                        "bigsmiles": "[*]OCC[*]",
                             "concentration": polymer_concentration,
                         }
                     ],
@@ -415,56 +404,22 @@ class TestActionDataModelValidation(unittest.TestCase):
         errors = [msg for msg in validate_linkml_protocol(protocol) if msg.level == "error"]
         self.assertEqual(errors, [])
         payload = convert_protocol_to_linkml(protocol, mode="strict")
-        medium = payload["activities"][0]["has_synthesis_step"][0]["slots"]["substance_list"][0]
+        medium = payload["activities"][0]["laboratory_actions"][0]["slots"]["chemical"][0]
         self.assertEqual(medium["type"], "Medium")
         item = medium["chemical_list"][0]
-        self.assertEqual(item["type"], "MixtureSubstance")
+        self.assertEqual(item["type"], "MixtureConstituent")
         self.assertEqual(item["concentration"], polymer_concentration)
-        self.assertEqual(item["chemical"]["type"], "Polymers")
+        self.assertEqual(item["chemical"]["type"], "Polymer")
         self.assertEqual(item["chemical"]["bigsmiles"], "[*]OCC[*]")
 
-    def test_nested_mixture_dispersion_preserves_structured_fields(self):
-        protocol = _continuous_addition_protocol(
-            [
-                {
-                    "chemical_type": "Mixture",
-                    "name": "feed",
-                    "chemical_list": [
-                        {
-                            "chemical_type": "Dispersion",
-                            "name": "sol",
-                            "concentration": "10 vol/vol",
-                            "chemical_list": [
-                                {
-                                    "chemical_type": "Molecules",
-                                    "name": "solute",
-                                    "formula": "NaCl",
-                                    "smile": "[Na+].[Cl-]",
-                                    "concentration": "1 M",
-                                }
-                            ],
-                            "solvent": {"chemical_type": "Substance", "name": "water"},
-                        }
-                    ],
-                }
-            ]
-        )
-        errors = [msg for msg in validate_linkml_protocol(protocol) if msg.level == "error"]
-        self.assertEqual(errors, [])
-        payload = convert_protocol_to_linkml(protocol, mode="strict")
-        mixture = payload["activities"][0]["has_synthesis_step"][0]["slots"]["substance_list"][0]
-        self.assertEqual(mixture["type"], "Mixture")
-        wrapper = mixture["chemical_list"][0]
-        self.assertEqual(wrapper["type"], "MixtureSubstance")
-        self.assertEqual(wrapper["concentration"], "10 vol/vol")
-        dispersion = wrapper["chemical"]
-        self.assertEqual(dispersion["type"], "Dispersion")
-        self.assertEqual(dispersion["solvent"]["type"], "Substance")
-        self.assertEqual(dispersion["solvent"]["name"], "water")
-        inner = dispersion["chemical_list"][0]
-        self.assertEqual(inner["type"], "MixtureSubstance")
-        self.assertEqual(inner["concentration"], "1 M")
-        self.assertEqual(inner["chemical"]["type"], "Molecules")
+    def test_legacy_dispersion_is_preserved_but_rejected(self):
+        entity = _minimal_chemical_entity("Dispersion")
+        original = copy.deepcopy(entity)
+        protocol = _continuous_addition_protocol([entity])
+        self.assertTrue(_error_codes(validate_linkml_protocol(protocol)))
+        with self.assertRaises(ValueError):
+            convert_protocol_to_linkml(protocol)
+        self.assertEqual(entity, original)
 
     def test_nested_mixture_substance_missing_concentration_still_fails(self):
         protocol = _continuous_addition_protocol(
@@ -475,10 +430,9 @@ class TestActionDataModelValidation(unittest.TestCase):
                     "quantity": "1 L",
                     "chemical_list": [
                         {
-                            "chemical_type": "Polymers",
+                            "chemical_type": "Polymer",
                             "name": "PEG",
-                            "formula": "(C2H4O)n",
-                            "bigsmiles": "[*]OCC[*]",
+                                                        "bigsmiles": "[*]OCC[*]",
                         }
                     ],
                 }
@@ -491,7 +445,7 @@ class TestActionDataModelValidation(unittest.TestCase):
             for msg in validate_linkml_protocol(protocol)
             if msg.level == "error" and msg.code == "validation.required_field_missing"
         ]
-        self.assertTrue(any("concentration" in text and "MixtureSubstance" in text for text in messages))
+        self.assertTrue(any("concentration" in text and "MixtureConstituent" in text for text in messages))
 
     def test_standalone_add_without_chemical_is_rejected(self):
         protocol = {
@@ -519,7 +473,7 @@ class TestActionDataModelValidation(unittest.TestCase):
         codes = _error_codes(validate_linkml_protocol(protocol))
         self.assertIn("validation.required_field_missing", codes)
 
-    def test_complex_member_add_without_chemical_is_accepted(self):
+    def test_complex_members_still_require_current_model_fields(self):
         protocol = {
             "protocol_name": "Complex Add",
             "flows": [
@@ -564,12 +518,10 @@ class TestActionDataModelValidation(unittest.TestCase):
             ],
         }
         errors = [msg for msg in validate_linkml_protocol(protocol) if msg.level == "error"]
-        self.assertEqual(errors, [])
-        payload = convert_protocol_to_linkml(protocol, mode="strict")
-        steps = payload["activities"][0]["has_synthesis_step"]
-        self.assertEqual(steps[0]["source_action"], "Add")
-        self.assertTrue(steps[0].get("part_of_complex_action"))
-        self.assertNotIn("chemical", steps[0].get("slots", {}))
+        self.assertTrue(errors)
+        self.assertIn("validation.required_field_missing", {m.code for m in errors})
+        with self.assertRaises(ValueError):
+            convert_protocol_to_linkml(protocol, mode="strict")
 
 
 if __name__ == "__main__":

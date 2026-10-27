@@ -2,7 +2,7 @@
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",
-  "include": ["src", "tests", "tools", "main.py"],
+  "include": ["labprogen", "tests", "tools", "main.py"],
   "exclude": ["**/__pycache__", "dist", "build"],
   "typeCheckingMode": "off",
   "reportMissingImports": "warning",
