@@ -31,6 +31,7 @@ class Action:
 
     def to_dict(self):
         data = {'action': type(self).__name__, 'params': self.params}
+        data.update(getattr(self, '_complex_metadata', {}))
         if self.chemicals:
             data['chemicals'] = [c.to_dict() for c in self.chemicals]
         if self.subproducts:

@@ -10,6 +10,7 @@ roundtrip conversion LinkML -> protocol internal format.
 from __future__ import annotations
 
 import re
+import copy
 import json
 import hashlib
 from dataclasses import dataclass
@@ -380,6 +381,7 @@ _CHEMICAL_WRAPPER_KEYS = {
 }
 
 EXPORTER_ENVELOPE_KEYS = {
+    "source_block_id",
     "id",
     "block_id",
     "source_action",
@@ -671,10 +673,14 @@ def _convert_linkml_step_slots(slots: dict[str, Any]) -> dict[str, Any]:
 
 def _convert_linkml_step(step: dict[str, Any]) -> dict[str, Any]:
     step_payload: dict[str, Any] = {
-        "block_id": step.get("block_id", 0),
+        "block_id": step.get("block_id"),
         "action": _linkml_step_name_to_action(step),
         "params": _convert_linkml_step_slots(step.get("slots", {})),
     }
+
+    for key in ("part_of_complex_action", "complex_group_id", "complex_action_name", "complex_step_index", "source_block_id"):
+        if key in step:
+            step_payload[key] = copy.deepcopy(step[key])
 
     attached_chemicals = []
     for chem in step.get("attached_chemicals", []) or []:
@@ -724,6 +730,9 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
     if isinstance(source_protocol, dict) and source_protocol:
         return source_protocol
 
+    if "materials" in linkml_payload:
+        from .exporter import _expand_optimized_export
+        linkml_payload = _expand_optimized_export(linkml_payload)
     flows: list[dict[str, Any]] = []
     activities = linkml_payload.get("activities", []) or []
 
@@ -737,12 +746,18 @@ def convert_linkml_to_protocol(linkml_payload: dict[str, Any]) -> dict[str, Any]
             "type": activity.get("flow_type", "horizontal"),
             "steps": steps,
         }
+        for key in ("is_explicit_first", "chemical_block_id"):
+            if key in activity:
+                flow_obj[key] = copy.deepcopy(activity[key])
         flows.append(flow_obj)
 
-    return {
+    result = {
         "protocol_name": linkml_payload.get("source_protocol_name", DEFAULT_PROTOCOL_NAME),
         "flows": flows,
     }
+    if "complex_action_groups" in linkml_payload:
+        result["complex_action_groups"] = copy.deepcopy(linkml_payload["complex_action_groups"])
+    return result
 
 
 def normalize_action_to_linkml(action_name: str, params: dict[str, Any]) -> dict[str, Any]:

@@ -496,14 +496,10 @@ def edit_complex_action_instance(surrogate_block) -> None:
     group = editor.complex_action_groups.get(group_id)
     if group is None:
         return
-    definition = get_complex_action_registry().get(group.definition_name)
-    if definition is None:
-        QMessageBox.warning(
-            surrogate_block.editor,
-            "Missing Definition",
-            f"Complex action {group.definition_name!r} is not in the local registry.",
-        )
-        return
+    from .actions import snapshot_group_definition
+    definition = snapshot_group_definition(group)
+    group.definition = definition
+    group.parameters = definition.parameters
     parameters = prompt_complex_action_use(
         definition,
         initial_parameters=group.parameters,

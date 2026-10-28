@@ -126,6 +126,9 @@ def _convert_step(step: dict) -> dict:
         "subproduct_branches": [_convert_step(branch) for branch in step.get("subproducts", [])
                                 if isinstance(branch, dict)],
     }
+    for key in ("source_block_id", "complex_step_index"):
+        if key in step:
+            step_payload[key] = step[key]
     if step.get("part_of_complex_action"):
         step_payload["part_of_complex_action"] = True
         if step.get("complex_group_id"):
@@ -267,6 +270,8 @@ def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, 
         "source_protocol": copy.deepcopy(protocol_data),
     }
 
+    if "complex_action_groups" in protocol_data:
+        base_payload["complex_action_groups"] = copy.deepcopy(protocol_data["complex_action_groups"])
     return base_payload, activities, total_steps, total_chemicals, unmapped_fields
 
 

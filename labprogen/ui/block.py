@@ -120,30 +120,7 @@ def validate_decimal_input(text: str) -> float:
     if "," in cleaned:
         raise ValueError("comma separator")
     return float(cleaned)
-# Style for small primary action buttons (used for compact add buttons)
-ADD_BUTTON_STYLE = (
-    "QToolButton {"
-    "  font-size: 14px;"
-    "  color: white;"
-    "  background-color: #6b4cff;"
-    "  border-radius: 6px;"
-    "  border: 1px solid #5a3fe6;"
-    "  padding: 0px; margin: 0px;"
-    "}"
-    "QToolButton:hover { background-color: #5a3fe6; }"
-    "QToolButton:pressed { background-color: #4b33bf; }"
-)
-
-LIST_ICON_BUTTON_STYLE = (
-    "QToolButton {"
-    "  background-color: #f8fafc;"
-    "  border: 1px solid #e2e8f0;"
-    "  border-radius: 5px;"
-    "  color: #334155;"
-    "}"
-    "QToolButton:hover { background-color: #eef2ff; border-color: #c7d2fe; }"
-    "QToolButton:pressed { background-color: #e0e7ff; }"
-)
+from .field_widgets import UnitValueField, compact_add_button, list_icon_button
 
 
 class EditDialog(QDialog):
@@ -1041,36 +1018,9 @@ class Block(QGraphicsRectItem):
             return widget, widget
 
         if f_type == "unit":
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(8)
+            field = UnitValueField(config, value)
+            return field, (field.number_edit, field.unit_combo)
 
-            edit = QLineEdit()
-            edit.setPlaceholderText(config.get("placeholder", "Value"))
-            
-            v_min = -273.15 if key.lower() == KEY_TEMPERATURE else 0.0
-            configure_unit_decimal_input(edit, min_value=v_min)
-
-            combo = QComboBox()
-            # Unit fields should always have a concrete default unit selected
-            combo.addItems(config.get("units", []))
-
-            str_val = str(value).strip()
-            if " " in str_val:
-                parts = str_val.split(" ")
-                edit.setText(format_decimal_for_input(parts[0]))
-                idx = combo.findText(parts[1])
-                if idx >= 0: combo.setCurrentIndex(idx)
-            elif str_val and str_val not in config.get("defaults", []):
-                edit.setText(format_decimal_for_input(str_val))
-            else:
-                edit.setText("")
-
-            layout.addWidget(edit, 2)
-            layout.addWidget(combo, 1)
-            return container, (edit, combo)
-        
         elif f_type == "dropdown":
             combo = QComboBox()
             # Add placeholder item first so untouched fields export as ""
@@ -1099,14 +1049,7 @@ class Block(QGraphicsRectItem):
             button_layout.setContentsMargins(0, 0, 0, 0)
             button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-            add_btn = QToolButton()
-            add_btn.setText("+ Add")
-            add_btn.setToolTip(config.get("placeholder", "Add chemical"))
-            add_btn.setAutoRaise(False)
-            add_btn.setFixedHeight(28)
-            add_btn.setMinimumWidth(60)
-            add_btn.setStyleSheet(ADD_BUTTON_STYLE)
-            add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+            add_btn = compact_add_button(container, tooltip=config.get("placeholder", "Add chemical"))
 
             row_container = QWidget()
             row_layout = QVBoxLayout(row_container)
@@ -1152,19 +1095,8 @@ class Block(QGraphicsRectItem):
                 fm = QFontMetrics(text_label.font())
                 text_label.setText(fm.elidedText(row_text, Qt.TextElideMode.ElideRight, 220))
 
-                edit_btn = QToolButton()
-                edit_btn.setText("✎")
-                edit_btn.setFixedSize(22, 22)
-                edit_btn.setStyleSheet(LIST_ICON_BUTTON_STYLE)
-
-                remove_btn = QToolButton()
-                remove_btn.setText("✕")
-                remove_btn.setFixedSize(22, 22)
-                remove_btn.setStyleSheet(
-                    LIST_ICON_BUTTON_STYLE
-                    + "QToolButton { font-weight: bold; color: #6b7280; }"
-                    + "QToolButton:hover { color: #ef4444; }"
-                )
+                edit_btn = list_icon_button("✎", "Edit chemical", row_widget)
+                remove_btn = list_icon_button("✕", "Remove chemical", row_widget)
 
                 def _remove():
                     single_ref.value = {}
@@ -1359,6 +1291,7 @@ class Block(QGraphicsRectItem):
             label = field_label(key, self.action)
 
             widget, tracker = self._get_field_widget(key, value)
+            widget.setObjectName(key)
             if key in locked_keys and hasattr(widget, "setReadOnly"):
                 widget.setReadOnly(True)
             # Explicitly create label widget to ensure proper visibility control
@@ -1538,22 +1471,7 @@ class Block(QGraphicsRectItem):
                 if isinstance(tracker, tuple):
                     # For Unit fields (LineEdit, ComboBox)
                     edit_field, combo_field = tracker
-                    raw_value = edit_field.text().strip()
-                    unit_text = combo_field.currentText().strip()
-                    # enforce numeric-only values for unit fields
-                    if raw_value:
-                        try:
-                            validate_decimal_input(raw_value)
-                        except ValueError:
-                            label = field_label(k, self.action)
-                            QMessageBox.warning(
-                                dialog,
-                                "Invalid Value",
-                                f"'{label}' must be a number using '.' as decimal separator (e.g. 12.5).",
-                            )
-                            edit_field.setFocus()
-                            return
-                    value = f"{raw_value} {unit_text}" if raw_value else ""
+                    value = edit_field._unit_value_field.get_value()
                 elif isinstance(tracker, QComboBox):
                     # For standalone Dropdown fields
                     value = tracker.currentText().strip()

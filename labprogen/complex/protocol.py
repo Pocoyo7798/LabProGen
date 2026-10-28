@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -110,6 +111,8 @@ def _position_complex_group(
 
 def next_group_id(editor: Editor) -> str:
     counter = getattr(editor, "_complex_group_counter", 0) + 1
+    while f"complex_{counter}" in editor.complex_action_groups:
+        counter += 1
     editor._complex_group_counter = counter
     return f"complex_{counter}"
 
@@ -181,6 +184,7 @@ def materialize_complex_action(
         parameters=[ComplexActionParameter.from_dict(p.to_dict()) for p in parameters],
         member_blocks=member_blocks,
         surrogate_block=surrogate,
+        definition=copy.deepcopy(definition),
     )
 
     editor.complex_action_groups[group_id] = group
@@ -203,6 +207,117 @@ def _create_member_block(editor: Editor, action_name: str, params: dict):
     if isinstance(block, SupportAction) and not editor.show_support_actions:
         block.setVisible(False)
     return block
+
+
+def check_complex_metadata(data):
+    """Reject unsupported container versions before clearing an existing scene."""
+    metadata = data.get("complex_action_groups")
+    if metadata is None:
+        return
+    if (not isinstance(metadata, dict) or metadata.get("version") != 1
+            or not isinstance(metadata.get("groups"), list)):
+        raise ValueError("Unsupported complex-action metadata. Expected version 1 with a groups list.")
+    identifiers = set()
+    for record in metadata["groups"]:
+        if (not isinstance(record, dict) or not isinstance(record.get("group_id"), str)
+                or not record["group_id"] or record["group_id"] in identifiers
+                or ("name" in record and not isinstance(record["name"], str))):
+            raise ValueError("Invalid or duplicate complex-action group identifier/name.")
+        identifiers.add(record["group_id"])
+
+
+def serialize_complex_groups(editor):
+    """Presentation metadata lives in the protocol/export envelope, never slots."""
+    from .actions import snapshot_group_definition
+
+    previous = (getattr(editor, "protocol_data", {}) or {}).get("complex_action_groups")
+    metadata = copy.deepcopy(previous) if previous else {"version": 1, "groups": []}
+    restored_ids = getattr(editor, "_restored_complex_group_ids", set())
+    records = {item["group_id"]: item for item in metadata["groups"] if item["group_id"] not in restored_ids}
+    for group_id, group in editor.complex_action_groups.items():
+        definition = snapshot_group_definition(group)
+        records[group_id] = {**records.get(group_id, {}), "group_id": group_id,
+                             "name": group.definition_name,
+                             "parameters": [p.to_dict() for p in definition.parameters]}
+    if not records:
+        return None
+    metadata.update(groups=list(records.values()), collapsed=bool(editor.show_complex_actions_collapsed))
+    return metadata
+
+
+def restore_complex_groups(editor, data, imported_steps):
+    """Restore explicitly identified groups; never recognize groups by sequence.
+
+    Invalid/incomplete groups remain ordinary actions with their original markers
+    retained on save. Warnings expose the problem without removing actions.
+    """
+    from .actions import ComplexActionDefinition, build_parameter_bindings
+
+    warnings = []
+    metadata = data.get("complex_action_groups") or {}
+    records = {}
+    for record in metadata.get("groups", []):
+        if isinstance(record, dict) and isinstance(record.get("group_id"), str):
+            records[record["group_id"]] = record
+    candidates = {}
+    for step, block in imported_steps:
+        if not step.get("part_of_complex_action"):
+            continue
+        group_id = step.get("complex_group_id")
+        if not isinstance(group_id, str) or not group_id:
+            warnings.append("Complex-action member has no group identifier; kept as an ordinary action.")
+            continue
+        members = candidates.setdefault(group_id, [])
+        if not any(existing is block for _, existing in members):
+            members.append((step, block))
+    for group_id, entries in candidates.items():
+        record = records.get(group_id, {})
+        names = {step["complex_action_name"] for step, _ in entries
+                 if isinstance(step.get("complex_action_name"), str) and step["complex_action_name"].strip()}
+        if record.get("name"):
+            names.add(record["name"])
+        members = [block for _, block in entries]
+        indices = [step.get("complex_step_index") for step, _ in entries]
+        ordered = all(index is None for index in indices) or indices == list(range(len(members)))
+        contiguous = all(left.next_block is right for left, right in zip(members, members[1:]))
+        if len(names) != 1 or not ordered or not contiguous or any(block.complex_group_id for block in members):
+            warnings.append(f"Complex group {group_id!r} is inconsistent or incomplete; actions and markers were retained.")
+            continue
+        name = next(iter(names))
+        steps = [{"action": block.action, "params": copy.deepcopy(block.params)} for block in members]
+        parameters = build_parameter_bindings(steps)
+        try:
+            saved = [ComplexActionParameter.from_dict(p) for p in record.get("parameters", [])]
+            for binding in saved:
+                if (binding.host_step_index is not None or binding.step_index < 0 or binding.step_index >= len(members)
+                        or binding.action != members[binding.step_index].action
+                        or binding.param_key not in members[binding.step_index].params):
+                    raise ValueError("binding does not identify an imported member field")
+            overrides = {(p.step_index, p.param_key): p for p in saved}
+            for index, parameter in enumerate(parameters):
+                saved_parameter = overrides.get((parameter.step_index, parameter.param_key))
+                if saved_parameter is not None:
+                    saved_parameter.value = parameter.value  # Actual member data is authoritative.
+                    parameters[index] = saved_parameter
+        except (AttributeError, KeyError, TypeError, ValueError):
+            warnings.append(f"Complex group {group_id!r} has invalid parameter metadata; actions and markers were retained.")
+            continue
+        definition = ComplexActionDefinition(name, steps, parameters)
+        surrogate = ComplexActionBlock(name, parameters_to_block_params(name, parameters), editor=editor)
+        surrogate.complex_group_id = group_id
+        editor.scene.addItem(surrogate)
+        editor.blocks.append(surrogate)
+        editor._register_block_id(surrogate)
+        surrogate.setPos(members[0].pos())
+        surrogate.setVisible(False)
+        for index, block in enumerate(members):
+            block.complex_group_id = group_id
+            block.complex_step_index = index
+            _mark_complex_member(block)
+        editor.complex_action_groups[group_id] = ComplexActionGroup(
+            group_id, name, parameters, member_blocks=members, surrogate_block=surrogate, definition=definition)
+    editor._restored_complex_group_ids = set(editor.complex_action_groups)
+    return warnings
 
 
 def import_complex_action_dictionary(editor: Editor) -> bool:
@@ -237,17 +352,13 @@ def import_complex_action_dictionary(editor: Editor) -> bool:
         return False
 
     register_complex_action_definitions(definitions)
-    attached = 0
-    for definition in definitions:
-        attached += attach_matching_groups(editor, definition)
-
     names = ", ".join(repr(defn.name) for defn in definitions)
     QMessageBox.information(
         editor.container if hasattr(editor, "container") else None,
         "Dictionary Imported",
         (
             f"Loaded {len(definitions)} complex action(s): {names}.\n"
-            f"Matched {attached} sequence(s) in the current protocol.\n"
+            "Use Add Action to insert a complex-action instance.\n"
             "Definitions were appended to the default config file."
         ),
     )
@@ -293,6 +404,7 @@ def attach_matching_groups(editor: Editor, definition) -> int:
                 parameters=[ComplexActionParameter.from_dict(p.to_dict()) for p in parameters],
                 member_blocks=members,
                 surrogate_block=surrogate,
+                definition=copy.deepcopy(definition),
             )
             editor.complex_action_groups[group_id] = group
             if editor.show_complex_actions_collapsed:

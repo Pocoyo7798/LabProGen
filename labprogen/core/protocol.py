@@ -1,4 +1,5 @@
 import json
+import copy
 from .actions import *
 from .chemicals import *
 from .config import DEFAULT_PROTOCOL_NAME, KEY_SUBSTANCE
@@ -11,6 +12,7 @@ class Protocol:
     
     def __init__(self):
         self.actions = []
+        self.complex_action_groups = None
     
     def add_action(self, action):
         """Add an action to the protocol"""
@@ -39,11 +41,15 @@ class Protocol:
                 "steps": [action.to_dict() for action in self.actions],
             }
         ]
-        return self.build_protocol_envelope(flows)
+        result = self.build_protocol_envelope(flows)
+        if self.complex_action_groups is not None:
+            result["complex_action_groups"] = copy.deepcopy(self.complex_action_groups)
+        return result
     
     def to_json(self):
         """Convert protocol to JSON string"""
-        return json.dumps(self.to_dict(), indent=2)
+        data = self.to_protocol_dict() if self.complex_action_groups is not None else self.to_dict()
+        return json.dumps(data, indent=2)
 
     def to_linkml_dict(self, mode="strict"):
         """Convert protocol to the canonical LinkML-aligned semantic payload."""
@@ -110,6 +116,8 @@ class Protocol:
         action_type = step.get("action")
         params = step.get("params", {})
         action = Protocol._build_action(action_type, params)
+        action._complex_metadata = {key: copy.deepcopy(step[key]) for key in
+            ("part_of_complex_action", "complex_group_id", "complex_action_name", "complex_step_index", "source_block_id") if key in step}
 
         for chem_data in step.get("chemicals", []) or []:
             chem = Protocol._build_chemical(chem_data.get("chemical"), chem_data.get("params", {}))
@@ -136,6 +144,10 @@ class Protocol:
     def from_dict(data):
         """Create a protocol from a legacy protocol dictionary or step list."""
         protocol = Protocol()
+        if isinstance(data, dict) and "activities" in data and "flows" not in data:
+            data = convert_linkml_to_protocol(data)
+        if isinstance(data, dict) and "complex_action_groups" in data:
+            protocol.complex_action_groups = copy.deepcopy(data["complex_action_groups"])
 
         for item in Protocol._iter_steps(data):
             action = Protocol._build_action_from_step(item)

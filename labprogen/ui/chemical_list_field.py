@@ -27,29 +27,7 @@ from labprogen.core.config import (
 )
 from labprogen.text.procedure_text import format_gas_entry_label
 
-_ADD_BUTTON_STYLE = (
-    "QToolButton {"
-    "  font-size: 14px;"
-    "  color: white;"
-    "  background-color: #6b4cff;"
-    "  border-radius: 6px;"
-    "  border: 1px solid #5a3fe6;"
-    "  padding: 0px; margin: 0px;"
-    "}"
-    "QToolButton:hover { background-color: #5a3fe6; }"
-    "QToolButton:pressed { background-color: #4b33bf; }"
-)
-
-_LIST_ICON_BUTTON_STYLE = (
-    "QToolButton {"
-    "  background-color: #f8fafc;"
-    "  border: 1px solid #e2e8f0;"
-    "  border-radius: 5px;"
-    "  color: #334155;"
-    "}"
-    "QToolButton:hover { background-color: #eef2ff; border-color: #c7d2fe; }"
-    "QToolButton:pressed { background-color: #e0e7ff; }"
-)
+from .field_widgets import compact_add_button, list_icon_button
 
 
 class ChemicalListField:
@@ -116,14 +94,7 @@ class ChemicalListField:
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        add_btn = QToolButton()
-        add_btn.setText("+ Add")
-        add_btn.setToolTip("Add chemical")
-        add_btn.setAutoRaise(False)
-        add_btn.setFixedHeight(28)
-        add_btn.setMinimumWidth(60)
-        add_btn.setStyleSheet(_ADD_BUTTON_STYLE)
-        add_btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        add_btn = compact_add_button(container, tooltip="Add chemical")
         add_btn.setEnabled(not self._read_only)
         add_btn.clicked.connect(self._add_chemical)
         self._add_btn = add_btn
@@ -230,21 +201,11 @@ class ChemicalListField:
                 fm.elidedText(row_text, Qt.TextElideMode.ElideRight, 220)
             )
 
-            edit_btn = QToolButton()
-            edit_btn.setText("✎")
-            edit_btn.setFixedSize(22, 22)
-            edit_btn.setStyleSheet(_LIST_ICON_BUTTON_STYLE)
+            edit_btn = list_icon_button("✎", "Edit chemical", row_widget)
             edit_btn.setEnabled(not self._read_only)
             edit_btn.clicked.connect(lambda _checked=False, i=idx: self._edit_chemical(i))
 
-            remove_btn = QToolButton()
-            remove_btn.setText("✕")
-            remove_btn.setFixedSize(22, 22)
-            remove_btn.setStyleSheet(
-                _LIST_ICON_BUTTON_STYLE
-                + "QToolButton { font-weight: bold; color: #6b7280; }"
-                + "QToolButton:hover { color: #ef4444; }"
-            )
+            remove_btn = list_icon_button("✕", "Remove chemical", row_widget)
             remove_btn.setEnabled(not self._read_only)
             remove_btn.clicked.connect(
                 lambda _checked=False, i=idx: self._remove_chemical(i)

@@ -143,7 +143,7 @@ def test_cell_block_scrolls_and_saves_integer_and_nested_values(app, monkeypatch
             for toggle in dialog.findChildren(QToolButton):
                 if toggle.text() == "Advanced parameters":
                     toggle.click()
-            field = next(w for w in dialog.findChildren(QLineEdit) if w.validator() is not None)
+            field = dialog.findChild(QLineEdit, "passage_number")
             field.setText("3")
             assert dialog.height() < 900
             next(b for b in dialog.findChildren(QPushButton) if b.text() == "Save Changes").click()

@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtWidgets import QComboBox, QLineEdit, QWidget
 from PySide6.QtGui import QIntValidator
 
-from labprogen.ui.block import configure_unit_decimal_input, format_decimal_for_input
 from labprogen.ui.chemical_list_field import build_chemical_list_field
 from .actions import ComplexActionParameter
-from labprogen.core.config import UI_FIELD_PREFERENCES
 from labprogen.core.model import field_config
 from labprogen.ui.schema_fields import RetainedValueField, needs_retention, scalar_value
+from labprogen.ui.field_widgets import UnitValueField
 
 LOCKED_FIELD_TOOLTIP = (
     "The creator of this complex action marked this field as non-editable."
@@ -38,19 +37,6 @@ def value_to_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
-
-
-def _parse_unit_parts(value: Any, param_key: str) -> tuple[str, str]:
-    config = UI_FIELD_PREFERENCES.get(param_key.lower(), {})
-    units = config.get("units") or []
-    default_unit = units[0] if units else ""
-    text = str(value or "").strip()
-    if " " in text:
-        number, unit = text.rsplit(" ", 1)
-        return format_decimal_for_input(number), unit
-    if text in units:
-        return "", text
-    return format_decimal_for_input(text), default_unit
 
 
 class ParameterValueEditor:
@@ -120,37 +106,11 @@ class ParameterValueEditor:
             self._record_field = SchemaValueField(config, self.binding.value, self._parent)
             return self._record_field
         if self._field_type == "unit":
-            container = QWidget()
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(8)
-
-            number, unit = _parse_unit_parts(self.binding.value, self.binding.param_key)
-            if self.binding.unit and not unit:
-                unit = self.binding.unit
-
-            edit = QLineEdit(number)
-            edit.setPlaceholderText(config.get("placeholder", "Value"))
-            min_value = -273.15 if self.binding.param_key.lower() == "temperature" else 0.0
-            configure_unit_decimal_input(edit, min_value=min_value)
-            edit.setReadOnly(self._read_only)
-
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.addItems(config.get("units", []))
-            if unit:
-                idx = combo.findText(unit)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-                else:
-                    combo.setEditText(unit)
-            combo.setEnabled(not self._read_only)
-
-            layout.addWidget(edit, 2)
-            layout.addWidget(combo, 1)
-            self._unit_edit = edit
-            self._unit_combo = combo
-            return container
+            field = UnitValueField(config, self.binding.value, self._parent)
+            field.set_read_only(self._read_only)
+            self._unit_field = field
+            self._unit_edit, self._unit_combo = field.number_edit, field.unit_combo
+            return field
 
         if self._field_type == "dropdown":
             combo = QComboBox()
@@ -200,14 +160,7 @@ class ParameterValueEditor:
         if self._field_type == "record":
             return self._record_field.get_value
         if self._field_type == "unit":
-            def _get_unit() -> str:
-                number = self._unit_edit.text().strip()
-                unit = self._unit_combo.currentText().strip()
-                if number and unit:
-                    return f"{number} {unit}"
-                return number or unit
-
-            return _get_unit
+            return self._unit_field.get_value
 
         if self._field_type == "dropdown":
             def _get_dropdown() -> str:
@@ -242,8 +195,7 @@ class ParameterValueEditor:
             self._apply_locked_appearance(read_only)
             return
         if self._field_type == "unit":
-            self._unit_edit.setReadOnly(read_only)
-            self._unit_combo.setEnabled(not read_only)
+            self._unit_field.set_read_only(read_only)
         elif self._field_type == "dropdown":
             self._dropdown_combo.setEnabled(not read_only)
         elif self._field_type == "list":

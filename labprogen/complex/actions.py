@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -430,6 +431,7 @@ class ComplexActionGroup:
     surrogate_block: Any | None = None
     chain_wired_collapsed: bool = False
     collapsed_tail_shift: float = 0.0
+    definition: ComplexActionDefinition | None = None
 
     def __post_init__(self) -> None:
         if not hasattr(self, "chain_wired_collapsed"):
@@ -439,7 +441,7 @@ class ComplexActionGroup:
 
     def expanded_steps(self) -> list[dict[str, Any]]:
         return expand_definition_steps(
-            _definition_steps(self.definition_name),
+            self.definition.steps if self.definition is not None else _definition_steps(self.definition_name),
             self.parameters,
         )
 
@@ -692,6 +694,36 @@ def apply_parameters_to_member_blocks(group: ComplexActionGroup) -> None:
         block.params = dict(steps[index].get("params") or {})
         if hasattr(block, "update_text"):
             block.update_text()
+
+
+def snapshot_group_definition(group: ComplexActionGroup) -> ComplexActionDefinition:
+    """A self-contained instance over its actual, ordered canvas members.
+
+    Dictionary definitions may contain nested templates. Protocol instances store
+    their materialized members, with bindings resolved to those member indices.
+    No dictionary entry is registered or replaced during protocol import.
+    """
+    steps = [{"action": block.action, "params": copy.deepcopy(block.params)}
+             for block in group.member_blocks]
+    source = group.definition or get_complex_action_registry().get(group.definition_name)
+    bindings = {}
+    if source is not None:
+        for section in iter_instance_dialog_sections(source):
+            for _, binding in bindings_for_instance_section(group.parameters, section):
+                bindings[(section.display_index, binding.param_key)] = binding
+    else:
+        bindings = {(p.step_index, p.param_key): p for p in group.parameters if p.host_step_index is None}
+    parameters = build_parameter_bindings(steps)
+    for index, generated in enumerate(parameters):
+        original = bindings.get((generated.step_index, generated.param_key))
+        if original is not None:
+            saved = ComplexActionParameter.from_dict(copy.deepcopy(original.to_dict()))
+            saved.step_index = generated.step_index
+            saved.host_step_index = None
+            saved.action = generated.action
+            saved.value = generated.value
+            parameters[index] = saved
+    return ComplexActionDefinition(group.definition_name, steps, parameters)
 
 
 def sync_group_parameters_from_members(group: ComplexActionGroup) -> None:

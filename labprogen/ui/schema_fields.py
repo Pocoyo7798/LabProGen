@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 from PySide6.QtGui import QIntValidator
+from PySide6.QtCore import Qt
+from .field_widgets import UnitValueField, compact_add_button, list_icon_button
 
 from labprogen.core.model import concrete_classes, default_params, field_config, model_schema
 from labprogen.linkml.loader import build_validation_schema, class_slot_constraints, ensure_six_meta_path_importer_compatibility
@@ -70,6 +72,7 @@ class SchemaValueField(QWidget):
                                     [] if config.get('multivalued') else {})
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(6)
         self._refresh()
 
     def get_value(self):
@@ -95,20 +98,30 @@ class SchemaValueField(QWidget):
         for index, value in enumerate(values):
             row = QWidget(self)
             layout = QHBoxLayout(row)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
             if isinstance(value, dict):
                 text = value.get('type') or value.get('name') or self.config['range']
             else:
                 text = str(value)
-            edit = QPushButton(str(text), row)
+            label = QLabel(str(text), row)
+            label.setTextFormat(Qt.TextFormat.PlainText)
+            label.setWordWrap(True)
+            label.setMinimumWidth(0)
+            label.setToolTip(str(text))
+            label.setStyleSheet("color: #334155; padding: 4px 8px; background-color: #f1f5f9; border-radius: 4px;")
+            edit = list_icon_button('✎', f'Edit {text}', row)
             edit.clicked.connect(lambda checked=False, i=index: self._edit(i))
-            remove = QPushButton('Remove', row)
+            remove = list_icon_button('✕', f'Remove {text}', row)
             remove.clicked.connect(lambda checked=False, i=index: self._remove(i))
-            layout.addWidget(edit); layout.addWidget(remove)
+            layout.addWidget(label, 1)
+            layout.addWidget(edit)
+            layout.addWidget(remove)
             self._layout.addWidget(row)
         if self.config.get('multivalued') or not values:
-            add = QPushButton('+ Add', self)
+            add = compact_add_button(self, tooltip=f"Add {self.config['label']}")
             add.clicked.connect(lambda: self._edit(None))
-            self._layout.addWidget(add)
+            self._layout.addWidget(add, alignment=Qt.AlignmentFlag.AlignLeft)
 
     def _clear_legacy(self):
         self._value = [] if self.config.get('multivalued') else {}
@@ -128,8 +141,10 @@ class SchemaValueField(QWidget):
         if range_name in model_schema()['classes']:
             dialog = SchemaRecordDialog(range_name, initial, self)
             if dialog.exec() != QDialog.Accepted:
+                dialog.deleteLater()
                 return
             value = dialog.value
+            dialog.deleteLater()
         elif self.config.get('options'):
             options = self.config['options']
             value, accepted = QInputDialog.getItem(self, self.config['label'], 'Value:', options,
@@ -225,6 +240,8 @@ class SchemaRecordDialog(QDialog):
                 widget = RetainedValueField(value, container)
             elif config['range'] in model_schema()['classes'] or config.get('multivalued'):
                 widget = SchemaValueField(config, value, container)
+            elif config['type'] == 'unit':
+                widget = UnitValueField(config, value, container)
             elif config['type'] == 'dropdown':
                 widget = QComboBox(container)
                 widget.addItem('Select...'); widget.addItems(config['options'])

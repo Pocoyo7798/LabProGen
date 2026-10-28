@@ -521,30 +521,11 @@ class MixtureChemicalDialog(QDialog):
             layout.addWidget(conc_label)
             self.conc_label = conc_label
 
-            conc_container = QWidget()
-            conc_layout = QHBoxLayout(conc_container)
-            conc_layout.setContentsMargins(0, 0, 0, 0)
-            conc_layout.setSpacing(8)
-
-            self.conc_edit = QLineEdit()
-            self.conc_edit.setPlaceholderText("Enter value")
-            configure_unit_decimal_input(self.conc_edit, min_value=0.0)
-
-            self.conc_unit = QComboBox()
-            self.conc_unit.addItems(UI_FIELD_PREFERENCES[KEY_CONCENTRATION].get("units", []))
-
-            if initial_concentration:
-                parts = initial_concentration.strip().split()
-                if len(parts) == 2:
-                    self.conc_edit.setText(format_decimal_for_input(parts[0]))
-                    cidx = self.conc_unit.findText(parts[1])
-                    if cidx >= 0:
-                        self.conc_unit.setCurrentIndex(cidx)
-                elif len(parts) == 1 and parts[0]:
-                    self.conc_edit.setText(format_decimal_for_input(parts[0]))
-
-            conc_layout.addWidget(self.conc_edit, 2)
-            conc_layout.addWidget(self.conc_unit, 1)
+            from .field_widgets import UnitValueField
+            from labprogen.core.model import field_config
+            conc_container = UnitValueField(field_config(KEY_CONCENTRATION, "MixtureConstituent"), initial_concentration, self)
+            self._concentration_field = conc_container
+            self.conc_edit, self.conc_unit = conc_container.number_edit, conc_container.unit_combo
             layout.addWidget(conc_container)
 
         button_row = QHBoxLayout()
@@ -576,7 +557,7 @@ class MixtureChemicalDialog(QDialog):
             if not value:
                 QMessageBox.warning(self, "Missing Required Field", "'Concentration' is required.")
                 return
-            self.concentration = f"{value} {unit}"
+            self.concentration = self._concentration_field.get_value()
         else:
             self.concentration = ""
         self.accept()
@@ -1712,6 +1693,14 @@ class Editor(QGraphicsView):
         if isinstance(data, dict) and "activities" in data and "flows" not in data:
             data = convert_linkml_to_protocol(data)
 
+        if isinstance(data, list):
+            data = Protocol.build_protocol_envelope([{"type": "horizontal", "steps": data}])
+        from labprogen.complex.protocol import check_complex_metadata, restore_complex_groups
+        if isinstance(data, dict):
+            if "flows" not in data and ("complex_actions" in data or "complex_action_name" in data):
+                raise ValueError("This file is a complex-action dictionary, not a protocol. Use Import Complex Action Dictionary.")
+            check_complex_metadata(data)
+
         self.scene.clear()
         self.blocks = []
         self.protocol = Protocol()
@@ -1727,6 +1716,8 @@ class Editor(QGraphicsView):
 
         id_to_block = {}
         source_to_add_block = {}
+        imported_steps = []
+        self.import_warnings = []
 
         flows = data.get("flows", [])
         if include_hidden:
@@ -1757,18 +1748,19 @@ class Editor(QGraphicsView):
                 action_name = step.get("action")
                 source_id = step.get("source_block_id", b_id)
 
-                if action_name == "Add" and source_id in source_to_add_block:
+                if action_name == "Add" and source_id is not None and source_id in source_to_add_block:
                     new_block = source_to_add_block[source_id]
                     chem_list = step.get("chemicals", [])
                     self._reconstruct_chemicals(new_block, chem_list)
-                elif b_id in id_to_block:
+                elif b_id is not None and b_id in id_to_block:
                     new_block = id_to_block[b_id]
                 else:
                     new_block = self._reconstruct_block(step, flow_type, id_to_block)
-                    if action_name == "Add":
+                    if action_name == "Add" and source_id is not None:
                         source_to_add_block[source_id] = new_block
 
                 self._register_block_id(new_block, b_id)
+                imported_steps.append((step, new_block))
 
                 if j == 0 and is_explicit_first:
                     new_block.is_first = True
@@ -1837,6 +1829,9 @@ class Editor(QGraphicsView):
                     self.chemical_procedure_index[owner_block.block_id] = procedure
 
         self._reflow_import_layout()
+        self.import_warnings = restore_complex_groups(self, data, imported_steps)
+        metadata = data.get("complex_action_groups") or {}
+        self._toggle_complex_visibility(bool(metadata.get("collapsed", self.show_complex_actions_collapsed)))
 
         self.update_linked_sequence()
         self.update_support_logic()
@@ -3370,7 +3365,10 @@ class Editor(QGraphicsView):
         # Imported workflows are reconstructed from the default creation position.
         new_block.setPos(50, 50)
         new_block.toggle_orientation(flow_type)
-        id_to_block[b_id] = new_block
+        if b_id is not None:
+            id_to_block[b_id] = new_block
+        new_block._imported_complex_metadata = {key: copy.deepcopy(step_data[key]) for key in
+            ("part_of_complex_action", "complex_group_id", "complex_action_name", "complex_step_index") if key in step_data}
         self._register_block_id(new_block, b_id)
 
         # 1. handle subproduct branches
@@ -3474,9 +3472,11 @@ class Editor(QGraphicsView):
             if isinstance(data, dict) and "activities" in data and "flows" not in data:
                 data = convert_linkml_to_protocol(data)
             self.load_protocol_data(data, include_hidden=False)
+            if self.import_warnings:
+                QMessageBox.warning(self, "Import warnings", "\n".join(self.import_warnings))
 
         except Exception as e:
-            print(f"error importing protocol: {e}")
+            QMessageBox.warning(self, "Import Error", f"Could not import protocol:\n{e}")
 
     def generate_protocol_output(self, show_feedback=True):
         """Build the protocol JSON structure from current editor blocks."""
@@ -3540,6 +3540,7 @@ class Editor(QGraphicsView):
                 "action": block.action,
                 "params": block.params.copy(),
             }
+            base_data.update(copy.deepcopy(getattr(block, "_imported_complex_metadata", {})))
             if getattr(block, "part_of_complex_action", False):
                 base_data["part_of_complex_action"] = True
                 if getattr(block, "complex_group_id", None):
@@ -3707,7 +3708,12 @@ class Editor(QGraphicsView):
                 }
                 append_flow(ordered_flow)
 
-        return Protocol.build_protocol_envelope(flows_list)
+        output = Protocol.build_protocol_envelope(flows_list)
+        from labprogen.complex.protocol import serialize_complex_groups
+        metadata = serialize_complex_groups(self)
+        if metadata is not None:
+            output["complex_action_groups"] = metadata
+        return output
     
     def _ensure_exportable_flows(self, protocol_data) -> bool:
         if protocol_data.get("flows"):

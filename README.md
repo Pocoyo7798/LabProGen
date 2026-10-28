@@ -127,6 +127,36 @@ the Python distributions. Source checkouts and executables retain their existing
 configuration locations; an executable needs write access to its own folder to
 save configuration there.
 
+### Saving complex actions
+
+Native JSON/YAML protocols preserve each explicitly identified complex-action
+instance, its ordered members, parameter labels/defaults/editability and the
+expanded/collapsed view. The instance is self-contained: importing it does not
+require registering the same definition in the local complex-action dictionary.
+Nested templates are saved as their materialized member sequence and bindings;
+the protocol is not a replacement for exporting the reusable dictionary.
+
+LabProGen's LinkML export envelope also retains this information, separately from
+the strict schema instances. Its root `complex_action_groups` object has
+`version: 1`, a `groups` list (`group_id`, `name`, `parameters`) and `collapsed`.
+Members are identified by `part_of_complex_action`, `complex_group_id`,
+`complex_action_name` and `complex_step_index` on the native step/export wrapper.
+These fields never become LinkML slots. The member action parameters remain the
+source of instance values; grouping metadata describes their presentation.
+
+Older files with explicit member markers can restore their groups. Files with
+only a flat sequence remain flat, even when the local dictionary contains a
+matching sequence. Dictionary import registers reusable definitions without
+matching or grouping existing actions; insert an instance through Add Action.
+A dictionary (`complex_action_name`, `steps`, `parameters`) must be opened with
+Import Complex Action Dictionary, rather than Import Protocol. Tools that strip
+LabProGen envelope metadata cannot preserve
+this grouping. Inconsistent groups produce import warnings while retaining their
+actions and markers; unsupported metadata versions are rejected before replacing
+the open protocol. Additional native scalar-record/list editors use the same
+compact Add/edit/remove controls. Quantity editors retain string-valued schema
+fields and existing units without automatic conversion.
+
 ### Generated data models
 
 The semantic Python models are generated from the LinkML schema and committed in

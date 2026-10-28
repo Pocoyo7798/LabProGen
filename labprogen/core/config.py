@@ -275,6 +275,20 @@ UI_FIELD_PREFERENCES = {
     KEY_PY_L_450: {"label": "Py-L (450°C)", "type": "text", "placeholder": "Pyridine Lewis 450°C..."},
 }
 
+# Confirmed string-valued quantities: units are UI suggestions, never conversions.
+# Source descriptions give µm, g/mol, h/days and % respectively. Dimensionless
+# ratios, optical density, ranges and enums deliberately retain their own editors.
+UI_FIELD_PREFERENCES.update({
+    _slot_reference("filter_pore_size"): {"type": "unit", "units": ["µm", "nm", "mm"]},
+    _slot_reference("number_average_molar_mass"): {"type": "unit", "units": ["g/mol"]},
+    _slot_reference("weight_average_molar_mass"): {"type": "unit", "units": ["g/mol"]},
+    _slot_reference("melting_temperature"): {"type": "unit", "units": ["°C", "°F"]},
+    _slot_reference("glass_transition_temperature"): {"type": "unit", "units": ["°C", "°F"]},
+    _slot_reference("culture_age"): {"type": "unit", "units": ["h", "days"]},
+    _slot_reference("viability"): {"type": "unit", "units": ["%"]},
+    _slot_reference("confluence"): {"type": "unit", "units": ["%"]},
+})
+
 
 # Historical names are editing hints, never declarations in the current model.
 LEGACY_FIELD_KEYS = frozenset({
