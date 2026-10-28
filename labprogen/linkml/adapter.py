@@ -26,31 +26,9 @@ from labprogen.linkml.loader import (
 ACTION_TO_LINKML_STEP = {name: name for name in listed_action_classes()}
 
 
-# Domain param keys -> schema slots (identity except identifiers that are invalid YAML names)
+# Legacy key migrations only; current schema keys pass through unchanged.
 FIELD_TO_LINKML_SLOT = {
-    KEY_DURATION: KEY_DURATION,
-    KEY_TEMPERATURE: KEY_TEMPERATURE,
-    KEY_CHEMICAL: "chemical",
-    KEY_ADD_TYPE: KEY_ADD_TYPE,
-    KEY_ADD_QUANTITY: KEY_ADD_QUANTITY,
-    KEY_OPEN_FLAME: KEY_OPEN_FLAME,
-    KEY_PHASE: KEY_PHASE,
-    KEY_METHOD: KEY_METHOD,
-    KEY_SIZE_RANGE: KEY_SIZE_RANGE,
-    KEY_SPEED: KEY_SPEED,
-    KEY_FLOW_RATE: KEY_FLOW_RATE,
-    KEY_PRESSURE: KEY_PRESSURE,
-    KEY_PROCESS: KEY_PROCESS,
-    KEY_RAMP: KEY_RAMP,
-    KEY_POWER: KEY_POWER,
-    KEY_RECIPIENT: KEY_RECIPIENT,
-    KEY_MATERIAL: KEY_MATERIAL,
-    KEY_VOLUME: KEY_VOLUME,
-    KEY_SUBSTANCE: "substance",
     KEY_SUBSTANCE_LIST: "chemical",
-    KEY_CONTINUOUS_ADD_TYPE: KEY_CONTINUOUS_ADD_TYPE,
-    KEY_AMOUNT: KEY_AMOUNT,
-    KEY_AGITATION_TYPE: KEY_AGITATION_TYPE,
     KEY_3D_STRUCTURE: "three_d_structure",
 }
 
@@ -59,44 +37,7 @@ CHEMICAL_TO_LINKML_CLASS = {name: name for name in listed_chemical_classes()}
 
 
 CHEMICAL_FIELD_TO_LINKML_SLOT = {
-    KEY_PREPARATION_PROCEDURE: KEY_PREPARATION_PROCEDURE,
-    KEY_ENTITY_ID: KEY_ENTITY_ID,
-    KEY_PRODUCER: KEY_PRODUCER,
-    KEY_ENTITY_PURITY: KEY_ENTITY_PURITY,
-    KEY_CAS_NUMBER: KEY_CAS_NUMBER,
-    KEY_NAME: KEY_NAME,
-    KEY_FORMULA: KEY_FORMULA,
-    KEY_SMILES: KEY_SMILES,
-    KEY_INCHI: KEY_INCHI,
-    KEY_BIGSMILES: KEY_BIGSMILES,
-    KEY_QUANTITY: KEY_QUANTITY,
-    KEY_CONCENTRATION: KEY_CONCENTRATION,
-    KEY_CHEMICAL_LIST: KEY_CHEMICAL_LIST,
-    KEY_ORIGIN: KEY_ORIGIN,
-    KEY_PRODUCTION_PHASE: KEY_PRODUCTION_PHASE,
-    KEY_LOCATION: KEY_LOCATION,
-    KEY_TEMPERATURE_STABILITY: KEY_TEMPERATURE_STABILITY,
-    KEY_LIGHT_SENSITIVITY: KEY_LIGHT_SENSITIVITY,
-    KEY_OXIDATION_SENSITIVITY: KEY_OXIDATION_SENSITIVITY,
-    KEY_TOXICITY_TO_PRODUCER: KEY_TOXICITY_TO_PRODUCER,
-    KEY_FUNCTION: KEY_FUNCTION,
-    KEY_STATE: KEY_STATE,
-    KEY_PURITY: KEY_PURITY,
-    KEY_STERILITY: KEY_STERILITY,
-    KEY_SOLUBILITY: KEY_SOLUBILITY,
-    KEY_SOLVENT: KEY_SOLVENT,
     KEY_3D_STRUCTURE: "three_d_structure",
-    KEY_CRYSTALLINITY: KEY_CRYSTALLINITY,
-    KEY_N2_ADSORPTION_BET_AREA: KEY_N2_ADSORPTION_BET_AREA,
-    KEY_N2_ADSORPTION_MICROPORE_AREA: KEY_N2_ADSORPTION_MICROPORE_AREA,
-    KEY_N2_ADSORPTION_MESOPORE_AREA: KEY_N2_ADSORPTION_MESOPORE_AREA,
-    KEY_N2_ADSORPTION_TOTAL_VOLUME: KEY_N2_ADSORPTION_TOTAL_VOLUME,
-    KEY_N2_ADSORPTION_MICROPORE_VOLUME: KEY_N2_ADSORPTION_MICROPORE_VOLUME,
-    KEY_N2_MESOPORE_VOLUME: KEY_N2_MESOPORE_VOLUME,
-    KEY_PY_B_150: KEY_PY_B_150,
-    KEY_PY_B_450: KEY_PY_B_450,
-    KEY_PY_L_150: KEY_PY_L_150,
-    KEY_PY_L_450: KEY_PY_L_450,
 }
 
 
@@ -336,20 +277,22 @@ def get_linkml_chemical_slot(chemical_name: str, field_key: str) -> str:
     return CHEMICAL_FIELD_TO_LINKML_SLOT.get(field_key, field_key)
 
 
-def chemical_slot_for_action(action_name: str | None) -> str | None:
-    action_name = canonical_action_name(action_name or "")
-    return "chemical" if action_name in {"Add", "ContinuousAddition"} else None
+from labprogen.core.model import chemical_fields, field_contract, range_is_subclass
 
+
+def chemical_slot_for_action(action_name: str | None) -> str | None:
+    fields = chemical_fields(canonical_action_name(action_name or ""))
+    return next(iter(fields)) if len(fields) == 1 else None
+
+
+def _mixture_relation(slot: str, class_name: str) -> bool:
+    return range_is_subclass(field_contract(slot, class_name).get("range"), "MixtureConstituent")
 
 
 COMPLEX_ACTION_MARKER = "ComplexAction"
-CHEMICAL_OBJECT_SLOTS = {"chemical", "chemical_list", "suspension_medium", "supplements", "cryoprotectants"}
-# ChemicalEntity classes that declare their own concentration slot. Presence of
-# that key must not be taken as evidence that the record is a MixtureConstituent.
+# Import heuristics for older exports: Medium once owned concentration itself.
+# This is compatibility, not a declaration of the current Medium contract.
 _ENTITY_OWNED_CONCENTRATION_CLASSES = {"Medium"}
-from labprogen.core.model import model_schema
-ENTITY_CLASS_RANGES = set(model_schema()["classes"])
-
 
 
 LINKML_STEP_TO_ACTION = {
@@ -381,29 +324,6 @@ LINKML_CHEMICAL_TO_SOURCE = {
 
 
 STEP_SLOT_TO_PARAM = {
-    KEY_DURATION: KEY_DURATION,
-    KEY_TEMPERATURE: KEY_TEMPERATURE,
-    KEY_ADD_QUANTITY: KEY_ADD_QUANTITY,
-    KEY_ADD_TYPE: KEY_ADD_TYPE,
-    KEY_OPEN_FLAME: KEY_OPEN_FLAME,
-    KEY_PHASE: KEY_PHASE,
-    KEY_METHOD: KEY_METHOD,
-    KEY_SIZE_RANGE: KEY_SIZE_RANGE,
-    KEY_AGITATION_TYPE: KEY_AGITATION_TYPE,
-    KEY_SPEED: KEY_SPEED,
-    KEY_FLOW_RATE: KEY_FLOW_RATE,
-    KEY_PRESSURE: KEY_PRESSURE,
-    KEY_PROCESS: KEY_PROCESS,
-    KEY_RAMP: KEY_RAMP,
-    KEY_POWER: KEY_POWER,
-    KEY_RECIPIENT: KEY_RECIPIENT,
-    KEY_MATERIAL: KEY_MATERIAL,
-    KEY_VOLUME: KEY_VOLUME,
-    KEY_CONTINUOUS_ADD_TYPE: KEY_CONTINUOUS_ADD_TYPE,
-    KEY_AMOUNT: KEY_AMOUNT,
-    KEY_SUBSTANCE: KEY_SUBSTANCE,
-    KEY_SUBSTANCE_LIST: KEY_SUBSTANCE_LIST,
-    KEY_CHEMICAL: KEY_CHEMICAL,
     # Legacy export slot names (import only)
     "has_added_material": KEY_CHEMICAL,
     "has_step_duration": KEY_DURATION,
@@ -564,10 +484,8 @@ def _finish_chemical_instance(
         if _is_blank(value) or key in {"chemical_type", "type"}:
             continue
         slot = get_linkml_chemical_slot(class_name, key)
-        if slot == "chemical_list":
-            instance[slot] = chemical_record_to_instance(value, mixture_item=True)
-        elif slot in CHEMICAL_OBJECT_SLOTS:
-            instance[slot] = chemical_record_to_instance(value, mixture_item=slot in {"supplements", "cryoprotectants"})
+        if slot in chemical_fields(class_name):
+            instance[slot] = chemical_record_to_instance(value, mixture_item=_mixture_relation(slot, class_name))
         elif slot == KEY_PREPARATION_PROCEDURE and isinstance(value, dict):
             instance[slot] = json.dumps(value, ensure_ascii=False, sort_keys=True)
         else:
@@ -842,8 +760,8 @@ def normalize_action_to_linkml(action_name: str, params: dict[str, Any]) -> dict
         if key == KEY_OPEN_FLAME:
             boolean_value = normalize_boolean(value)
             slots[slot] = "True" if boolean_value is True else ("False" if boolean_value is False else value)
-        elif slot in CHEMICAL_OBJECT_SLOTS:
-            slots[slot] = chemical_record_to_instance(value, mixture_item=(slot == "chemical_list"))
+        elif slot in chemical_fields(canonical_action_name(action_name)):
+            slots[slot] = chemical_record_to_instance(value, mixture_item=_mixture_relation(slot, canonical_action_name(action_name)))
         else:
             slots[slot] = value
     return slots
@@ -1137,8 +1055,8 @@ def chemical_to_linkml_dict(chemical_name: str, params: dict[str, Any]) -> dict[
         if _is_blank(value):
             continue
         slot = CHEMICAL_FIELD_TO_LINKML_SLOT.get(key, key)
-        if slot in CHEMICAL_OBJECT_SLOTS:
-            slots[slot] = chemical_record_to_instance(value, mixture_item=(slot == "chemical_list"))
+        if slot in chemical_fields(chemical_name):
+            slots[slot] = chemical_record_to_instance(value, mixture_item=_mixture_relation(slot, chemical_name))
         else:
             slots[slot] = value
 

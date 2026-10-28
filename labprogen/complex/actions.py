@@ -9,28 +9,23 @@ from pathlib import Path
 from typing import Any
 
 from labprogen.core.config import (
-    FIELD_CONFIG,
+    UI_FIELD_PREFERENCES,
     canonical_action_name,
     is_chemical_entity_field,
     is_field_required,
     migrate_action_params,
 )
 
-ELEMENTARY_ACTIONS = frozenset({"Add", "Grind", "Separate", "NoAction", "ChangeContainer"})
-SUPPORT_ACTIONS = frozenset({
-    "ChangePressure",
-    "ChangeTemperature",
-    "ChangeAgitation",
-    "Repeat",
-    "ContinuousAddition",
-})
-FLOW_ACTIONS = ELEMENTARY_ACTIONS | SUPPORT_ACTIONS | frozenset({"CollectSubProduct"})
+from labprogen.core.model import concrete_classes, default_params
+
+# The branch action has a dedicated canvas representation.
+ELEMENTARY_ACTIONS = frozenset(concrete_classes("OneOffAction")) - {"CollectSubProduct"}
+SUPPORT_ACTIONS = frozenset(concrete_classes("PersistentAction"))
+FLOW_ACTIONS = frozenset(concrete_classes("Action"))
 
 COMPLEX_ACTION_MARKER = "ComplexAction"
 KEY_COMPLEX_ACTION_NAME = "complex_action_name"
 KEY_COMPLEX_PARAMETERS = "parameters"
-
-from labprogen.core.model import default_params
 
 DEFAULT_ACTION_PARAMS = {name: default_params(name) for name in FLOW_ACTIONS}
 
@@ -63,7 +58,7 @@ def step_display_name(step: dict[str, Any]) -> str:
 
 
 def _parse_unit_from_value(value: Any, param_key: str) -> str:
-    config = FIELD_CONFIG.get(str(param_key).lower(), {})
+    config = UI_FIELD_PREFERENCES.get(str(param_key).lower(), {})
     units = config.get("units") or []
     if not isinstance(value, str):
         return units[0] if units else ""
@@ -285,7 +280,7 @@ def validate_definition(
                 continue
             action = str(step.get("action", ""))
         params = step_params.get(param.step_index, {})
-        if is_chemical_entity_field(param.param_key):
+        if is_chemical_entity_field(param.param_key, param.action):
             continue
         if not is_field_required(param.param_key, params=params, action_name=action):
             continue

@@ -197,116 +197,81 @@ def build_validation_schema(schema_name: str = ACTION_DATA_MODEL_SCHEMA) -> dict
     return _strip_unsupported_metamodel_keys(load_linkml_schema_recursive(schema_name))
 
 
+@lru_cache(maxsize=8)
+def _schema_view_from_json(source: str):
+    from linkml_runtime.linkml_model.meta import SchemaDefinition
+    from linkml_runtime.utils.schemaview import SchemaView
+    import json
+
+    return SchemaView(SchemaDefinition(**_strip_unsupported_metamodel_keys(json.loads(source))))
+
+
+@lru_cache(maxsize=1)
+def _default_schema_view():
+    from linkml_runtime.linkml_model.meta import SchemaDefinition
+    from linkml_runtime.utils.schemaview import SchemaView
+
+    return SchemaView(SchemaDefinition(**build_validation_schema()))
+
+
+def schema_view(schema: dict | None = None):
+    """Official, induced LinkML metadata; explicit schemas are isolated snapshots.
+
+    Treat the returned view as read-only. In particular, never mutate its slots.
+    """
+    if schema is None:
+        return _default_schema_view()
+    import json
+    return _schema_view_from_json(json.dumps(schema, sort_keys=True))
+
+
 def _class_mro(schema: dict, class_name: str) -> list[str]:
-    classes = schema.get("classes") or {}
-    ordered: list[str] = []
-    seen: set[str] = set()
+    """Ancestor membership, including mixins, resolved by LinkML itself."""
+    view = schema_view(schema)
+    return list(reversed(view.class_ancestors(class_name))) if class_name in view.all_classes() else []
 
-    def walk(name: str) -> None:
-        if not name or name in seen:
-            return
-        seen.add(name)
-        class_def = classes.get(name) or {}
-        parent = class_def.get("is_a")
-        if isinstance(parent, str):
-            walk(parent)
-        for mixin in class_def.get("mixins") or []:
-            walk(mixin)
-        ordered.append(name)
 
-    walk(class_name)
-    return ordered
+@lru_cache(maxsize=512)
+def _contracts_for_view(view, class_name):
+    from linkml_runtime.dumpers import json_dumper
+
+    if class_name not in view.all_classes():
+        return {}
+    return {str(slot.name): json_dumper.to_dict(slot)
+            for slot in view.class_induced_slots(class_name)}
+
+
+def class_slot_contracts(class_name: str, schema: dict | None = None) -> dict:
+    """Class-scoped slots including attributes, inheritance and slot_usage."""
+    return copy.deepcopy(_contracts_for_view(schema_view(schema), class_name))
 
 
 def class_slot_constraints(class_name: str, schema: dict | None = None) -> dict:
-    """Return allowed slots, required slots, and enum values for a class."""
-    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
-    classes = schema.get("classes") or {}
-    slot_defs = schema.get("slots") or {}
-    enums = schema.get("enums") or {}
-
-    allowed: set[str] = set()
-    required: set[str] = set()
-    enum_values: dict[str, set[str]] = {}
-    ranges: dict[str, str] = {}
-    multivalued: dict[str, bool] = {}
-
-    effective_usage: dict[str, dict] = {}
-    for name in _class_mro(schema, class_name):
-        class_def = classes.get(name) or {}
-        for slot_name in class_def.get("slots") or []:
-            if isinstance(slot_name, str):
-                allowed.add(slot_name)
-        usage = class_def.get("slot_usage") or {}
-        for slot_name, spec in usage.items():
-            if not isinstance(spec, dict):
-                continue
-            allowed.add(slot_name)
-            effective_usage.setdefault(slot_name, {}).update(spec)
-            if isinstance(spec.get("range"), str):
-                ranges[slot_name] = spec["range"]
-            if "multivalued" in spec:
-                multivalued[slot_name] = bool(spec.get("multivalued"))
-
-    for slot_name in list(allowed):
-        slot_def = slot_defs.get(slot_name) or {}
-        spec = {**slot_def, **effective_usage.get(slot_name, {})}
-        if spec.get("required") is True:
-            required.add(slot_name)
-        range_name = ranges.get(slot_name) or slot_def.get("range")
-        if isinstance(range_name, str):
-            ranges[slot_name] = range_name
-            if range_name in enums:
-                values = enums[range_name].get("permissible_values") or {}
-                enum_values[slot_name] = set(values.keys())
-        if slot_name not in multivalued:
-            multivalued[slot_name] = bool(slot_def.get("multivalued"))
-
+    """Compatibility projection of official class-scoped LinkML metadata."""
+    slots = class_slot_contracts(class_name, schema)
+    view = schema_view(schema)
     return {
-        "allowed": allowed,
-        "required": required,
-        "enums": enum_values,
-        "ranges": ranges,
-        "multivalued": multivalued,
+        "allowed": set(slots),
+        "required": {name for name, slot in slots.items() if slot.get("required")},
+        "enums": {name: set(view.get_enum(slot["range"]).permissible_values)
+                  for name, slot in slots.items() if slot.get("range") in view.all_enums()},
+        "ranges": {name: slot.get("range", "string") for name, slot in slots.items()},
+        "multivalued": {name: bool(slot.get("multivalued")) for name, slot in slots.items()},
     }
 
 
+def _listed_classes(base: str, schema: dict | None = None) -> set[str]:
+    view = schema_view(schema)
+    return {str(name) for name, cls in view.all_classes().items()
+            if not cls.abstract and not cls.mixin and base in view.class_ancestors(name)}
+
+
 def listed_action_classes(schema: dict | None = None) -> set[str]:
-    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
-    classes = schema.get("classes") or {}
-    names: set[str] = set()
-    for name, class_def in classes.items():
-        if not isinstance(class_def, dict):
-            continue
-        if "Action" in _class_mro(schema, name) and not (
-            class_def.get("abstract") or class_def.get("mixin")
-        ):
-            names.add(name)
-    return names
+    return _listed_classes("Action", schema)
 
 
 def listed_chemical_classes(schema: dict | None = None) -> set[str]:
-    schema = schema or load_linkml_schema_recursive(ACTION_DATA_MODEL_SCHEMA)
-    classes = schema.get("classes") or {}
-    names: set[str] = set()
-    for name, class_def in classes.items():
-        if name in {"ChemicalEntity"}:
-            continue
-        if not isinstance(class_def, dict):
-            continue
-        if class_def.get("abstract") or class_def.get("mixin"):
-            continue
-        current = name
-        seen: set[str] = set()
-        while current and current not in seen:
-            seen.add(current)
-            if current == "ChemicalEntity":
-                names.add(name)
-                break
-            current = (classes.get(current) or {}).get("is_a")
-    if "ChemicalEntity" in classes:
-        names.add("ChemicalEntity")
-    return names
+    return _listed_classes("ChemicalEntity", schema)
 
 
 def schema_summary(schema: dict) -> dict:

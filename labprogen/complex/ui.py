@@ -41,7 +41,7 @@ from .actions import (
     validate_definition,
     validate_instance_parameters,
 )
-from labprogen.core.config import FIELD_CONFIG
+from labprogen.core.model import field_config
 from labprogen.ui.editor import Editor
 
 _BUTTON_STYLE = (
@@ -216,7 +216,7 @@ class ComplexActionFinalizeDialog(QDialog):
         updated: list[ComplexActionParameter] = []
         for index, binding in enumerate(self._bindings):
             value = self._value_editors[index].value()
-            config = FIELD_CONFIG.get(binding.param_key.lower(), {})
+            config = field_config(binding.param_key.lower(), binding.action)
             unit = binding.unit
             if config.get("type") == "unit" and isinstance(value, str) and " " in value:
                 unit = value.rsplit(" ", 1)[-1]

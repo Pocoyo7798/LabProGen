@@ -77,12 +77,13 @@ def format_decimal_for_input(text: str) -> str:
 
 def field_label(field_key: str, action_name: str | None = None) -> str:
     """UI label for a param key, with optional per-action overrides."""
-    config = FIELD_CONFIG.get(str(field_key).lower(), {})
+    from labprogen.core.model import field_config
+    config = field_config(str(field_key).lower(), action_name)
     if action_name:
         label = config.get("labels_by_action", {}).get(action_name)
         if label:
             return label
-    return config.get("label", str(field_key).capitalize())
+    return config.get("label", str(field_key).capitalize()) + (" [undeclared; retained]" if action_name and not config.get("declared") else "")
 
 
 def embedded_chemical_filled(chem) -> bool:
@@ -1024,15 +1025,14 @@ class Block(QGraphicsRectItem):
         _move_recursive(self)
 
     def _get_field_widget(self, key, value):
-        """Creates appropriate widget based on FIELD_CONFIG registry."""
+        """Use the class contract with the existing presentation preferences."""
         from labprogen.core.model import field_config
         config = field_config(key.lower(), self.action)
         f_type = config.get("type", "text")
         
-        if f_type == "list" and value not in (None, "") and not isinstance(value, list):
-            # Keep unstructured legacy input visible until explicitly cleared.
-            widget = QLineEdit(str(value))
-            widget.setToolTip("Legacy value: copy/review it, then clear and reopen to select structured chemicals.")
+        from .schema_fields import RetainedValueField, needs_retention
+        if needs_retention(config, value):
+            widget = RetainedValueField(value, getattr(self, "_active_edit_dialog", None))
             return widget, widget
 
         if f_type == "record":
@@ -1223,6 +1223,7 @@ class Block(QGraphicsRectItem):
                 value,
                 param_key=key,
                 dialog_parent=getattr(self, "_active_edit_dialog", None),
+                config=config,
             )
             if not hasattr(self, "_chemical_list_fields"):
                 self._chemical_list_fields = []
@@ -1233,8 +1234,8 @@ class Block(QGraphicsRectItem):
             edit = QLineEdit(str(value))
             edit.setPlaceholderText(config.get("placeholder", f"Enter {key}..."))
             if config.get("integer"):
-                minimum = int(config.get("minimum", 1))
-                edit.setValidator(QIntValidator(minimum, 999_999, edit))
+                minimum = int(config.get("minimum", -999_999))
+                edit.setValidator(QIntValidator(minimum, int(config.get("maximum", 999_999)), edit))
             return edit, edit
 
     def _complex_locked_param_keys(self) -> set[str]:
@@ -1340,7 +1341,7 @@ class Block(QGraphicsRectItem):
                 required_keys.append(key)
             elif (
                 getattr(self, "part_of_complex_action", False)
-                and is_chemical_entity_field(key)
+                and is_chemical_entity_field(key, self.action)
             ):
                 optional_keys.append(key)
             elif is_field_required(key, params=params_for_dialog, action_name=self.action):
@@ -1544,7 +1545,7 @@ class Block(QGraphicsRectItem):
                         try:
                             validate_decimal_input(raw_value)
                         except ValueError:
-                            label = FIELD_CONFIG.get(k.lower(), {}).get("label", k.capitalize())
+                            label = field_label(k, self.action)
                             QMessageBox.warning(
                                 dialog,
                                 "Invalid Value",
@@ -1570,7 +1571,13 @@ class Block(QGraphicsRectItem):
                     # For standard Text fields (LineEdit)
                     value = tracker.text().strip()
 
-                amount_config = FIELD_CONFIG.get(str(k).lower(), {})
+                from .schema_fields import RetainedValueField
+                if isinstance(tracker, RetainedValueField):
+                    new_params[k] = value
+                    continue
+
+                from labprogen.core.model import field_config
+                amount_config = field_config(str(k).lower(), self.action)
                 if k == KEY_AMOUNT and value and amount_config.get("integer"):
                     try:
                         value = str(validate_repeat_amount(value))
@@ -1592,18 +1599,21 @@ class Block(QGraphicsRectItem):
                 }:
                     value = quantity_to_text(value)
 
+                from .schema_fields import scalar_value
+                value = scalar_value(value, field_config(k, self.action))
+
                 field_required = (
                     k in force_required_keys
                     or is_field_required(k, params=new_params, action_name=self.action)
                 )
-                if getattr(self, "part_of_complex_action", False) and is_chemical_entity_field(k):
+                if getattr(self, "part_of_complex_action", False) and is_chemical_entity_field(k, self.action):
                     field_required = False
                 if field_required and is_empty_value(value):
                     label = field_label(k, self.action)
                     extra = ""
-                    if FIELD_CONFIG.get(str(k).lower(), {}).get("type") == "list":
+                    if field_config(str(k).lower(), self.action).get("type") == "list":
                         extra = " Add at least one chemical."
-                    elif FIELD_CONFIG.get(str(k).lower(), {}).get("type") == "single_chemical":
+                    elif field_config(str(k).lower(), self.action).get("type") == "single_chemical":
                         extra = " Use '+ Add' to select a chemical."
                     QMessageBox.warning(dialog, "Missing Required Field", f"'{label}' is required.{extra}")
                     if isinstance(tracker, tuple):

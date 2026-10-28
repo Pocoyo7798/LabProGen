@@ -11,12 +11,11 @@ from collections import Counter
 
 from labprogen.core.config import canonical_action_name, canonical_chemical_name
 from .adapter import (
-    CHEMICAL_OBJECT_SLOTS,
     COMPLEX_ACTION_MARKER,
-    ENTITY_CLASS_RANGES,
     get_linkml_chemical_class,
     get_linkml_step_class,
 )
+from labprogen.core.model import chemical_fields
 from .loader import (
     ACTION_DATA_MODEL_SCHEMA,
     build_validation_schema,
@@ -114,7 +113,7 @@ def _python_instance_checks(instance: dict, class_name: str, schema: dict, conte
             messages.append(_error("validation.wrong_type",
                 f"Field '{key}' on '{class_name}' must be {'a list' if is_multi else 'a single value'}.",
                 field=key, target_class=class_name, **context))
-        if expected_range in ENTITY_CLASS_RANGES:
+        if expected_range in schema.get("classes", {}):
             values = value if isinstance(value, list) else [value]
             if is_multi and not isinstance(value, list):
                 messages.append(
@@ -180,12 +179,6 @@ def _python_instance_checks(instance: dict, class_name: str, schema: dict, conte
     return messages
 
 
-def _missing_required_chemical_entity_slot(instance: dict, class_name: str, schema: dict) -> bool:
-    constraints = class_slot_constraints(class_name, schema)
-    required = constraints.get("required") or set()
-    return any(slot in CHEMICAL_OBJECT_SLOTS and _is_blank(instance.get(slot)) for slot in required)
-
-
 def _nested_entity_class(item: dict, default_class: str) -> str:
     type_name = item.get("type") or item.get("linkml_class") or default_class
     if default_class == "MixtureConstituent":
@@ -198,7 +191,7 @@ def _walk_nested_entities(instance: dict, class_name: str, schema: dict, context
     constraints = class_slot_constraints(class_name, schema)
     ranges = constraints.get("ranges") or {}
     for slot_name, expected_range in ranges.items():
-        if expected_range not in ENTITY_CLASS_RANGES:
+        if expected_range not in schema.get("classes", {}):
             continue
         value = instance.get(slot_name)
         if _is_blank(value):
@@ -213,7 +206,7 @@ def _walk_nested_entities(instance: dict, class_name: str, schema: dict, context
                     f"Field '{slot_name}' requires {expected_range}, not '{nested_class}'.", **context))
                 continue
             nested_context = dict(context)
-            if slot_name in CHEMICAL_OBJECT_SLOTS:
+            if slot_name in chemical_fields(class_name, schema=schema):
                 nested_context["chemical_index"] = index
                 nested_context["source_chemical"] = nested_class
             messages.extend(_python_instance_checks(item, nested_class, schema, nested_context))
@@ -224,6 +217,13 @@ def _walk_nested_entities(instance: dict, class_name: str, schema: dict, context
 def _run_linkml_validate(instance: dict, class_name: str, schema: dict, linkml_validate, context: dict) -> list[ValidationMessage]:
     messages: list[ValidationMessage] = []
     try:
+        # Instantiate the official generated model as well as validating the
+        # original data. Do not replace the input with coerced/defaulted values.
+        from .models import to_model
+        try:
+            to_model(instance, class_name)
+        except ValueError as exc:
+            messages.append(_error("generated.validation_failed", str(exc), **context))
         report = linkml_validate(instance, schema=schema, target_class=class_name, strict=True)
         results = getattr(report, "results", []) or []
         for result in results:

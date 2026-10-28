@@ -5,7 +5,8 @@ from labprogen.core.chemicals import (
     embedded_chemical_type_choices,
     selectable_chemical_entity_types,
 )
-from labprogen.core.config import FIELD_CONFIG, KEY_SUBSTANCE_LIST, migrate_action_params
+from labprogen.core.config import FIELD_CONFIG, LEGACY_FIELD_PREFERENCES, KEY_SUBSTANCE_LIST, migrate_action_params
+from labprogen.core.model import field_config
 from labprogen.linkml.adapter import chemical_record_to_instance
 from labprogen.linkml.exporter import convert_protocol_to_linkml
 from labprogen.linkml.loader import ACTION_DATA_MODEL_SCHEMA, listed_action_classes, listed_chemical_classes, load_linkml_schema
@@ -322,7 +323,9 @@ class TestActionDataModelValidation(unittest.TestCase):
         self.assertIn("validation.wrong_type", codes)
 
     def test_substance_list_field_config_is_chemical_object_list(self):
-        config = FIELD_CONFIG[KEY_SUBSTANCE_LIST]
+        self.assertNotIn(KEY_SUBSTANCE_LIST, FIELD_CONFIG)
+        self.assertFalse(field_config(KEY_SUBSTANCE_LIST, "ContinuousAddition")["declared"])
+        config = LEGACY_FIELD_PREFERENCES[KEY_SUBSTANCE_LIST]
         self.assertEqual(config["type"], "list")
         self.assertFalse(config.get("include_concentration"))
 

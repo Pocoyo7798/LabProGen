@@ -2,11 +2,17 @@
 
 from .config import canonical_chemical_name
 from .model import concrete_classes, default_params
+from labprogen.linkml.models import model_class, to_model
 
 
 class ChemicalEntity:
     def __init__(self, **kwargs):
         self.params = {**default_params(type(self).__name__), **kwargs}
+
+    def to_model(self):
+        """Convert a completed draft to its generated semantic data model."""
+        from labprogen.linkml.adapter import chemical_record_to_instance
+        return to_model(chemical_record_to_instance(self.to_dict()), type(self).__name__)
 
     def to_dict(self):
         return {'chemical': type(self).__name__, 'params': self.params}
@@ -17,7 +23,7 @@ class ChemicalEntity:
 
 
 # Concrete wrappers preserve the domain API without duplicating schema fields.
-CHEMICAL_CLASSES = {name: type(name, (ChemicalEntity,), {'__module__': __name__})
+CHEMICAL_CLASSES = {name: type(name, (ChemicalEntity,), {'__module__': __name__, 'model_class': model_class(name)})
                     for name in concrete_classes('ChemicalEntity')}
 globals().update(CHEMICAL_CLASSES)
 Chemical = ChemicalEntity

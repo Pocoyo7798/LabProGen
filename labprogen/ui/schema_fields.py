@@ -17,6 +17,49 @@ def _blank(value):
     return value is None or value == '' or value == [] or value == {}
 
 
+def needs_retention(config, value):
+    """Undeclared fields and incompatible historical shapes must stay lossless."""
+    if not config.get('declared'):
+        return True
+    if _blank(value):
+        return False
+    if config.get('multivalued'):
+        return not isinstance(value, list)
+    if config.get('type') in {'record', 'single_chemical'}:
+        return not isinstance(value, dict)
+    return isinstance(value, (dict, list))
+
+
+class RetainedValueField(QLineEdit):
+    """Display a historical value without stringifying the stored data."""
+
+    def __init__(self, value, parent=None):
+        import json
+        self._value = copy.deepcopy(value)
+        super().__init__(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False), parent)
+        self.setReadOnly(True)
+        self.setToolTip('Retained unchanged for review. This value does not match the current schema; export validation still applies.')
+
+    def get_value(self):
+        return copy.deepcopy(self._value)
+
+
+def scalar_value(value, config):
+    """Parse typed scalar input, retaining invalid drafts for strict validation."""
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        if config.get('range') == 'integer':
+            return int(value)
+        if config.get('range') in {'float', 'double', 'decimal'}:
+            return float(value)
+        if config.get('range') == 'boolean' and value in {'True', 'False'}:
+            return value == 'True'
+    except ValueError:
+        pass
+    return value
+
+
 class SchemaValueField(QWidget):
     """A scalar record or list of records/primitive values, with modal editing."""
 
@@ -97,7 +140,7 @@ class SchemaValueField(QWidget):
             value, accepted = QInputDialog.getText(self, self.config['label'], 'Value:', text=str(initial or ''))
             if not accepted or not value.strip():
                 return
-            value = value.strip()
+            value = scalar_value(value.strip(), self.config)
         if multiple:
             if index is None:
                 self._value.append(value)
@@ -150,7 +193,7 @@ class SchemaRecordDialog(QDialog):
         if self._class_name and 'type' in class_slot_constraints(self._class_name)['allowed']:
             result['type'] = self._class_name
         for key, tracker in self.trackers.items():
-            if isinstance(tracker, SchemaValueField):
+            if callable(getattr(tracker, "get_value", None)):
                 value = tracker.get_value()
             elif isinstance(tracker, QComboBox):
                 value = tracker.currentText()
@@ -158,12 +201,9 @@ class SchemaRecordDialog(QDialog):
                     value = ''
             else:
                 value = tracker.text().strip()
-                if value and field_config(key, self._class_name).get('range') == 'integer':
-                    try:
-                        value = int(value)
-                    except ValueError:
-                        pass  # Keep invalid drafts for validation; never replace their data.
-            if not _blank(value):
+            config = field_config(key, self._class_name)
+            value = scalar_value(value, config)
+            if not _blank(value) or not config['declared']:
                 result[key] = value
         return result
 
@@ -181,20 +221,22 @@ class SchemaRecordDialog(QDialog):
         params = {**default_params(class_name), **{k: v for k, v in initial.items() if k != 'type'}}
         for key, value in params.items():
             config = field_config(key, class_name)
-            if config['range'] in model_schema()['classes'] or config.get('multivalued'):
+            if needs_retention(config, value):
+                widget = RetainedValueField(value, container)
+            elif config['range'] in model_schema()['classes'] or config.get('multivalued'):
                 widget = SchemaValueField(config, value, container)
             elif config['type'] == 'dropdown':
                 widget = QComboBox(container)
                 widget.addItem('Select...'); widget.addItems(config['options'])
-                if value and str(value) not in config['options']:
+                if not _blank(value) and str(value) not in config['options']:
                     widget.addItem(str(value))
-                widget.setCurrentText(str(value) if value else 'Select...')
+                widget.setCurrentText(str(value) if not _blank(value) else 'Select...')
             else:
                 widget = QLineEdit(str(value) if value is not None else '', container)
                 if config['range'] == 'integer':
-                    widget.setValidator(QIntValidator(0, 999_999_999, widget))
+                    widget.setValidator(QIntValidator(int(config.get('minimum', -999_999_999)), int(config.get('maximum', 999_999_999)), widget))
             widget.setObjectName(key)
-            label = config['label'] + (' *' if config['required'] else '')
+            label = config['label'] + (' *' if config['required'] else '') + (' [undeclared; retained]' if not config['declared'] else '')
             form.addRow(label, widget)
             self.trackers[key] = widget
 

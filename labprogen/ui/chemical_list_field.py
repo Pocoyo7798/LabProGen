@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from labprogen.core.config import (
-    FIELD_CONFIG,
+    UI_FIELD_PREFERENCES,
     KEY_CHEMICAL_LIST,
     KEY_CONCENTRATION,
     KEY_FORMULA,
@@ -63,6 +63,7 @@ class ChemicalListField:
         param_key: str,
         read_only: bool = False,
         dialog_parent: QWidget | None = None,
+        config: dict | None = None,
     ) -> None:
         self._parent = parent
         self._dialog_parent_override = dialog_parent
@@ -72,7 +73,7 @@ class ChemicalListField:
             self.list_value = []
         self._read_only = read_only
         self._is_gas_list = param_key == KEY_GASES
-        config = FIELD_CONFIG.get(str(param_key).lower(), {})
+        config = config if config is not None else UI_FIELD_PREFERENCES.get(str(param_key).lower(), {})
         self._include_concentration = bool(
             config.get("include_concentration", param_key == KEY_CHEMICAL_LIST)
         )
@@ -264,6 +265,7 @@ def build_chemical_list_field(
     param_key: str,
     read_only: bool = False,
     dialog_parent: QWidget | None = None,
+    config: dict | None = None,
 ) -> ChemicalListField:
     return ChemicalListField(
         parent,
@@ -271,4 +273,5 @@ def build_chemical_list_field(
         param_key=param_key,
         read_only=read_only,
         dialog_parent=dialog_parent,
+        config=config,
     )

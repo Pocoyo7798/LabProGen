@@ -127,6 +127,12 @@ the Python distributions. Source checkouts and executables retain their existing
 configuration locations; an executable needs write access to its own folder to
 save configuration there.
 
+### Generated data models
+
+The semantic Python models are generated from the LinkML schema and committed in
+`labprogen/generated/`. Regenerate them with `uv run --locked python -m tools.generate_models` and check synchronization with the same command followed
+by `--check`. See [model architecture and validation](docs/models.md).
+
 ### Development and executable builds
 
 From the repository root:

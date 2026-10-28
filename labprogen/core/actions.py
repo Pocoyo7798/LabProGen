@@ -1,6 +1,7 @@
 """Action domain objects matching the current Action Data Model."""
 
 from .model import concrete_classes, default_params
+from labprogen.linkml.models import model_class, to_model
 
 
 class Action:
@@ -16,6 +17,11 @@ class Action:
         self.params = {**default_params(class_name), **kwargs}
         self.chemicals = []
         self.subproducts = []
+
+    def to_model(self):
+        """Convert a completed draft to its generated semantic data model."""
+        from labprogen.linkml.adapter import flatten_exported_instance
+        return to_model(flatten_exported_instance(self.to_linkml_dict()), type(self).__name__)
 
     def add_chemical(self, chemical):
         self.chemicals.append(chemical)
@@ -42,7 +48,7 @@ class Action:
         return data
 
 
-ACTION_CLASSES = {name: type(name, (Action,), {'__module__': __name__})
+ACTION_CLASSES = {name: type(name, (Action,), {'__module__': __name__, 'model_class': model_class(name)})
                   for name in concrete_classes('Action')}
 globals().update(ACTION_CLASSES)
 NoModification = ACTION_CLASSES['NoAction']

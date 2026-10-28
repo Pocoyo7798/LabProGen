@@ -17,6 +17,10 @@ instances use `protocol_name` and `laboratory_actions`. Old aliases and lossless
 structural conversions are accepted during import. Missing required values and
 fields without a safe current equivalent require explicit review before export.
 
+Python representations are generated into `labprogen/generated/`; see
+[regeneration and model boundaries](../docs/models.md). The schema is preserved
+as the authoritative model rather than rewritten to match application code.
+
 ## Sources and credits
 
 The model derives from **Hendrik Borgelt's

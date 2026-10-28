@@ -191,7 +191,8 @@ def materialize_complex_action(
 
 
 def _create_member_block(editor: Editor, action_name: str, params: dict):
-    elementary_list = ["Add", "Grind", "Separate", "NoAction", "ChangeContainer"]
+    from labprogen.complex.actions import ELEMENTARY_ACTIONS
+    elementary_list = ELEMENTARY_ACTIONS
     if action_name in elementary_list:
         block = ElementaryAction(action_name, params, editor=editor)
     else:

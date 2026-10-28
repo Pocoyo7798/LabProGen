@@ -100,14 +100,10 @@ class ActionSelectionDialog(QDialog):
         elem_label.setStyleSheet("color: #6b4cff; font-weight: bold;")
         elem_layout.addWidget(elem_label)
         
-        self.btn_elementary = {
-            "Add": "+ Add",
-            "Grind": "🔨 Grind",
-            "Separate": "⚗ Separate",
-            "NoAction": "⏳ No Modification",
-            "ChangeContainer": "🧪 Change Container"
-        }
-        
+        from labprogen.complex.actions import ELEMENTARY_ACTIONS, SUPPORT_ACTIONS
+        self.btn_elementary = {name: label for name, label in ACTION_BUTTON_LABELS.items()
+                               if name in ELEMENTARY_ACTIONS}
+
         for action_id, label in self.btn_elementary.items():
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
@@ -122,14 +118,9 @@ class ActionSelectionDialog(QDialog):
         supp_label.setStyleSheet("color: #3498db; font-weight: bold;")
         supp_layout.addWidget(supp_label)
         
-        self.btn_support = {
-            "ChangePressure": "☁ Change Pressure",
-            "ChangeTemperature": "🌡 Change Temperature",
-            "ChangeAgitation": "🔄 Change Agitation",
-            "Repeat": "🔁 Repeat",
-            "ContinuousAddition": "➕ Continuous Addition"
-        }
-        
+        self.btn_support = {name: label for name, label in ACTION_BUTTON_LABELS.items()
+                            if name in SUPPORT_ACTIONS}
+
         for action_id, label in self.btn_support.items():
             btn = QPushButton(label)
             btn.setStyleSheet("background-color: #3498db;") 
@@ -540,7 +531,7 @@ class MixtureChemicalDialog(QDialog):
             configure_unit_decimal_input(self.conc_edit, min_value=0.0)
 
             self.conc_unit = QComboBox()
-            self.conc_unit.addItems(FIELD_CONFIG[KEY_CONCENTRATION].get("units", []))
+            self.conc_unit.addItems(UI_FIELD_PREFERENCES[KEY_CONCENTRATION].get("units", []))
 
             if initial_concentration:
                 parts = initial_concentration.strip().split()
@@ -3419,7 +3410,8 @@ class Editor(QGraphicsView):
 
     def _create_block_by_name(self, name, params):
         """helper to instantiate the correct block class with proper colors."""
-        elementary_list = ["Add", "Grind", "Separate", "NoAction", "ChangeContainer"]
+        from labprogen.complex.actions import ELEMENTARY_ACTIONS
+        elementary_list = ELEMENTARY_ACTIONS
         
         if name in elementary_list:
             block = ElementaryAction(name, params, editor=self)
@@ -3911,7 +3903,7 @@ class Editor(QGraphicsView):
                                 slot_name = parts[-1]
                                 param_key = STEP_SLOT_TO_PARAM.get(slot_name) or CHEMICAL_SLOT_TO_PARAM.get(slot_name)
                                 if param_key:
-                                    field_label = FIELD_CONFIG.get(param_key, {}).get("label", slot_name)
+                                    field_label = UI_FIELD_PREFERENCES.get(param_key, {}).get("label", slot_name)
                         
                         # Extract invalid value from quotes
                         value_match = re.search(r"'([^']*)' is not one of", message_text)

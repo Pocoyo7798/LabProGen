@@ -7,7 +7,8 @@ and SVG/PNG arrow are licensed under the [MIT License](../LICENSE).
 Copyright (c) 2026 Daniel Pereira Costa and Pedro Tavares.
 
 The [derived Action Data Model](../schema/README.md) is licensed separately under
-**CC BY 4.0**. Its attribution identifies Hendrik Borgelt's dcat-ap-plus-labdata,
+**CC BY 4.0**, including the schema-derived content in
+`labprogen/generated/action_data_model.py`. Its attribution identifies Hendrik Borgelt's dcat-ap-plus-labdata,
 the ChemDCAT-AP / DCAT-AP-PLUS contributors, and Pedro Tavares's adaptations.
 The [resource documentation](../resources/README.md) identifies the arrow and
 explains how to regenerate its Qt module.
