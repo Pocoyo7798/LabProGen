@@ -1,0 +1,57 @@
+name: Check generated LinkML models
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "schema/**"
+      - "labprogen/generated/**"
+      - "labprogen/core/**"
+      - "labprogen/linkml/**"
+      - "labprogen/__init__.py"
+      - "tools/generate_models.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/check-generated-models.yml"
+  push:
+    branches: [main]
+    paths:
+      - "schema/**"
+      - "labprogen/generated/**"
+      - "labprogen/core/**"
+      - "labprogen/linkml/**"
+      - "labprogen/__init__.py"
+      - "tools/generate_models.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/check-generated-models.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-generated-models:
+    name: Check generated models
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Check generated models
+        shell: bash
+        run: |
+          if ! uv run --locked python -m tools.generate_models --check; then
+            echo "::error::Generated LinkML model check failed. Review the output above. Regenerate with: uv run --locked python -m tools.generate_models. Commit the regenerated files together with the schema changes."
+            exit 1
+          fi

@@ -19,6 +19,11 @@ uv run --locked --extra test python -m pytest
 
 Commit schema changes and the regenerated module together. `--check` returns a
 nonzero exit status if the generated file is missing or stale and writes nothing.
+The [CI workflow](../.github/workflows/check-generated-models.yml) runs this check
+for relevant changes on pull requests targeting `main` and pushes to `main`, and
+can also be started manually. If the models are out of date, run
+`uv run --locked python -m tools.generate_models` and commit the regenerated files
+together with the schema changes.
 The check also verifies registered application and presentation references against the current schema. The test suite checks synchronization and generation in temporary schemas.
 An intentional LinkML generator upgrade may change its output; regenerate and
 review the module after updating the lockfile.
