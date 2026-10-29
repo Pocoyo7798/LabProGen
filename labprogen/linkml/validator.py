@@ -1,15 +1,14 @@
-"""
-schema_validator.py
-Purpose: Strict Action Data Model validation for exported procedures.
-Unknown classes, unknown fields, missing required slots, wrong types, and
-invalid enums are errors. There is no skip path for unmapped actions or
-undeclared content.
+"""Strict validation of exported procedures against the Action Data Model.
+
+Unknown classes and fields, missing required values, invalid types and enum
+values are errors. Generated models and LinkML validate the original records.
 """
 
 from dataclasses import dataclass
 from collections import Counter
 
 from labprogen.core.config import canonical_action_name, canonical_chemical_name
+from labprogen.core.capabilities import can_attach_chemical_blocks
 from .adapter import (
     COMPLEX_ACTION_MARKER,
     get_linkml_chemical_class,
@@ -321,6 +320,10 @@ def validate_exported_activities(
                     "laboratory_actions": branches,
                 }], schema_name=schema_name))
             step_class = step.get("linkml_class") or get_linkml_step_class(source_action)
+            if step.get("attached_chemicals") and not can_attach_chemical_blocks(step_class, schema=schema):
+                messages.append(_error("validation.chemical_attachment_not_allowed",
+                    f"Chemical Blocks cannot be attached to {step_class}: no compatible direct chemical relation.",
+                    **context))
             instance = _normalize_linkml_instance(step)
             messages.extend(_python_instance_checks(instance, step_class, schema, context))
             messages.extend(_walk_nested_entities(instance, step_class, schema, context))

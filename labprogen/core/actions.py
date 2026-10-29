@@ -24,6 +24,9 @@ class Action:
         return to_model(flatten_exported_instance(self.to_linkml_dict()), type(self).__name__)
 
     def add_chemical(self, chemical):
+        from .capabilities import can_attach_chemical_blocks
+        if not can_attach_chemical_blocks(type(self).__name__):
+            raise ValueError(f"Chemical Blocks cannot be attached to {type(self).__name__}: no compatible direct chemical relation.")
         self.chemicals.append(chemical)
 
     def add_subproduct(self, subproduct):

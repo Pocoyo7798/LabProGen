@@ -105,18 +105,18 @@ context-free presentation; it must not be used to validate or edit a class.
 `default_params` uses the generated model's fields and supported generated
 defaults, with empty scalar/list/record placeholders where no value is defined.
 New attributes and inherited fields do not need a new Python field table.
-Chemical relations and action families are inferred from schema ranges and
-ancestry, including relationships to subclasses. The existing widgets consume
-this metadata; there is no generated PySide6 widget layer.
+Chemical-valued fields and action families are discovered through schema ranges
+and ancestry, including subclasses. Canvas attachments use the distinct semantic
+role described below. Editor widgets consume this metadata directly.
 
 ## Application rules and compatibility
 
 Keep these manual because they describe application behavior, not the model:
 
-- Canvas attachment rules, branch representation, action button labels/order,
-  unit suggestions, custom labels and the Repeat positive-count editing rule.
-  `ACTIONS_REQUIRING_ATTACHED_CHEMICAL` controls canvas interaction. Exempting a
-  complex-action draft from attachment does not relax strict LinkML validation.
+- Branch representation, action button labels/order, unit suggestions, custom
+  labels and the Repeat positive-count editing rule. Canvas permissions are
+  schema-derived as described below. Exempting a complex-action draft from
+  attachment does not relax strict LinkML validation.
 - Legacy class aliases and structural migrations in `core.config`, and legacy
   ontology slot conversions in `linkml.adapter`. Current slot names pass through
   unchanged rather than being duplicated in identity mapping tables.
@@ -147,9 +147,10 @@ automatic rename is guessed and no data is silently discarded.
 A new class becomes available in generated models and the appropriate domain
 family after regeneration. Its button, special canvas behavior or constrained
 chemical picker can still need deliberate GUI integration. A renamed field
-cannot automatically inherit the semantics of a PubChem lookup, a canvas link
-or an older protocol field. Reference checks cover registered bindings, not
-arbitrary string literals or every possible LinkML modeling feature. Changes to
+retains its chemical attachment role when the explicit annotation is preserved.
+PubChem lookups and older protocol data require their own integration or migration.
+Reference checks cover registered bindings, not arbitrary string literals or every
+possible LinkML modeling feature. Changes to
 such behavior and unsupported generator constraints need integration tests and
 review; strict original-data validation remains the final boundary.
 
@@ -158,3 +159,70 @@ properties/classes, defaults, required flags, enum additions/removals, removed
 fields with historical data, different per-class contracts, inherited/mixin/inline
 slots, cardinalities and preserved presentation preferences. The official schema
 is never rewritten by these tests.
+
+## Action capabilities
+
+`core.capabilities.chemical_attachment_slot(class_name)` resolves the primary
+chemical relationship from the effective LinkML fields of that class. A field
+can declare this role independently of its name:
+
+```yaml
+chemical_entity:
+  range: ChemicalEntity
+  annotations:
+    labprogen_chemical_attachment: true
+```
+
+`SchemaView.class_induced_slots` resolves the annotation through inheritance,
+mixins, inline attributes and `slot_usage`. A marked field must have a range of
+`ChemicalEntity` or one of its subclasses. Multiple true declarations, nonboolean
+values and incompatible marked ranges are errors, also reported by
+`validate_schema_references()` during the generation check. Any explicit role
+declaration overrides the historical fallback; setting all declarations to false
+disables it for that class. Other chemical-valued fields retain their ordinary
+inline editors and never become attachment targets merely because of their range.
+
+The current schema does not declare this annotation or an explicit `slot_uri`
+for `chemical`. Unannotated classes therefore use the compatible effective field
+named `chemical`. Renaming that field requires retaining an explicit role as in
+the example; range alone does not identify the target. A global annotation also
+propagates to `MixtureConstituent`, where the resolver identifies the composition
+member relationship. It does not grant that chemical class a canvas permission.
+
+`get_action_capabilities(name)` returns an immutable result containing
+`allows_chemical_blocks`, `requires_chemical_relation` and the resolved
+`chemical_slot`. Permission requires a concrete, non-mixin descendant of `Action`
+with a resolved role. Unknown, abstract and non-action classes deny attachment.
+Legacy class aliases are resolved by the import adapters.
+
+`requires_canvas_chemical` checks the editing preflight separately. Optional
+relationships allow attachments without requiring them; required relationships
+may already contain inline values. Complex-action drafts retain their attachment
+exemption, while strict export still requires a complete, valid relationship.
+`core.config.action_requires_attached_chemical` delegates to this helper.
+
+Dragging, target selection, previews, direct linking and domain `add_chemical`
+use the same permission. Chemical stacks consult their owning action; standalone
+stacks remain usable before attachment. Import reconstructs incompatible
+historical links with warnings, retaining the records for review and strict
+validation.
+
+The editor, typed domain conversion, LinkML projection and reimport all use the
+resolved destination name. Projection follows its class-specific multiplicity
+and rejects conflicting inline and attached values. Canvas-owned fields retain
+empty draft placeholders for complex-action bindings. Composition serialization
+and its embedded entity picker use the resolved `MixtureConstituent` member
+field as well. The native envelope key `chemical`, whose value is a class name,
+remains an application format key independent of LinkML field names.
+
+Role metadata identifies a current field, not a historical migration map.
+Protocols containing a former field name retain it for review and fail strict
+validation until explicitly migrated. Conflicting former/current fields are
+preserved. Saved complex-action bindings and reusable definitions that name a
+renamed field also require explicit migration.
+
+After schema edits, regenerate models, restart the application and run `--check`
+and the tests. Temporary-schema tests cover marked renames through canvas editing,
+strict/optimized export, reimport, composition and complex-action snapshots.
+Cardinalities and concrete entity types remain schema validation constraints.
+Add's canvas-first editor and split export are separate presentation/export rules.

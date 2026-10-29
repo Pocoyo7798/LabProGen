@@ -1,7 +1,6 @@
-"""LinkML contracts and their presentation in the existing editors.
+"""Combine SchemaView field contracts with editor presentation preferences.
 
-Structural constraints always come from the official SchemaView. Presentation
-preferences cannot declare a field, change its type or relax its constraints.
+Schema metadata determines field declarations, types and constraints.
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ def default_params(class_name):
 
 
 def field_contract(key, class_name=None, *, schema=None):
-    """No global fallback for a slot that is absent from the requested class."""
+    """Return a scoped contract; fields absent from the class have declared=False."""
     view = schema_view(schema)
     if class_name is not None:
         spec = class_slot_contracts(class_name, schema).get(key)
@@ -82,11 +81,15 @@ def chemical_fields(class_name=None, *, schema=None):
 
 
 def field_config(key, class_name=None, *, schema=None):
-    from .config import UI_FIELD_PREFERENCES, LEGACY_FIELD_PREFERENCES
+    from .config import UI_FIELD_PREFERENCES, LEGACY_FIELD_PREFERENCES, CHEMICAL_ATTACHMENT_PREFERENCES
 
     spec = field_contract(key, class_name, schema=schema)
     preferences = UI_FIELD_PREFERENCES if spec['declared'] else LEGACY_FIELD_PREFERENCES
     config = copy.deepcopy(preferences.get(key, {}))
+    if class_name is not None and spec['declared']:
+        from .capabilities import chemical_attachment_slot
+        if chemical_attachment_slot(class_name, schema=schema) == key:
+            config = {**CHEMICAL_ATTACHMENT_PREFERENCES, **config}
     config['label'] = config.get('labels_by_action', {}).get(class_name) or config.get('label') or spec.get('title') or key.replace('_', ' ').capitalize()
     config.setdefault('placeholder', spec.get('description', ''))
     config.update(spec)

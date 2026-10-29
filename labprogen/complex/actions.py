@@ -701,7 +701,7 @@ def snapshot_group_definition(group: ComplexActionGroup) -> ComplexActionDefinit
 
     Dictionary definitions may contain nested templates. Protocol instances store
     their materialized members, with bindings resolved to those member indices.
-    No dictionary entry is registered or replaced during protocol import.
+    Imported snapshots remain independent of the reusable dictionary.
     """
     steps = [{"action": block.action, "params": copy.deepcopy(block.params)}
              for block in group.member_blocks]

@@ -22,7 +22,7 @@ class ChemicalEntity:
         return chemical_to_linkml_dict(type(self).__name__, self.params)
 
 
-# Concrete wrappers preserve the domain API without duplicating schema fields.
+# Domain wrappers use generated field definitions.
 CHEMICAL_CLASSES = {name: type(name, (ChemicalEntity,), {'__module__': __name__, 'model_class': model_class(name)})
                     for name in concrete_classes('ChemicalEntity')}
 globals().update(CHEMICAL_CLASSES)

@@ -53,8 +53,7 @@ def main(argv=None) -> int:
     if args.check:
         if not args.output.is_file() or args.output.read_text(encoding="utf-8") != expected:
             parser.exit(1, "Generated models are out of date. Run: uv run python -m tools.generate_models\n")
-        # Check application bindings only for the application schema. Temporary
-        # schema experiments may intentionally remove integration anchors.
+        # Check application bindings when verifying the default application schema.
         if args.schema.resolve() == DEFAULT_SCHEMA.resolve():
             from labprogen.core.config import validate_schema_references
             errors = validate_schema_references()

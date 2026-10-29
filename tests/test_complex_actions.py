@@ -870,7 +870,7 @@ def test_chemical_attach_rules_for_complex_actions():
         action = "MyComplex"
 
     assert editor._can_attach_chemical_to(_MemberAdd()) is True
-    assert editor._can_attach_chemical_to(_MemberGrind()) is True
+    assert editor._can_attach_chemical_to(_MemberGrind()) is False
     assert editor._can_attach_chemical_to(_Surrogate()) is False
     assert editor._chemical_attach_rejection_message(_MemberAdd()) is None
     assert editor._chemical_attach_rejection_message(_MemberGrind()) == (

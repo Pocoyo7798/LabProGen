@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from labprogen.core.capabilities import chemical_attachment_slot, get_action_capabilities
+
 from labprogen.core.config import (
     KEY_ADD_QUANTITY,
     KEY_ADD_TYPE,
@@ -50,7 +52,10 @@ def _format_name_list(names: list[str]) -> str:
 
 
 def chemical_display_name(chem: dict) -> str:
-    """Readable label for an attached chemical (name only, no type detail)."""
+    """Return a chemical name, formula or type label for procedure prose."""
+    member_slot = chemical_attachment_slot("MixtureConstituent")
+    if member_slot and isinstance(chem.get(member_slot), dict):
+        return chemical_display_name(chem[member_slot])
     if isinstance(chem.get("chemical"), dict):
         return chemical_display_name(chem["chemical"])
     params = chem.get("params") if isinstance(chem.get("params"), dict) else {}
@@ -72,7 +77,10 @@ def chemical_names_from_step(step: dict) -> list[str]:
     substance = params.get(KEY_SUBSTANCE)
     if isinstance(substance, list):
         return [chemical_display_name(c) for c in substance if isinstance(c, dict)]
-    substances = params.get("chemical", params.get(KEY_SUBSTANCE_LIST))
+    slot_name = get_action_capabilities(step.get("action")).chemical_slot
+    substances = params.get(slot_name, params.get(KEY_SUBSTANCE_LIST))
+    if isinstance(substances, dict):
+        return [chemical_display_name(substances)]
     if isinstance(substances, list):
         return [chemical_display_name(c) for c in substances if isinstance(c, dict)]
     return []
@@ -206,11 +214,14 @@ def sentence_for_step(step: dict) -> str:
     if action == "ContinuousAddition":
         mode = _s(params.get(KEY_CONTINUOUS_ADD_TYPE)) or "continuous"
         amount = _s(params.get(KEY_AMOUNT))
-        substances = params.get("chemical", params.get(KEY_SUBSTANCE_LIST))
+        slot_name = get_action_capabilities(action).chemical_slot
+        substances = params.get(slot_name, params.get(KEY_SUBSTANCE_LIST))
         if isinstance(substances, list):
             substances_text = _format_name_list(
                 [chemical_display_name(item) for item in substances if isinstance(item, dict)]
             )
+        elif isinstance(substances, dict):
+            substances_text = chemical_display_name(substances)
         else:
             substances_text = _s(substances)
         flow_rate = _s(params.get(KEY_FLOW_RATE))

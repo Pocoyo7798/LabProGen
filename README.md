@@ -234,7 +234,7 @@ There are four main buttons at the top of the interface:
 1.  **`+ Add Action`**: Opens a menu to select a new step. Actions are divided into **Elementary Actions** and **Support Actions**.
 2.  **`🧪 Add Chemical`**: Opens a menu to add chemical entities (Substances, Solutions, Materials, etc.) to be used as ingredients.
 3.  **`📥 Export Protocol`**: Saves your design to a `.json` file. A window will appear allowing you to choose the file name and the destination folder.
-4.  **`📂 Import Protocol`**: Loads a previously saved protocol, rebuilding the entire graph, block positions, and settings exactly as they were.
+4.  **`📂 Import Protocol`**: Loads a saved protocol, reconstructing action flows, chemical associations and explicit complex-action groups, then arranging the canvas layout.
 
 ---
 
@@ -289,7 +289,7 @@ Support actions (like Temperature) affect all blocks that follow them. You will 
 
 ## 6. Constraints & Validation
 1.  **Subproducts**: These are anchored to the *Separate* action. They cannot be moved individually and must specify the phase to retain before strict export.
-2.  **Chemical Connections**: Chemicals can be attached to *Add* and *Continuous Addition* blocks. Continuous addition also offers an inline chemical list in its property form; use one representation per action. Trying to attach them to other actions will show a warning message.
+2.  **Chemical Connections**: An action accepts Chemical Blocks when its concrete LinkML class has a primary chemical relation to `ChemicalEntity` or a compatible subclass. The relation is identified by `labprogen_chemical_attachment` metadata, with `chemical` as the fallback for the current unannotated schema. The current schema permits *Add* and *Continuous Addition*. Continuous addition also offers an inline chemical list; use one representation per action. Requiredness is checked separately. Imported incompatible links are retained for review and rejected by strict validation. See [action capabilities](docs/models.md#action-capabilities).
 
 ---
 *User Manual for Laboratory Protocol Builder*

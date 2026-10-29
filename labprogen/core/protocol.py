@@ -121,12 +121,13 @@ class Protocol:
 
         for chem_data in step.get("chemicals", []) or []:
             chem = Protocol._build_chemical(chem_data.get("chemical"), chem_data.get("params", {}))
-            action.add_chemical(chem)
+            # Historical associations remain available for validation and review.
+            action.chemicals.append(chem)
 
         for chem_data in (params.get(KEY_SUBSTANCE, []) or []):
             if isinstance(chem_data, dict):
                 chem = Protocol._build_chemical(chem_data.get("chemical"), chem_data.get("params", {}))
-                action.add_chemical(chem)
+                action.chemicals.append(chem)
 
         sub_branch = step.get("subproduct_branch")
         if isinstance(sub_branch, dict):

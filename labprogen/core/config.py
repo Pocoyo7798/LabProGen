@@ -1,17 +1,15 @@
-# config.py
-
 # --- GLOBAL DEFAULTS ---
 DEFAULT_PROTOCOL_NAME = "laboratory procedure"
 
 # --- FEATURE FLAGS ---
 ENABLE_VERTICAL_ORIENTATION_TOGGLE = False
 
-# Support influences that cannot be toggled off on elementary actions (e.g. Change Recipient)
+# Support influences that cannot be toggled off on elementary actions.
 LOCKED_INFLUENCE_ACTIONS = frozenset()
 
 # --- CHECKED SCHEMA REFERENCES ---
-# Constants name application behaviours; they do not declare LinkML properties.
-# A rename/removal must be reviewed instead of silently using the old key.
+# Checked bindings for application behavior and field presentation.
+# Missing schema names fail early and require an explicit integration update.
 from labprogen.linkml.loader import schema_view
 
 _SCHEMA_SLOT_REFERENCES = set()
@@ -71,8 +69,8 @@ KEY_SUBSTANCE = "substance"
 KEY_CONTINUOUS_ADD_TYPE = _slot_reference("continuous_add_type")
 KEY_SUBSTANCE_LIST = "substance_list"
 
-# Actions - attached material
-KEY_CHEMICAL = _slot_reference("chemical")
+# Native chemical envelope key and historical LinkML field name.
+KEY_CHEMICAL = "chemical"
 
 # First level
 KEY_PREPARATION_PROCEDURE = _slot_reference("preparation_procedure")
@@ -140,6 +138,8 @@ KEY_PY_L_450 = _slot_reference("py_l_450")
 
 # --- UI CONFIGURATION ---
 # Presentation only: schema metadata is merged per class by core.model.field_config.
+CHEMICAL_ATTACHMENT_PREFERENCES = {"label": "Chemical", "placeholder": "Chemical entity name..."}
+
 UI_FIELD_PREFERENCES = {
     # --- Actions - shared ---
     KEY_DURATION: {
@@ -161,7 +161,6 @@ UI_FIELD_PREFERENCES = {
     KEY_ADD_QUANTITY: {"label": "Quantity", "type": "unit", "units": ["g", "ml", "L", "uL", "mg"], "defaults": ["0"], "placeholder": "Amount"},
     KEY_ADD_TYPE: {"label": "Type", "type": "dropdown"},
     KEY_OPEN_FLAME: {"label": "Open Flame", "type": "dropdown"},
-    KEY_CHEMICAL: {"label": "Chemical", "type": "text", "placeholder": "Chemical entity name..."},
 
     # --- Separate ---
     KEY_PHASE: {"label": "Phase to Keep", "type": "dropdown"},
@@ -292,6 +291,7 @@ UI_FIELD_PREFERENCES.update({
 
 # Historical names are editing hints, never declarations in the current model.
 LEGACY_FIELD_KEYS = frozenset({
+    KEY_CHEMICAL,
     KEY_ADD_QUANTITY, KEY_MIN_SIZE, KEY_MAX_SIZE, KEY_GASES, KEY_SUBSTANCE,
     KEY_SUBSTANCE_LIST, KEY_CIF, KEY_ENTITY_TYPE, KEY_MIXTURE_TYPE, KEY_SOLVENT,
     KEY_ATOMIC_COMP, KEY_STRUCT_DESC, KEY_TEXTURAL_DESC, KEY_CHEM_DESC,
@@ -300,11 +300,11 @@ LEGACY_FIELD_KEYS = frozenset({
 LEGACY_FIELD_PREFERENCES = {key: UI_FIELD_PREFERENCES.pop(key)
                             for key in LEGACY_FIELD_KEYS if key in UI_FIELD_PREFERENCES}
 
+LEGACY_FIELD_PREFERENCES[KEY_CHEMICAL] = dict(CHEMICAL_ATTACHMENT_PREFERENCES)
+
 from .model import chemical_fields
 
 CHEMICAL_ENTITY_FIELD_KEYS = chemical_fields()
-# Canvas attachment is a GUI rule, distinct from LinkML required fields.
-ACTIONS_REQUIRING_ATTACHED_CHEMICAL = frozenset({"Add"})
 
 # Deliberate UI labels/order, not an enumeration of all model classes.
 ACTION_BUTTON_LABELS = {
@@ -320,11 +320,11 @@ def is_chemical_entity_field(field_key, class_name=None) -> bool:
     return field_key in (chemical_fields(class_name) if class_name else CHEMICAL_ENTITY_FIELD_KEYS)
 
 
-def action_requires_attached_chemical(action_name, *, part_of_complex_action=False) -> bool:
-    """Canvas-linked chemical entities are required except inside a complex action."""
-    if part_of_complex_action:
-        return False
-    return canonical_action_name(action_name) in ACTIONS_REQUIRING_ATTACHED_CHEMICAL
+def action_requires_attached_chemical(action_name, *, params=None, part_of_complex_action=False) -> bool:
+    """Compatibility entry point; permission and requirements live in capabilities."""
+    from .capabilities import requires_canvas_chemical
+    return requires_canvas_chemical(canonical_action_name(action_name), params=params,
+                                    part_of_complex_action=part_of_complex_action)
 
 
 def is_field_required(field_key, params=None, action_name=None):
@@ -399,21 +399,26 @@ def migrate_chemical_params(chemical_name, params=None):
 
 
 def validate_schema_references(schema=None):
-    """Report stale application/presentation bindings without inventing aliases."""
+    """Report stale schema bindings and invalid chemical attachment roles."""
     view = schema_view(schema)
     slots = set(view.all_slots())
     classes = set(view.all_classes())
     errors = [f"Obsolete slot reference: {name}" for name in sorted(_SCHEMA_SLOT_REFERENCES - slots)]
     errors.extend(f"Obsolete presentation field: {name}" for name in sorted(set(UI_FIELD_PREFERENCES) - slots))
-    targets = set(ACTION_NAME_ALIASES.values()) | set(CHEMICAL_NAME_ALIASES.values()) | set(ACTIONS_REQUIRING_ATTACHED_CHEMICAL) | set(ACTION_BUTTON_LABELS)
-    # Application behaviours require these model families; they are integration
-    # anchors, not a second enumeration of every model class.
+    targets = set(ACTION_NAME_ALIASES.values()) | set(CHEMICAL_NAME_ALIASES.values()) | set(ACTION_BUTTON_LABELS)
+    # Model families required by application behaviors.
     targets.update({"Action", "OneOffAction", "PersistentAction", "ChemicalEntity", "MixtureConstituent", "CollectSubProduct"})
     errors.extend(f"Obsolete class reference: {name}" for name in sorted(targets - classes))
     for key, preferences in UI_FIELD_PREFERENCES.items():
         for cls in preferences.get('labels_by_action', {}):
             if cls not in classes or key not in view.class_slots(cls):
                 errors.append(f"Obsolete presentation binding: {cls}.{key}")
+    from .capabilities import chemical_attachment_slot, ChemicalAttachmentRoleError
+    for cls in view.all_classes():
+        try:
+            chemical_attachment_slot(cls, schema=schema)
+        except ChemicalAttachmentRoleError as exc:
+            errors.append(str(exc))
     return errors
 
 

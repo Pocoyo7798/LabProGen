@@ -1,11 +1,4 @@
-"""
-linkml_adapter.py
-Purpose: Adapter layer converting between the project's Python domain objects
-and LinkML-shaped representations. Responsibilities include parsing and
-normalizing raw parameter values (quantities, booleans, enums), building
-schema-compliant LinkML objects for slots and entities, and performing
-roundtrip conversion LinkML -> protocol internal format.
-"""
+"""Convert editable protocol records to and from LinkML representations."""
 
 from __future__ import annotations
 
@@ -104,11 +97,7 @@ def parse_quantity(value: Any) -> StructuredQuantity | None:
 
 
 def parse_gases(value: Any) -> list[str] | Any:
-    """Parse gases field. Handles both legacy text format and new list of chemical objects.
-    
-    For chemical objects, extracts the name (KEY_NAME) which should be one of:
-    'air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen'
-    """
+    """Extract gas names from chemical records or legacy comma/semicolon text."""
     if _is_blank(value):
         return []
     
@@ -117,13 +106,11 @@ def parse_gases(value: Any) -> list[str] | Any:
         results = []
         for item in value:
             if isinstance(item, dict):
-                # Extract chemical name from the chemical object
                 # Prefer KEY_NAME, fallback to other possible name fields
                 name = (item.get(KEY_NAME, "") or 
                         item.get("name", "") or
                         item.get("chemical_name", "")).strip()
                 
-                # Skip empty names - don't add to results
                 if name:
                     results.append(name)
                 else:
@@ -132,7 +119,7 @@ def parse_gases(value: Any) -> list[str] | Any:
             else:
                 # Legacy text items in list
                 text = str(item).strip()
-                if text and text not in results:  # Avoid duplicates
+                if text and text not in results:
                     results.append(text)
         return results if results else []
     
@@ -209,11 +196,7 @@ def physical_state_to_text(value: Any) -> Any:
 
 
 def build_amount_of_substance(value: Any) -> dict[str, Any] | None:
-    """Build an AmountOfSubstance object.
-
-    Continuous addition uses a quantitative slot in the schema, so we keep a
-    structured representation even when the UI only provides a bare number.
-    """
+    """Convert a legacy amount into a quantitative record, preserving raw text."""
     if _is_blank(value):
         return None
 
@@ -279,11 +262,31 @@ def get_linkml_chemical_slot(chemical_name: str, field_key: str) -> str:
 
 
 from labprogen.core.model import chemical_fields, field_contract, range_is_subclass
+from labprogen.core.capabilities import chemical_attachment_slot, get_action_capabilities, can_attach_chemical_blocks
 
 
 def chemical_slot_for_action(action_name: str | None) -> str | None:
-    fields = chemical_fields(canonical_action_name(action_name or ""))
-    return next(iter(fields)) if len(fields) == 1 else None
+    return get_action_capabilities(canonical_action_name(action_name)).chemical_slot
+
+
+def project_canvas_chemicals(action_name, slots, chemicals):
+    """Project attached records using the direct field's cardinality, without data loss."""
+    action_name = canonical_action_name(action_name)
+    slot_name = chemical_slot_for_action(action_name)
+    if slot_name is None:
+        raise ValueError(f"Chemical Blocks cannot be attached to {action_name}: no compatible direct chemical relation.")
+    instances = [chemical_record_to_instance(chemical) for chemical in chemicals]
+    slot = field_contract(slot_name, action_name)
+    if slot['multivalued']:
+        projected = instances
+    elif len(instances) == 1:
+        projected = instances[0]
+    else:
+        raise ValueError(f"{action_name}.{slot_name} accepts a single entity, not {len(instances)} Chemical Blocks.")
+    existing = slots.get(slot_name)
+    if not _is_blank(existing) and existing != projected:
+        raise ValueError(f"Conflicting inline and attached chemicals on {action_name}; review before export.")
+    slots[slot_name] = projected
 
 
 def _mixture_relation(slot: str, class_name: str) -> bool:
@@ -291,8 +294,7 @@ def _mixture_relation(slot: str, class_name: str) -> bool:
 
 
 COMPLEX_ACTION_MARKER = "ComplexAction"
-# Import heuristics for older exports: Medium once owned concentration itself.
-# This is compatibility, not a declaration of the current Medium contract.
+# Older exports stored concentration on Medium itself.
 _ENTITY_OWNED_CONCENTRATION_CLASSES = {"Medium"}
 
 
@@ -380,6 +382,16 @@ _CHEMICAL_WRAPPER_KEYS = {
     "type",
 }
 
+
+def _chemical_data_items(record):
+    """Exclude native envelope keys, retaining semantic chemical values for review."""
+    for key, value in record.items():
+        if key not in _CHEMICAL_WRAPPER_KEYS or (
+            key == "chemical" and (not isinstance(value, str) or record.get("type"))
+        ):
+            yield key, value
+
+
 EXPORTER_ENVELOPE_KEYS = {
     "source_block_id",
     "id",
@@ -420,7 +432,8 @@ def _record_chemical_class(chemical: dict[str, Any]) -> str:
 
 def _looks_like_mixture_substance(chemical: dict[str, Any], class_name: str) -> bool:
     """True for a flat mixture-list item, not a ChemicalEntity that owns concentration."""
-    if class_name == "MixtureConstituent" or isinstance(chemical.get("chemical"), dict):
+    member_slot = chemical_attachment_slot("MixtureConstituent")
+    if class_name == "MixtureConstituent" or (member_slot and isinstance(chemical.get(member_slot), dict)):
         return True
     if class_name in _ENTITY_OWNED_CONCENTRATION_CLASSES or class_name in {"Mixture", "Dispersion"}:
         return False
@@ -429,9 +442,8 @@ def _looks_like_mixture_substance(chemical: dict[str, Any], class_name: str) -> 
 
 def _nested_chemical_params(chemical: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     nested_params = dict(params)
-    skip = set(_CHEMICAL_WRAPPER_KEYS) | {KEY_CONCENTRATION}
-    for key, value in chemical.items():
-        if key in skip:
+    for key, value in _chemical_data_items(chemical):
+        if key == KEY_CONCENTRATION:
             continue
         nested_params.setdefault(key, value)
     nested_params.pop(KEY_CONCENTRATION, None)
@@ -441,25 +453,33 @@ def _nested_chemical_params(chemical: dict[str, Any], params: dict[str, Any]) ->
 
 
 def _project_mixture_substance(chemical: dict[str, Any], class_name: str) -> dict[str, Any]:
-    """Build a MixtureConstituent with nested ChemicalEntity and required concentration."""
+    """Build a composition record using the schema's primary entity relationship."""
     params = dict(chemical.get("params") or {})
+    member_slot = chemical_attachment_slot("MixtureConstituent")
+    if member_slot is None:
+        raise ValueError("MixtureConstituent has no chemical attachment relationship.")
     concentration = chemical.get(KEY_CONCENTRATION, params.get(KEY_CONCENTRATION))
-    nested_record = chemical.get("chemical")
+    nested_record = chemical.get(member_slot)
+    if not isinstance(nested_record, dict):
+        nested_record = params.get(member_slot)
     if isinstance(nested_record, dict):
         nested = chemical_record_to_instance(nested_record, mixture_item=False)
+    elif class_name == "MixtureConstituent":
+        # A typed historical record keeps undeclared fields for migration review.
+        instance = {key: value for key, value in params.items()}
+        instance.update(_chemical_data_items(chemical))
+        instance["type"] = "MixtureConstituent"
+        return instance
     else:
+        native_type = chemical.get("chemical")
         nested_type = canonical_chemical_name(
-            (nested_record if isinstance(nested_record, str) else None)
-            or chemical.get("chemical_type")
-            or (class_name if class_name not in {"", "MixtureConstituent"} else None)
-            or params.get("chemical_type")
-            or "Substance"
-        )
+            (native_type if isinstance(native_type, str) else None)
+            or chemical.get("chemical_type") or class_name or params.get("chemical_type") or "Substance")
         nested = _finish_chemical_instance(nested_type, _nested_chemical_params(chemical, params))
-    instance: dict[str, Any] = {"type": "MixtureConstituent", "chemical": nested}
-    if class_name == "MixtureConstituent" and isinstance(nested_record, dict):
-        for key, value in {**params, **chemical}.items():
-            if key not in _CHEMICAL_WRAPPER_KEYS and key not in {"chemical", "chemical_type", "type", KEY_CONCENTRATION}:
+    instance: dict[str, Any] = {"type": "MixtureConstituent", member_slot: nested}
+    if class_name == "MixtureConstituent":
+        for key, value in {**params, **dict(_chemical_data_items(chemical))}.items():
+            if key not in {member_slot, "chemical_type", "type", KEY_CONCENTRATION}:
                 instance[key] = value
     if not _is_blank(concentration):
         instance[KEY_CONCENTRATION] = concentration
@@ -496,13 +516,10 @@ def _finish_chemical_instance(
 
 
 def chemical_record_to_instance(chemical: Any, *, mixture_item: bool | None = None) -> Any:
-    """Project a domain or exported chemical record onto an ADM instance.
+    """Project a chemical record onto an ADM instance.
 
-    ``mixture_item=True`` is used for ``Mixture.chemical_list`` entries, which
-    are MixtureConstituent objects. Other Chemical Entity slots (substance_list,
-    solvent, chemical, substance) keep the concrete entity type, including
-    All current ChemicalEntity subtypes are retained; composition entries carry
-    concentration on the MixtureConstituent wrapper.
+    Composition entries use MixtureConstituent wrappers with row concentration.
+    Other chemical relations retain the concrete entity type.
     """
     if chemical is None:
         return None
@@ -537,11 +554,10 @@ def chemical_record_to_instance(chemical: Any, *, mixture_item: bool | None = No
 
     params = dict(chemical.get("params") or {})
     if not params:
-        params = {key: value for key, value in chemical.items() if key not in _CHEMICAL_WRAPPER_KEYS}
+        params = dict(_chemical_data_items(chemical))
     else:
-        for key, value in chemical.items():
-            if key not in _CHEMICAL_WRAPPER_KEYS:
-                params.setdefault(key, value)
+        for key, value in _chemical_data_items(chemical):
+            params.setdefault(key, value)
 
     if not class_name:
         class_name = "Substance"
@@ -573,7 +589,8 @@ def flatten_exported_instance(node: Any) -> Any:
         if attached:
             slot_name = chemical_slot_for_action(node.get("source_action"))
             if slot_name and slot_name not in instance:
-                instance[slot_name] = attached
+                multiple = field_contract(slot_name, canonical_action_name(node.get("source_action")))['multivalued']
+                instance[slot_name] = attached[0] if not multiple and len(attached) == 1 else attached
         for key, value in node.items():
             if key in EXPORTER_ENVELOPE_KEYS:
                 continue
@@ -601,7 +618,7 @@ def _slot_value_to_param_value(slot: str, value: Any) -> Any:
     }:
         return quantity_to_text(value)
     if slot == "has_atmosphere_type":
-        # Build gases as list of chemical objects for new internal format
+        # Legacy atmosphere lists are edited as chemical records.
         return build_gases(value)
     if slot == "has_physical_state":
         return physical_state_to_text(value)
@@ -695,16 +712,23 @@ def _convert_linkml_step(step: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    if not attached_chemicals and step_payload["action"] == "Add":
-        for entity in step_payload["params"].get("chemical", []) or []:
+    slot_name = chemical_slot_for_action(step_payload["action"])
+    if not attached_chemicals and slot_name and step_payload["action"] == "Add":
+        value = step_payload["params"].get(slot_name) or []
+        for entity in value if isinstance(value, list) else [value]:
             if isinstance(entity, dict):
                 name = entity.get("type") or entity.get("chemical_type")
                 attached_chemicals.append({"chemical": name,
                     "params": _convert_linkml_chemical_slots(entity, name)})
-    if attached_chemicals and step_payload["action"] == "Add":
-        # The canvas owns attached Add chemicals; do not also retain an inline copy.
-        step_payload["params"].pop("chemical", None)
-
+    if attached_chemicals and slot_name:
+        # Canvas metadata owns an identical inline copy. Keep an empty draft
+        # field so complex-action parameter bindings still identify that slot.
+        # Conflicting historical values remain available for strict validation.
+        instances = [chemical_record_to_instance(chem) for chem in attached_chemicals]
+        multiple = field_contract(slot_name, canonical_action_name(step_payload["action"]))['multivalued']
+        projected = instances if multiple else instances[0] if len(instances) == 1 else None
+        if projected is not None and step_payload["params"].get(slot_name) == projected:
+            step_payload["params"][slot_name] = [] if multiple else {}
     # Always include a 'chemicals' key for compatibility with internal protocol
     step_payload["chemicals"] = attached_chemicals
 
@@ -783,13 +807,7 @@ def normalize_action_to_linkml(action_name: str, params: dict[str, Any]) -> dict
 
 
 def build_material_entity(value: Any) -> dict[str, Any] | list[dict[str, Any]] | None:
-    """Build a minimal valid MaterialEntity preserving the material identifier.
-
-    Uses alternative_label for the human-readable name and derives a stable,
-    collision-proof id from a hash to satisfy LinkML identifier semantics.
-    
-    This avoids identifier collisions from case variations (water, Water, WATER).
-    """
+    """Build a legacy MaterialEntity with a label and a case-sensitive hashed id."""
     if _is_blank(value):
         return None
 
@@ -807,7 +825,7 @@ def build_material_entity(value: Any) -> dict[str, Any] | list[dict[str, Any]] |
                 built_items.append(item)
                 continue
             name = str(item).strip()
-            # Use MD5 hash to create collision-proof identifier
+            # Hash the original label for a stable legacy identifier.
             hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
             built_items.append({
                 "id": hash_suffix,
@@ -817,7 +835,7 @@ def build_material_entity(value: Any) -> dict[str, Any] | list[dict[str, Any]] |
         return built_items if built_items else None
 
     name = str(value).strip()
-    # Use MD5 hash to create collision-proof identifier (handles case variations)
+    # Case-sensitive hashes distinguish labels such as water and Water.
     hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
     return {
         "id": hash_suffix,
@@ -843,13 +861,7 @@ def build_chemical_entity(value: Any) -> dict[str, Any] | None:
 
 
 def build_gases(value: Any) -> list[dict[str, Any]] | None:
-    """Build list of gas chemical objects from LinkML atmosphere list.
-    
-    Converts LinkML has_atmosphere_type (list of gas names) into internal
-    representation (list of chemical objects with minimal required fields).
-    
-    Gas names MUST be one of: 'air', 'inert', 'nitrogen', 'argon', 'hydrogen', 'vacuum', 'autogeneous', 'oxygen'
-    """
+    """Convert legacy atmosphere labels into editable Molecule records."""
     if _is_blank(value):
         return None
     
@@ -858,14 +870,12 @@ def build_gases(value: Any) -> list[dict[str, Any]] | None:
         for item in value:
             if _is_blank(item):
                 continue
-            # Skip if already a chemical object (shouldn't happen in imports, but handle it)
+            # Accept chemical records as well as gas labels.
             if isinstance(item, dict) and "chemical_type" in item:
-                # Ensure it has a name
                 if not item.get(KEY_NAME, "").strip():
                     print(f"[build_gases] Warning: Gas chemical object missing {KEY_NAME}")
                 gases.append(item)
                 continue
-            # Convert gas name string to chemical object
             gas_name = str(item).strip()
             if gas_name:
                 gases.append({
@@ -877,7 +887,6 @@ def build_gases(value: Any) -> list[dict[str, Any]] | None:
                 })
         return gases if gases else None
     
-    # Handle single string value
     gas_name = str(value).strip()
     if gas_name:
         return [{
@@ -1023,12 +1032,7 @@ MULTIVALUED_SLOTS: set[str] = set()
 
 
 def convert_slots_to_linkml_objects(slots: dict[str, Any]) -> dict[str, Any]:
-    """Keep Action Data Model string/enum slots as-is.
-
-    Legacy export slot names still go through structured builders so old
-    payloads can be read, but new validation instances are not rewritten into
-    MaterialEntity hashes or untyped stubs.
-    """
+    """Apply structured builders to legacy ontology slots; retain current values."""
     if not slots:
         return slots
 
@@ -1053,12 +1057,7 @@ def action_to_linkml_dict(action_name: str, params: dict[str, Any], chemicals: l
     slots = payload.get("slots") or {}
     if chemicals:
         payload["attached_chemicals"] = chemicals
-        action_name = canonical_action_name(action_name)
-        slot_name = chemical_slot_for_action(action_name)
-        if slot_name:
-            existing = slots.get(slot_name)
-            if action_name != "ContinuousAddition" or existing is None or isinstance(existing, str):
-                slots[slot_name] = chemical_record_to_instance(chemicals)
+        project_canvas_chemicals(action_name, slots, chemicals)
         payload["slots"] = slots
     return payload
 

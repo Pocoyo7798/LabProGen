@@ -63,7 +63,7 @@ class UnitValueField(QWidget):
     """Edit a schema string without converting units or rewriting untouched data.
 
     Units are suggestions. Unlisted units, bare numbers and descriptive historical
-    strings remain intact. This is not a second physical-quantity data model.
+    strings remain intact.
     """
 
     def __init__(self, config, value='', parent=None):

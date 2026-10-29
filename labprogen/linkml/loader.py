@@ -1,10 +1,4 @@
-"""
-schema_loader.py
-Purpose: Load and prepare LinkML YAML schemas for use by the exporter and
-validator. Provides helpers to load single files, recursively merge local
-imports into a flattened validation schema, and produce brief schema
-summaries for export metadata.
-"""
+"""Load LinkML schemas, resolve effective slot metadata and flatten local imports."""
 
 from functools import lru_cache
 import importlib
@@ -193,7 +187,7 @@ def _strip_unsupported_metamodel_keys(schema: dict) -> dict:
 
 
 def build_validation_schema(schema_name: str = ACTION_DATA_MODEL_SCHEMA) -> dict:
-    """Load the validation schema without fabricating missing classes or slots."""
+    """Flatten schema imports and apply runtime metamodel compatibility."""
     return _strip_unsupported_metamodel_keys(load_linkml_schema_recursive(schema_name))
 
 

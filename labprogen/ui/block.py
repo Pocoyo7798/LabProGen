@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QRectF, Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QPen, QColor, QFont, QPainter, QFontMetrics, QIntValidator
 from labprogen.core.config import *
+from labprogen.core.capabilities import get_action_capabilities
 from labprogen.core.debug_flag import DEBUG_MODE
 from labprogen.linkml.adapter import action_to_linkml_dict, chemical_to_linkml_dict, normalize_boolean, quantity_to_text
 from labprogen.pubchem.autocomplete import attach_pubchem_compound_autocomplete
@@ -334,7 +335,6 @@ class Block(QGraphicsRectItem):
         w, h = rect.width(), rect.height()
         is_vert = self.orientation == "vertical"
         
-        # save painter state before applying rotation
         painter.save()
 
         # rotate drawing context for vertical orientation
@@ -407,7 +407,6 @@ class Block(QGraphicsRectItem):
                 painter.setPen(QColor(255, 255, 255))
                 painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, influence["id"])
 
-        # restore painter original state
         painter.restore()
     
     def _draw_vertical_path(self, path, w, h, arrow_size):
@@ -645,7 +644,6 @@ class Block(QGraphicsRectItem):
         is_subproduct = self.action == "CollectSubProduct" and self.above_block
         is_ctrl = event.modifiers() == Qt.ControlModifier
 
-        # bring to foreground always
         self.setZValue(1000)
 
         if is_subproduct and not is_ctrl:
@@ -1209,8 +1207,12 @@ class Block(QGraphicsRectItem):
 
         hidden_chemical_keys = [KEY_PREPARATION_PROCEDURE, KEY_ENTITY_ID, KEY_PRODUCER, KEY_ENTITY_PURITY, KEY_CAS_NUMBER]
         hidden_action_keys = set()
-        if self.action == "Add":
-            hidden_action_keys.add(KEY_CHEMICAL)
+        # Add uses canvas editing; other actions hide an empty inline field
+        # once a canvas attachment supplies its value.
+        chemical_slot = get_action_capabilities(self.action).chemical_slot
+        if chemical_slot and (self.action == "Add" or
+                (self.chem_below is not None and not params_for_dialog.get(chemical_slot))):
+            hidden_action_keys.add(chemical_slot)
 
         if is_chemical:
             ordered_keys = [key for key in params_for_dialog.keys() if key not in hidden_chemical_keys]
@@ -1241,7 +1243,7 @@ class Block(QGraphicsRectItem):
 
         input_map = {}
         row_widgets = {}
-        row_labels = {}  # Store label widgets for visibility control
+        row_labels = {}
 
         # Extract entity_type if exists and move it to the front
         entity_type_key = None
@@ -1282,24 +1284,22 @@ class Block(QGraphicsRectItem):
                 optional_keys.append(key)
 
         def _add_field(target_layout: QFormLayout, key: str, show: bool = True) -> dict | None:
-            """Add field to layout. Returns row index if added, None if hidden."""
+            """Add a visible field and return its widget, tracker and label."""
             if not show:
                 return None
                 
             value = params_for_dialog.get(key, "")
-            # Retrieve label from config. Fallback to capitalized key string
             label = field_label(key, self.action)
 
             widget, tracker = self._get_field_widget(key, value)
             widget.setObjectName(key)
             if key in locked_keys and hasattr(widget, "setReadOnly"):
                 widget.setReadOnly(True)
-            # Explicitly create label widget to ensure proper visibility control
             label_widget = QLabel(label + ":")
             target_layout.addRow(label_widget, widget)
             input_map[key] = tracker
             row_widgets[key] = widget
-            row_labels[key] = label_widget  # Store label widget for later visibility control
+            row_labels[key] = label_widget
             return {"widget": widget, "tracker": tracker, "label": label}
 
         # Add entity_type field first if it exists
@@ -1374,7 +1374,6 @@ class Block(QGraphicsRectItem):
             current_type = entity_type_widget.currentText() if entity_type_widget else entity_type_value
             show_mixture_fields = is_fixed_mixture or (current_type == "Mixture" and can_switch_to_mixture)
 
-            # NAME field is always visible (Mixtures and regular entities both have names)
             # Show/hide mixture-specific fields based on entity type
             for cond_key in main_conditional_keys:
                 if cond_key in row_widgets and cond_key in row_labels:
@@ -1681,7 +1680,7 @@ class ComplexActionBlock(Block):
 
 
 class ChemicalBlock(Block):
-    """Chemical action block"""
+    """Canvas block representing a chemical entity."""
     def __init__(self, action, params, editor=None):
         QGraphicsRectItem.__init__(self, 0, 0, 120, 50)
         self.action = action

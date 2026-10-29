@@ -17,6 +17,7 @@ from .block import (
     format_decimal_for_input,
 )
 from labprogen.core.config import *
+from labprogen.core.capabilities import can_attach_chemical_blocks, chemical_attachment_slot
 from labprogen.core.actions import *
 from labprogen.core.chemicals import *
 from labprogen.core.protocol import Protocol
@@ -75,6 +76,7 @@ def chemical_requires_name(chemical_type: str) -> bool:
 NEW_COMPLEX_ACTION = "__new_complex_action__"
 
 
+
 class ActionSelectionDialog(QDialog):
     def __init__(self, parent=None, *, complex_action_names: list[str] | None = None):
         super().__init__(parent)
@@ -109,7 +111,6 @@ class ActionSelectionDialog(QDialog):
             btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
             elem_layout.addWidget(btn)
         
-        # push all elementary buttons to the top
         elem_layout.addStretch()
 
         # support actions column
@@ -127,7 +128,6 @@ class ActionSelectionDialog(QDialog):
             btn.clicked.connect(lambda checked=False, a=action_id: self.select_action(a))
             supp_layout.addWidget(btn)
         
-        # push all support buttons to the top
         supp_layout.addStretch()
 
         complex_layout = QVBoxLayout()
@@ -177,8 +177,7 @@ class ChemicalSelectionDialog(QDialog):
         title.setFont(QFont("Segoe UI", 12, QFont.Bold))
         layout.addWidget(title)
         
-        # list of all entities from the data model
-        # Second Level and Third Level chemicals
+        # Concrete chemical types available in the current schema.
         selector = QComboBox(self)
         selector.addItems(selectable_chemical_entity_types())
         layout.addWidget(selector)
@@ -195,16 +194,7 @@ class ChemicalSelectionDialog(QDialog):
 
 
 class UnifiedChemicalDetailsDialog(QDialog):
-    """Single dialog for adding chemical entity with First Level fields.
-    
-    First Level fields are optional:
-    - ID (commercial or internal)
-    - Producer (institution)
-    - Purity
-    - CAS Number
-    
-    Preparation procedure is managed through import/create buttons.
-    """
+    """Collect declared identity fields and import or create a preparation procedure."""
     def __init__(self, parent=None, chemical_type="Substance"):
         super().__init__(parent)
         self.setWindowTitle("Chemical Entity Details")
@@ -355,9 +345,13 @@ class UnifiedChemicalDetailsDialog(QDialog):
 def pick_embedded_chemical(parent, initial=None, *, for_solvent=False, include_concentration=None):
     """Pick one embedded chemical (e.g. mixture list item or dispersion solvent). Returns dict or None."""
     initial = copy.deepcopy(initial or {})
-    if isinstance(initial.get("chemical"), dict):
-        # A schema MixtureConstituent is edited as its entity plus concentration.
-        initial = {**initial["chemical"], **{k: v for k, v in initial.items() if k not in {"chemical", "type"}}}
+    member_slot = chemical_attachment_slot("MixtureConstituent")
+    if initial.get("type") == "MixtureConstituent" and member_slot != "chemical" and "chemical" in initial:
+        QMessageBox.warning(parent, "Legacy composition", "This composition uses the historical chemical field. Migrate it before editing.")
+        return None
+    if member_slot and isinstance(initial.get(member_slot), dict):
+        # Composition editing separates the entity from its row concentration.
+        initial = {**initial[member_slot], **{k: v for k, v in initial.items() if k not in {member_slot, "type"}}}
     if isinstance(initial.get("params"), dict):
         initial = {**initial["params"], "chemical_type": initial.get("chemical")}
     initial.setdefault("chemical_type", initial.pop("type", None))
@@ -564,10 +558,7 @@ class MixtureChemicalDialog(QDialog):
 
 
 class MixtureChemicalListDialog(QDialog):
-    """Dialog to manage list of MixtureChemical items for a Mixture.
-    
-    Shows a table of chemicals with concentration, allows Add/Edit/Remove.
-    """
+    """Edit a mixture composition as chemical entities with row concentrations."""
     def __init__(self, parent=None, chemical_list=None):
         super().__init__(parent)
         self.setWindowTitle("Manage Mixture Chemicals")
@@ -585,7 +576,6 @@ class MixtureChemicalListDialog(QDialog):
         title.setStyleSheet("font-size: 13px; font-weight: 600; color: #1f2937;")
         layout.addWidget(title)
 
-        # Table to display chemicals
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Type", "Formula/Name", "Concentration", "Actions"])
@@ -597,7 +587,6 @@ class MixtureChemicalListDialog(QDialog):
 
         self._populate_table()
 
-        # Buttons for list management
         list_btn_row = QHBoxLayout()
         
         add_btn = QPushButton("Add Chemical")
@@ -608,7 +597,6 @@ class MixtureChemicalListDialog(QDialog):
         list_btn_row.addStretch()
         layout.addLayout(list_btn_row)
 
-        # Dialog action buttons
         dialog_btn_row = QHBoxLayout()
         dialog_btn_row.addStretch()
 
@@ -638,7 +626,6 @@ class MixtureChemicalListDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(formula))
             self.table.setItem(row, 2, QTableWidgetItem(concentration))
 
-            # Edit/Remove buttons
             actions_widget = QWidget()
             actions_layout = QHBoxLayout(actions_widget)
             actions_layout.setContentsMargins(0, 0, 0, 0)
@@ -685,7 +672,7 @@ class MixtureChemicalListDialog(QDialog):
                 details_dialog.imported_procedure
             )
         
-        # Validate that chemical has a name (required for all chemicals)
+        # Check the name requirement for this chemical class.
         chem_name = new_chem.get(KEY_NAME, "").strip()
         if chemical_requires_name(dialog.selected_chemical_type) and not chem_name:
             QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
@@ -736,7 +723,7 @@ class MixtureChemicalListDialog(QDialog):
                     details_dialog.imported_procedure
                 )
             
-            # Validate that chemical has a name (required for all chemicals)
+            # Check the name requirement for this chemical class.
             chem_name = self.chemical_list[row].get(KEY_NAME, "").strip()
             if chemical_requires_name(dialog.selected_chemical_type) and not chem_name:
                 QMessageBox.warning(self, "Missing Chemical Name", f"Chemical '{dialog.selected_chemical_type}' must have a name field filled.")
@@ -1829,7 +1816,7 @@ class Editor(QGraphicsView):
                     self.chemical_procedure_index[owner_block.block_id] = procedure
 
         self._reflow_import_layout()
-        self.import_warnings = restore_complex_groups(self, data, imported_steps)
+        self.import_warnings.extend(restore_complex_groups(self, data, imported_steps))
         metadata = data.get("complex_action_groups") or {}
         self._toggle_complex_visibility(bool(metadata.get("collapsed", self.show_complex_actions_collapsed)))
 
@@ -2213,7 +2200,7 @@ class Editor(QGraphicsView):
                 self.update_support_logic()
 
     def add_chemical_block(self):
-        """show dialog and add the specific chemical entity to the scene."""
+        """Collect chemical fields and add the resulting block to the scene."""
         if getattr(self, "complex_action_builder_mode", False):
             return
         dialog = ChemicalSelectionDialog(self)
@@ -2236,10 +2223,8 @@ class Editor(QGraphicsView):
             chem_class = CHEMICAL_CLASSES.get(chem_type)
 
             if chem_class:
-                # create data object
                 chemical_data = chem_class(**params)
                 
-                # create visual block
                 block = ChemicalBlock(chem_type, params, editor=self)
                 block.imported_procedure = imported_procedure
                 if imported_procedure:
@@ -2288,7 +2273,6 @@ class Editor(QGraphicsView):
             if block.prev_block or block.next_block or block.above_block or block.below_block:
                 linked_blocks.append(block)
         
-        # Sort by x-axis position (left to right)
         linked_blocks.sort(key=lambda b: b.pos().x())
         self.linked_sequence = linked_blocks
 
@@ -2309,15 +2293,12 @@ class Editor(QGraphicsView):
         return False
 
     def is_incompatible_vertical_link(self, parent_block, child_block):
-        """Check if two blocks are compatible for VERTICAL linking.
-        Chemical blocks can link vertically to Action blocks (Elementary/Support) or other Chemical blocks.
-        Returns True if the link is incompatible, False otherwise.
-        """
+        """Return whether the proposed vertical link violates block or owner rules."""
         is_parent_action = isinstance(parent_block, (ElementaryAction, SupportAction))
         is_parent_chemical = isinstance(parent_block, ChemicalBlock)
         is_child_chemical = isinstance(child_block, ChemicalBlock)
 
-        if is_child_chemical and is_parent_action and not self._can_attach_chemical_to(parent_block):
+        if is_child_chemical and not self._can_attach_chemical_to(parent_block):
             return True
         
         # Child must always be a chemical block
@@ -2327,25 +2308,43 @@ class Editor(QGraphicsView):
         # Parent can be either an action block or a chemical block
         return not (is_parent_action or is_parent_chemical)
 
+    @staticmethod
+    def _chemical_attachment_host(target):
+        """Resolve a stack's action owner; a standalone stack remains movable."""
+        seen = set()
+        while isinstance(target, ChemicalBlock) and target.above_block is not None:
+            if id(target) in seen:
+                return None
+            seen.add(id(target))
+            target = target.above_block
+        return target
+
     def _can_attach_chemical_to(self, target) -> bool:
-        """Chemicals may attach to eligible action blocks, but not complex surrogates."""
-        if target is None:
+        """One schema permission for targets, including the owner of a stack."""
+        host = self._chemical_attachment_host(target)
+        if host is None or getattr(host, "is_complex_surrogate", False) or isinstance(host, ComplexActionBlock):
             return False
-        if getattr(target, "is_complex_surrogate", False):
-            return False
-        if isinstance(target, ComplexActionBlock):
-            return False
-        return True
+        if isinstance(host, ChemicalBlock):
+            return True  # Free stacks do not yet assert a relation to an action.
+        return can_attach_chemical_blocks(getattr(host, "action", None))
 
     def _chemical_attach_rejection_message(self, target) -> str | None:
-        """Return a user-facing reason when a chemical cannot attach to target."""
-        if getattr(target, "is_complex_surrogate", False) or isinstance(target, ComplexActionBlock):
-            name = getattr(target, "action", "complex action")
+        if self._can_attach_chemical_to(target):
+            return None
+        host = self._chemical_attachment_host(target)
+        name = getattr(host, "action", "this target")
+        if getattr(host, "is_complex_surrogate", False) or isinstance(host, ComplexActionBlock):
             return f"Chemicals cannot be linked to complex action {name!r}"
-        allowed_for_chemicals = ["Add", "ContinuousAddition"]
-        if getattr(target, "action", None) not in allowed_for_chemicals:
-            return f"Chemicals cannot be linked to {target.action}"
-        return None
+        return f"Chemicals cannot be linked to {name}"
+
+    def _warn_incompatible_imported_chemicals(self, block):
+        if block.chem_below is not None and not self._can_attach_chemical_to(block):
+            message = (f"Imported Chemical Blocks on {block.action} have no compatible direct chemical relation. "
+                       "Their data and links were retained for review; strict export will reject this association.")
+            if not hasattr(self, "import_warnings"):
+                self.import_warnings = []
+            if message not in self.import_warnings:
+                self.import_warnings.append(message)
 
     def preview_link(self, moved_block):
         """Visual feedback for both horizontal and vertical snapping."""
@@ -2359,7 +2358,9 @@ class Editor(QGraphicsView):
 
         moved_rect = moved_block.sceneBoundingRect()
         for other in self.blocks:
-            if other is moved_block: continue
+            if other is moved_block or not other.isVisible(): continue
+            if isinstance(moved_block, ChemicalBlock) and not self._can_attach_chemical_to(other):
+                continue
             
             other_rect = other.sceneBoundingRect()
             if moved_rect.intersects(other_rect):
@@ -2429,9 +2430,9 @@ class Editor(QGraphicsView):
         rejected_complex_score = float('inf')
 
         for other in self.blocks:
-            if other is moved_block: continue
+            if other is moved_block or not other.isVisible(): continue
             if not isinstance(moved_block, ChemicalBlock) and isinstance(other, ChemicalBlock): continue
-            if isinstance(moved_block, ChemicalBlock) and not isinstance(other, ChemicalBlock):
+            if isinstance(moved_block, ChemicalBlock):
                 if not self._can_attach_chemical_to(other):
                     other_rect = other.sceneBoundingRect()
                     if moved_rect.intersects(other_rect):
@@ -2478,7 +2479,7 @@ class Editor(QGraphicsView):
         # validate rules for the identified potential target
         if potential_target:
             # check chemical attachment rules
-            if isinstance(moved_block, ChemicalBlock) and not isinstance(potential_target, ChemicalBlock):
+            if isinstance(moved_block, ChemicalBlock):
                 rejection = self._chemical_attach_rejection_message(potential_target)
                 if rejection:
                     QToolTip.showText(QCursor.pos(), rejection, self)
@@ -2555,7 +2556,7 @@ class Editor(QGraphicsView):
     def _link_chemical_to_parent(self, chem, target):
         """Links chemical and positions it correctly based on target orientation."""
         if not self._can_attach_chemical_to(target):
-            return
+            return False
 
         border_overlap = 6
 
@@ -2606,6 +2607,7 @@ class Editor(QGraphicsView):
             else:
                 chem.setPos(target.pos().x(), target.pos().y() + target.rect().height() - border_overlap)
             self.reflow_chemicals(chem, target.orientation)
+        return True
 
     def _get_target_and_zone(self, moved_block):
         """
@@ -2628,7 +2630,7 @@ class Editor(QGraphicsView):
 
             other_rect = other.sceneBoundingRect()
 
-            if isinstance(moved_block, ChemicalBlock) and not isinstance(other, ChemicalBlock):
+            if isinstance(moved_block, ChemicalBlock):
                 if not self._can_attach_chemical_to(other):
                     if moved_rect.intersects(other_rect):
                         overlap = (
@@ -2639,7 +2641,7 @@ class Editor(QGraphicsView):
                             rejected_complex_overlap = overlap
                             rejected_complex_target = other
                     continue
-            if not self._is_complex_linkable_endpoint(other):
+            if not isinstance(moved_block, ChemicalBlock) and not self._is_complex_linkable_endpoint(other):
                 continue
             
             # Check for intersection
@@ -3404,6 +3406,7 @@ class Editor(QGraphicsView):
                 cb.above_block = prev_chem
             prev_chem = cb
             
+        self._warn_incompatible_imported_chemicals(new_block)
         return new_block
 
     def _create_block_by_name(self, name, params):
@@ -3447,6 +3450,7 @@ class Editor(QGraphicsView):
                 curr.below_block = cb
                 cb.above_block = curr
             curr = cb # update last chemical
+        self._warn_incompatible_imported_chemicals(action_block)
 
     def import_protocol(self):
         """import protocol and reconstruct layout from the default start position."""
@@ -3493,6 +3497,7 @@ class Editor(QGraphicsView):
             and not getattr(block, "is_complex_surrogate", False)
             and action_requires_attached_chemical(
                 getattr(block, "action", ""),
+                params=block.params,
                 part_of_complex_action=bool(getattr(block, "part_of_complex_action", False)),
             )
             and getattr(block, "chem_below", None) is None
@@ -3504,7 +3509,7 @@ class Editor(QGraphicsView):
                 QMessageBox.warning(
                     self,
                     "Export Error",
-                    f"Every {listed} action must have at least one chemical entity attached.",
+                    f"Provide a chemical entity for every {listed} action. Use the canvas or the inline chemical field where available.",
                 )
             return None
 
@@ -4077,7 +4082,7 @@ class Editor(QGraphicsView):
             print(f"error exporting linkml payload: {e}")
 
     def _to_yaml(self, data):
-        """Serialize protocol data to YAML without external dependencies."""
+        """Serialize a protocol dictionary as YAML."""
         lines = self._yaml_lines(data, 0)
         return "\n".join(lines) + "\n"
 

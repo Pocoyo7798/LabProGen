@@ -18,8 +18,8 @@ structural conversions are accepted during import. Missing required values and
 fields without a safe current equivalent require explicit review before export.
 
 Python representations are generated into `labprogen/generated/`; see
-[regeneration and model boundaries](../docs/models.md). The schema is preserved
-as the authoritative model rather than rewritten to match application code.
+[regeneration and model boundaries](../docs/models.md). Schema metadata determines
+the semantic structure consumed by the application.
 
 ## Sources and credits
 
@@ -45,9 +45,8 @@ credits **Daniel Pereira Costa** for subsequent ontology mappings and schema
 refinements.
 
 The specification named **“Action Data Model Rules and Definitions”** is
-attributed to **Hendrik Borgelt's base work** on the basis of provenance
-information supplied by the project maintainer. Authorship of a separately
-identified version of that document has not been independently verified; this
+attributed to **Hendrik Borgelt's base work** in the project's provenance record.
+Authorship of a separately identified version of that document has not been independently verified; this
 notice does not assert sole authorship or grant a new license to that document.
 
 ## Notices and redistribution

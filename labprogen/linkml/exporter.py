@@ -1,11 +1,4 @@
-"""
-schema_exporter.py
-Purpose: Build canonical LinkML-oriented export payloads from the internal
-protocol representation. Responsibilities include assembling activities and
-steps, normalizing exporter-only metadata for strict validation, running the
-official LinkML validator in strict mode, and producing an optimized
-registry+reference projection.
-"""
+"""Build and validate strict LinkML exports and derive registry-based projections."""
 
 from __future__ import annotations
 
@@ -22,6 +15,7 @@ from .adapter import (
     get_linkml_chemical_class,
     get_linkml_step_class,
     normalize_action_to_linkml,
+    project_canvas_chemicals,
 )
 from .loader import ACTION_DATA_MODEL_SCHEMA, class_slot_constraints, load_linkml_schema, schema_summary
 
@@ -109,11 +103,7 @@ def _convert_step(step: dict) -> dict:
     attached = [_convert_chemical(chem) for chem in chemicals]
     slot_name = chemical_slot_for_action(action_name)
     if attached and slot_name:
-        existing = mapped_slots.get(slot_name)
-        projected = [chemical_record_to_instance(chem) for chem in attached]
-        if existing and existing != projected:
-            raise ValueError(f"Conflicting inline and attached chemicals on {action_name}; review before export.")
-        mapped_slots[slot_name] = projected
+        project_canvas_chemicals(action_name, mapped_slots, attached)
 
     step_payload = {
         "id": step.get("block_id") or action_name,
@@ -214,8 +204,8 @@ def _normalize_linkml_instance(node: Any) -> Any:
 def _build_protocol_export(protocol_data: dict) -> tuple[dict, list[dict], int, int, int]:
     """Convert the domain protocol into canonical LinkML-oriented activities.
 
-    The canonical activities preserve inline MaterialEntity objects and act as
-    the single source of truth for both strict and optimized export modes.
+    Canonical activities retain inline chemical instances and supply both
+    strict validation and optimized export.
     """
     schema = load_linkml_schema(ACTION_DATA_MODEL_SCHEMA)
     flows = protocol_data.get("flows", []) if isinstance(protocol_data, dict) else []
@@ -356,9 +346,8 @@ def _expand_optimized_export(optimized_payload: dict) -> dict:
 def convert_protocol_to_linkml(protocol_data: dict, mode: ExportMode = "strict") -> dict:
     """Convert the protocol into strict or optimized LinkML-oriented output.
 
-    Strict mode is the default and emits the schema-compliant canonical export.
-    Optimized mode derives a normalized registry + references view from the
-    same canonical data, without introducing a second conversion pipeline.
+    Strict mode emits the validated canonical export. Optimized mode derives
+    an entity registry and references from that validated data.
     """
     strict_payload, activities, _, _, _ = _build_protocol_export(protocol_data)
 

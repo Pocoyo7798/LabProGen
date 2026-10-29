@@ -21,7 +21,7 @@ def is_frozen() -> bool:
 
 
 def get_app_dir() -> Path:
-    """Application data root, retaining the existing source/frozen locations."""
+    """Data root: checkout, executable directory or installed user data directory."""
     if is_frozen():
         return Path(sys.executable).resolve().parent
     if is_source_checkout():
