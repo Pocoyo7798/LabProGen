@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-tools/export_protocol_linkml.py
-Purpose: CLI wrapper to export an application protocol file (.json/.yaml)
-into a LinkML-aligned semantic payload using the exporter and optionally
-write it as JSON or YAML. Intended for batch/CI usage outside the GUI.
-"""
+"""Export a saved application protocol as LinkML JSON/YAML."""
 
 import argparse
 import json
@@ -15,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.linkml.exporter import convert_protocol_to_linkml, summarize_linkml_export
+from labprogen.linkml.exporter import convert_protocol_to_linkml, summarize_linkml_export
 
 
 def _load_input(path: Path) -> dict:

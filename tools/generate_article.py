@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from src.llm.article import build_procedure_guide_text, generate_article_text
+from labprogen.llm.article import build_procedure_guide_text, generate_article_text
 
 
 def main() -> int:

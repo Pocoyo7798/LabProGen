@@ -1,0 +1,205 @@
+"""Shared parameter field widgets for complex-action dialogs."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Callable
+
+from PySide6.QtWidgets import QComboBox, QLineEdit, QWidget
+from PySide6.QtGui import QIntValidator
+
+from labprogen.ui.chemical_list_field import build_chemical_list_field
+from .actions import ComplexActionParameter
+from labprogen.core.model import field_config
+from labprogen.ui.schema_fields import RetainedValueField, needs_retention, scalar_value
+from labprogen.ui.field_widgets import UnitValueField
+
+LOCKED_FIELD_TOOLTIP = (
+    "The creator of this complex action marked this field as non-editable."
+)
+
+_LOCKED_LABEL_STYLE = "color: #94a3b8;"
+
+LOCKED_LABEL_STYLE = _LOCKED_LABEL_STYLE
+
+_LOCKED_WIDGET_STYLE = (
+    "QLineEdit { background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }"
+    "QComboBox { background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }"
+    "QComboBox::drop-down:disabled { border: none; }"
+    "QComboBox:disabled { background-color: #f1f5f9; color: #64748b; }"
+    "QToolButton:disabled { background-color: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }"
+)
+
+
+def value_to_text(value: Any) -> str:
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return ""
+    return str(value)
+
+
+class ParameterValueEditor:
+    """Widget + reader for one complex-action parameter value."""
+
+    def __init__(
+        self,
+        binding: ComplexActionParameter,
+        *,
+        parent: QWidget | None = None,
+        read_only: bool = False,
+    ) -> None:
+        self.binding = binding
+        self._parent = parent
+        self._read_only = read_only
+        config = field_config(binding.param_key.lower(), binding.action)
+        self._config = config
+        if needs_retention(config, binding.value):
+            config = {**config, "type": "retained"}
+        if config.get("type") == "single_chemical":
+            config = {**config, "type": "record"}
+        self._field_type = config.get("type", "text")
+        self.widget = self._build_widget(config)
+        self._getter = self._build_getter()
+        self._apply_locked_appearance(self._read_only)
+
+    def _apply_locked_appearance(self, locked: bool) -> None:
+        if self._field_type == "retained":
+            return
+        if self._field_type == "record":
+            self._record_field.set_read_only(locked)
+            return
+        if locked:
+            self.widget.setToolTip(LOCKED_FIELD_TOOLTIP)
+            if self._field_type == "unit":
+                self._unit_edit.setStyleSheet(_LOCKED_WIDGET_STYLE)
+                self._unit_combo.setStyleSheet(_LOCKED_WIDGET_STYLE)
+                self.widget.setStyleSheet("background-color: #f8fafc; border-radius: 4px;")
+            elif self._field_type == "dropdown":
+                self._dropdown_combo.setStyleSheet(_LOCKED_WIDGET_STYLE)
+            elif self._field_type == "list":
+                self._list_field.set_read_only(True)
+                self.widget.setStyleSheet("background-color: #f8fafc; border-radius: 4px;")
+            else:
+                self._line_edit.setStyleSheet(_LOCKED_WIDGET_STYLE)
+            return
+
+        self.widget.setToolTip("")
+        if self._field_type == "unit":
+            self._unit_edit.setStyleSheet("")
+            self._unit_combo.setStyleSheet("")
+            self.widget.setStyleSheet("")
+        elif self._field_type == "dropdown":
+            self._dropdown_combo.setStyleSheet("")
+        elif self._field_type == "list":
+            self._list_field.set_read_only(False)
+            self.widget.setStyleSheet("")
+        else:
+            self._line_edit.setStyleSheet("")
+
+    def _build_widget(self, config: dict) -> QWidget:
+        if self._field_type == "retained":
+            self._retained_field = RetainedValueField(self.binding.value, self._parent)
+            return self._retained_field
+        if self._field_type == "record":
+            from labprogen.ui.schema_fields import SchemaValueField
+            self._record_field = SchemaValueField(config, self.binding.value, self._parent)
+            return self._record_field
+        if self._field_type == "unit":
+            field = UnitValueField(config, self.binding.value, self._parent)
+            field.set_read_only(self._read_only)
+            self._unit_field = field
+            self._unit_edit, self._unit_combo = field.number_edit, field.unit_combo
+            return field
+
+        if self._field_type == "dropdown":
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.addItem("Select...")
+            combo.addItems(config.get("options", []))
+            current = str(self.binding.value if self.binding.value is not None else "").strip()
+            if current:
+                idx = combo.findText(current)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                else:
+                    combo.setEditText(current)
+            combo.setEnabled(not self._read_only)
+            self._dropdown_combo = combo
+            return combo
+
+        if self._field_type == "list":
+            initial = self.binding.value
+            if isinstance(initial, list):
+                initial = list(initial)
+            else:
+                initial = []
+            parent = self._parent or QWidget()
+            field = build_chemical_list_field(
+                parent,
+                initial,
+                param_key=self.binding.param_key,
+                read_only=self._read_only,
+                dialog_parent=self._parent,
+                config=config,
+            )
+            self._list_field = field
+            return field.widget
+
+        edit = QLineEdit(value_to_text(self.binding.value))
+        edit.setReadOnly(self._read_only)
+        if config.get("integer"):
+            minimum = int(config.get("minimum", -999_999))
+            edit.setValidator(QIntValidator(minimum, int(config.get("maximum", 999_999)), edit))
+        self._line_edit = edit
+        return edit
+
+    def _build_getter(self) -> Callable[[], Any]:
+        if self._field_type == "retained":
+            return self._retained_field.get_value
+        if self._field_type == "record":
+            return self._record_field.get_value
+        if self._field_type == "unit":
+            return self._unit_field.get_value
+
+        if self._field_type == "dropdown":
+            def _get_dropdown() -> str:
+                text = self._dropdown_combo.currentText().strip()
+                return scalar_value("" if text == "Select..." else text, self._config)
+
+            return _get_dropdown
+
+        if self._field_type == "list":
+            def _get_list() -> list:
+                return self._list_field.list_value
+
+            return _get_list
+
+        def _get_text() -> Any:
+            text = self._line_edit.text().strip()
+            if isinstance(self.binding.default_value, list):
+                try:
+                    return json.loads(text) if text else []
+                except json.JSONDecodeError:
+                    return text
+            return scalar_value(text, self._config)
+
+        return _get_text
+
+    def value(self) -> Any:
+        return self._getter()
+
+    def set_read_only(self, read_only: bool) -> None:
+        self._read_only = read_only
+        if self._field_type in {"retained", "record"}:
+            self._apply_locked_appearance(read_only)
+            return
+        if self._field_type == "unit":
+            self._unit_field.set_read_only(read_only)
+        elif self._field_type == "dropdown":
+            self._dropdown_combo.setEnabled(not read_only)
+        elif self._field_type == "list":
+            self._list_field.set_read_only(read_only)
+        else:
+            self._line_edit.setReadOnly(read_only)
+        self._apply_locked_appearance(read_only)

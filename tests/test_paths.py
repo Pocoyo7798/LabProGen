@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.core.paths import (
+from labprogen.core.paths import (
     config_read_candidates,
     get_app_dir,
     get_bundle_dir,
@@ -16,6 +16,33 @@ from src.core.paths import (
 
 
 class TestAppPaths(unittest.TestCase):
+    def test_installed_runtime_separates_assets_and_user_settings(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            package = root / "site-packages" / "labprogen"
+            user_config = root / "user-config"
+            with patch("labprogen.core.paths._PROJECT_ROOT", root / "site-packages"), patch(
+                "labprogen.core.paths._PACKAGE_ROOT", package
+            ), patch("labprogen.core.paths.user_config_path", return_value=user_config):
+                self.assertEqual(get_bundle_dir(), package / "data")
+                self.assertEqual(get_config_dir(), user_config)
+                self.assertEqual(writable_config_path("complex_actions.json"), user_config / "complex_actions.json")
+
+    def test_seed_preserves_existing_user_settings(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / "bundle" / "config" / "complex_actions.json"
+            target = root / "user-config" / "complex_actions.json"
+            source.parent.mkdir(parents=True)
+            target.parent.mkdir(parents=True)
+            source.write_text('{"complex_actions": []}', encoding="utf-8")
+            target.write_text('{"custom": true}', encoding="utf-8")
+            with patch("labprogen.core.paths.get_bundle_dir", return_value=root / "bundle"), patch(
+                "labprogen.core.paths.writable_config_path", return_value=target
+            ):
+                self.assertEqual(seed_writable_config_from_bundle("complex_actions.json"), target)
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"custom": true}')
+
     def test_source_runtime_uses_project_root(self):
         root = Path(__file__).resolve().parent.parent
         self.assertEqual(get_app_dir(), root)
@@ -46,8 +73,8 @@ class TestAppPaths(unittest.TestCase):
             writable.write_text('{"version": 1, "complex_actions": []}', encoding="utf-8")
             bundled.write_text('{"version": 1, "complex_actions": [{"name": "Bundled"}]}', encoding="utf-8")
 
-            with patch("src.core.paths.get_config_dir", return_value=tmp_path / "config"), patch(
-                "src.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"
+            with patch("labprogen.core.paths.get_config_dir", return_value=tmp_path / "config"), patch(
+                "labprogen.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"
             ):
                 candidates = config_read_candidates("complex_actions.json")
                 self.assertEqual(candidates[0], writable)
@@ -62,8 +89,8 @@ class TestAppPaths(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text('{"version": 1, "complex_actions": []}', encoding="utf-8")
 
-            with patch("src.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"), patch(
-                "src.core.paths.writable_config_path", return_value=target
+            with patch("labprogen.core.paths.get_bundle_dir", return_value=tmp_path / "bundle"), patch(
+                "labprogen.core.paths.writable_config_path", return_value=target
             ):
                 seeded = seed_writable_config_from_bundle("complex_actions.json")
 

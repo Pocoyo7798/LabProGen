@@ -1,7 +1,7 @@
 """Tests for LLM article prompt building."""
 
-from src.llm.client import extract_message_content, parse_aiedu_response
-from src.llm.article import (
+from labprogen.llm.client import extract_message_content, parse_aiedu_response
+from labprogen.llm.article import (
     build_article_prompt,
     build_procedure_guide_text,
     compact_protocol_for_prompt,
@@ -20,13 +20,13 @@ SAMPLE_PROTOCOL = {
                     "params": {"duration": "5 min", "add_quantity": "10 g"},
                     "chemicals": [
                         {
-                            "chemical": "Molecules",
+                            "chemical": "Molecule",
                             "params": {"name": "Water"},
                         }
                     ],
                 },
                 {
-                    "action": "NoModification",
+                    "action": "NoAction",
                     "params": {"duration": "10 min"},
                 },
             ],
@@ -61,7 +61,7 @@ def test_build_article_prompt_includes_guide_and_json():
     )
     assert "Methods section" in prompt
     assert "Add Water" in prompt
-    assert '"action": "NoModification"' in prompt
+    assert '"action": "NoAction"' in prompt
 
 
 def test_extract_message_content_from_stream_chunk():

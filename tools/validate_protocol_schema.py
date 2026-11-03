@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-tools/validate_protocol_schema.py
-Purpose: CLI tool to validate a protocol file against the project's LinkML
-schema. Loads a protocol, runs the LinkML validator via `schema_validator`,
-and prints a concise summary and example messages for developer or CI use.
-"""
+"""Validate a saved protocol with the LinkML validator and print its diagnostics."""
 
 import argparse
 import json
@@ -15,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.linkml.validator import validate_linkml_protocol, summarize_validation_messages
+from labprogen.linkml.validator import validate_linkml_protocol, summarize_validation_messages
 
 
 def _load_protocol(path: Path) -> dict:

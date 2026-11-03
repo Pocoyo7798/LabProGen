@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from src.linkml.validator import validate_linkml_protocol
-from src.linkml.loader import ensure_six_meta_path_importer_compatibility
+from labprogen.linkml.validator import validate_linkml_protocol
+from labprogen.linkml.loader import ensure_six_meta_path_importer_compatibility
 
 
 class _SixMetaPathImporter:

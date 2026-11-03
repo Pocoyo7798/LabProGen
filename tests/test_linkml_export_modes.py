@@ -1,8 +1,8 @@
 import copy
 import unittest
 
-from src.linkml.adapter import build_material_entity, convert_linkml_to_protocol
-from src.linkml.exporter import (
+from labprogen.linkml.adapter import build_material_entity, convert_linkml_to_protocol
+from labprogen.linkml.exporter import (
     _expand_optimized_export,
     convert_protocol_to_linkml,
 )
@@ -62,6 +62,17 @@ class TestLinkMLExportModes(unittest.TestCase):
         self.assertIn("materials", optimized_1)
         reconstructed = _expand_optimized_export(copy.deepcopy(optimized_1))
         self.assertNotIn("materials", reconstructed)
+
+    def test_export_identifies_its_protocol_schema_version(self):
+        from labprogen.linkml.loader import load_linkml_schema
+
+        exported = convert_protocol_to_linkml(self.protocol)
+        self.assertEqual(exported["schema_profile"], "action-data-model")
+        self.assertEqual(exported["linkml_schema"]["version"], "1.10.0")
+        current = load_linkml_schema()
+        self.assertEqual(current["version"], "1.10.0")
+        self.assertIn("Cell", current["classes"])
+        self.assertIn("Copolymer", current["classes"])
 
     def test_material_entity_ids_are_stable(self):
         first = build_material_entity("water")
