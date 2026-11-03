@@ -1,4 +1,10 @@
 ---
+# Derived from Hendrik Borgelt's dcat-ap-plus-labdata (CC BY 4.0):
+# https://github.com/HendrikBorgelt/dcat-ap-plus-labdata
+# Upstream lineage: ChemDCAT-AP / DCAT-AP-PLUS. Adapted and expanded by Pedro
+# Tavares for LabProGen. Credits, notices and specification provenance are in
+# schema/README.md, including the maintainer-supplied document attribution.
+# The root MIT license does not replace this schema's CC BY 4.0 license.
 id: https://w3id.org/labprogen/action-data-model
 name: action-data-model
 title: LabProGen Action Data Model
@@ -9,7 +15,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "1.11.0"
+version: "2.0.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -40,7 +46,10 @@ classes:
   LabProcedure:
     tree_root: true
     closed: true
-    description: A completed laboratory procedure as an ordered list of actions.
+    description: >-
+      A completed laboratory procedure as an ordered list of actions. Actions
+      take the output of the previous action unless an input is stated, so the
+      procedure forms a graph.
     slots:
       - protocol_name
       - laboratory_actions
@@ -58,6 +67,10 @@ classes:
     slots:
       - type
       - id
+      - input
+    slot_usage:
+      id:
+        required: true
 
   # ---------------------------------------------------------------------------
   # Action categories (abstract grouping classes)
@@ -75,19 +88,16 @@ classes:
     abstract: true
     description: >-
       Basic laboratory action whose modification only exists while the action
-      is maintained.
+      is maintained, until changed by another action of the same type.
+    aliases:
+      - DirectPersistentAction
 
-  IndirectPersistentAction:
-    is_a: PersistentAction
+  IndirectAction:
+    is_a: Action
     abstract: true
     description: >-
-      Persistent action that does not modify the chemical system directly,
-      changing how other laboratory actions modify the system.
-
-  DirectPersistentAction:
-    is_a: PersistentAction
-    abstract: true
-    description: Persistent action that modifies the chemical system directly.
+      Laboratory action that does not modify the chemical system, but
+      determines which actions are performed and on which part of the system.
 
   # ---------------------------------------------------------------------------
   # One-off actions
@@ -153,6 +163,12 @@ classes:
     exact_mappings:
       - AFP:0000422
       - CHMO:0000999
+    notes:
+      - >-
+        Produces one output per phase or fraction of its method, named after
+        the values of the method's outputs enum, e.g. a2.Solid and a2.Liquid.
+        Which output continues follows from which later action uses it as its
+        input. Outputs that no action uses are discarded.
     slots:
       - method
       - duration
@@ -161,16 +177,17 @@ classes:
         required: true
 
   # Separation methods: used inside Separate.method, each with its own slots.
+  # The `outputs` annotation names the enum whose values are the outputs the
+  # method produces; the project validator reads it to check `input` values.
 
   SeparationMethod:
     abstract: true
     closed: false
     description: >-
-      Method used to carry out a separation. Each method limits which phase or
-      fraction can be kept.
+      Method used to carry out a separation. Each method produces one output
+      per phase or fraction, named after the values of its outputs enum.
     slots:
       - type
-      - phase_to_keep
 
   Filtration:
     is_a: SeparationMethod
@@ -179,24 +196,21 @@ classes:
     class_uri: CHMO:0001640
     exact_mappings:
       - AFP:0001530
+    annotations:
+      outputs: SolidLiquidPhaseEnum
     slots:
       - filter_pore_size
-    slot_usage:
-      phase_to_keep:
-        required: true
-        range: SolidLiquidPhaseEnum
 
   Centrifugation:
     is_a: SeparationMethod
     closed: true
     description: Separation of components by rotation at high speed.
     class_uri: OBI:0302886
+    annotations:
+      outputs: SolidLiquidPhaseEnum
     slots:
       - speed
     slot_usage:
-      phase_to_keep:
-        required: true
-        range: SolidLiquidPhaseEnum
       speed:
         description: Rotation speed of the centrifuge rotor, e.g. 4000 rpm.
 
@@ -206,12 +220,11 @@ classes:
     description: Screening of solid particles by size.
     aliases:
       - Sieve
+    annotations:
+      outputs: SievingFractionEnum
     slots:
       - size_range
     slot_usage:
-      phase_to_keep:
-        required: true
-        range: SievingFractionEnum
       size_range:
         required: true
 
@@ -219,20 +232,16 @@ classes:
     is_a: SeparationMethod
     closed: true
     description: Separation by pouring off the liquid above a settled solid or denser liquid.
-    slot_usage:
-      phase_to_keep:
-        required: true
-        range: LiquidLayerEnum
+    annotations:
+      outputs: LiquidLayerEnum
 
   Evaporation:
     is_a: SeparationMethod
     closed: true
     description: Separation by vaporizing the volatile components.
     class_uri: CHMO:0001574
-    slot_usage:
-      phase_to_keep:
-        required: true
-        range: SolidLiquidGasPhaseEnum
+    annotations:
+      outputs: SolidLiquidGasPhaseEnum
 
   NoAction:
     is_a: OneOffAction
@@ -268,25 +277,29 @@ classes:
       volume:
         required: true
 
-  CollectSubProduct:
-    is_a: OneOffAction
-    closed: true
-    description: Indication that another product will not follow the main path.
-    slots:
-      - phase_to_keep
-    slot_usage:
-      phase_to_keep:
-        required: true
-
   # ---------------------------------------------------------------------------
-  # Indirect persistent actions
+  # Indirect actions
   # ---------------------------------------------------------------------------
 
   Repeat:
-    is_a: IndirectPersistentAction
+    is_a: IndirectAction
     closed: true
     description: >-
       Action specification that indicates repetition of laboratory actions.
+      The loop covers every action from restart_at up to the Repeat itself,
+      and runs amount passes in total.
+    notes:
+      - >-
+        On each pass, the output named by input is fed back to restart_at.
+        After the last pass, that recycled stream leaves through the Repeat
+        itself: later actions refer to it by the Repeat's id, or take it by
+        default as the next action.
+      - >-
+        An output produced inside a loop and used by an action outside it is
+        combined over all passes, e.g. the organic layers of an extraction.
+      - >-
+        No closing action is needed. Loops may be nested, but must be fully
+        nested, never partly overlapping.
     comments:
       - >-
         AFRL:0000521 - A repeated action role is a contextual role of an action
@@ -294,18 +307,30 @@ classes:
         specification. [Allotrope]
     class_uri: AFRL:0000521
     slots:
+      - restart_at
       - amount
     slot_usage:
+      restart_at:
+        required: true
+      input:
+        required: true
+        description: >-
+          Output fed back to restart_at on each pass, e.g. a2.Solid. It must
+          belong to an action inside this loop.
       amount:
         required: true
-        description: Number of repetitions.
+        range: integer
+        minimum_value: 2
+        description: >-
+          Total number of passes, at least 2. "Washed three times" is
+          amount: 3.
 
   # ---------------------------------------------------------------------------
-  # Direct persistent actions
+  # Persistent actions
   # ---------------------------------------------------------------------------
 
   ChangePressure:
-    is_a: DirectPersistentAction
+    is_a: PersistentAction
     closed: true
     description: >-
       Modification of the amount of force exerted per unit area by the system.
@@ -329,7 +354,7 @@ classes:
         required: true
 
   ChangeTemperature:
-    is_a: DirectPersistentAction
+    is_a: PersistentAction
     closed: true
     description: >-
       Modification of the physical quality of the thermal energy of a system.
@@ -359,7 +384,7 @@ classes:
         required: true
 
   ChangeAgitation:
-    is_a: DirectPersistentAction
+    is_a: PersistentAction
     closed: true
     description: Change the motion of the system.
     comments:
@@ -375,7 +400,7 @@ classes:
         required: true
 
   ContinuousAddition:
-    is_a: DirectPersistentAction
+    is_a: PersistentAction
     closed: true
     description: Addition of a chemical entity to a container over time.
     slots:
@@ -859,7 +884,27 @@ slots:
 
   id:
     range: string
-    description: Identifier of the action.
+    pattern: "^[^.\\s]+$"
+    description: >-
+      Identifier of the action, unique within the procedure. It may not
+      contain dots or spaces, because other actions refer to its outputs as
+      id.Output. The editor can generate it automatically.
+
+  input:
+    range: string
+    pattern: "^[^.\\s]+(\\.[^.]+)?$"
+    description: >-
+      Reference to the output this action works on: an action id for that
+      action's single output (e.g. a2), or id.Output for a named output
+      (e.g. a2.Organic, after a Separate). If omitted, the action takes the
+      single output of the previous action. Required after an action with
+      more than one output. Outputs that no action uses are discarded.
+
+  restart_at:
+    range: string
+    description: >-
+      Id of the first repeated action. The loop covers every action from
+      restart_at up to the Repeat itself.
 
   protocol_name:
     range: string
@@ -886,10 +931,6 @@ slots:
   open_flame:
     range: OpenFlameEnum
     description: Whether an open flame is present during the addition (True or False).
-
-  phase_to_keep:
-    range: PhaseToKeepEnum
-    description: The phase or fraction that will continue to be changed.
 
   method:
     range: SeparationMethod
@@ -1429,41 +1470,27 @@ enums:
       "True": {}
       "False": {}
 
-  PhaseToKeepEnum:
-    permissible_values:
-      Liquid: {}
-      Solid: {}
-      Gas: {}
-      Aqueous: {}
-      Organic: {}
-      Undersize:
-        description: Sieving fraction that passed through the sieve (or the finest sieve).
-      "Intermediate fraction":
-        description: Sieving fraction retained between two sieves.
-      Oversize:
-        description: Sieving fraction retained on the sieve (or the coarsest sieve).
-
   SolidLiquidPhaseEnum:
-    description: Phases that can be kept after filtration or centrifugation.
+    description: Outputs of filtration and centrifugation.
     permissible_values:
       Solid: {}
       Liquid: {}
 
   SolidLiquidGasPhaseEnum:
-    description: Phases that can be kept after evaporation.
+    description: Outputs of evaporation.
     permissible_values:
       Solid: {}
       Liquid: {}
       Gas: {}
 
   LiquidLayerEnum:
-    description: Liquid layers that can be kept after decantation.
+    description: Outputs of decantation, one per liquid layer.
     permissible_values:
       Organic: {}
       Aqueous: {}
 
   SievingFractionEnum:
-    description: Fractions that can be kept after sieving.
+    description: Outputs of sieving, one per size fraction.
     permissible_values:
       Undersize:
         description: Fraction that passed through the sieve (or the finest sieve).
