@@ -15,7 +15,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "2.0.0"
+version: "3.0.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -47,9 +47,9 @@ classes:
     tree_root: true
     closed: true
     description: >-
-      A completed laboratory procedure as an ordered list of actions. Actions
-      take the output of the previous action unless an input is stated, so the
-      procedure forms a graph.
+      A completed laboratory procedure as an ordered list of actions. Every
+      action after the first states its input, the output it works on, so the
+      inputs are the edges of the procedure graph.
     slots:
       - protocol_name
       - laboratory_actions
@@ -115,14 +115,20 @@ classes:
     slots:
       - chemical
       - duration
+      - until
       - add_type
       - open_flame
+    any_of:
+      - slot_conditions:
+          duration:
+            required: true
+      - slot_conditions:
+          until:
+            required: true
     slot_usage:
       chemical:
         required: true
         description: Chemical entity added to the system.
-      duration:
-        required: true
       add_type:
         required: true
       open_flame:
@@ -141,6 +147,7 @@ classes:
     class_uri: CHMO:0001652
     slots:
       - duration
+      - until
 
   Separate:
     is_a: OneOffAction
@@ -172,6 +179,7 @@ classes:
     slots:
       - method
       - duration
+      - until
     slot_usage:
       method:
         required: true
@@ -235,11 +243,17 @@ classes:
     annotations:
       outputs: LiquidLayerEnum
 
-  Evaporation:
+  Evacuation:
     is_a: SeparationMethod
     closed: true
-    description: Separation by vaporizing the volatile components.
-    class_uri: CHMO:0001574
+    description: >-
+      Separation by actively removing the volatile components, e.g. under
+      vacuum or a gas flow. Drying in a static oven is not an evacuation: it
+      is a NoAction at the drying temperature.
+    aliases:
+      - Evaporation
+    related_mappings:
+      - CHMO:0001574
     annotations:
       outputs: SolidLiquidGasPhaseEnum
 
@@ -251,9 +265,14 @@ classes:
       - NoModification
     slots:
       - duration
-    slot_usage:
-      duration:
-        required: true
+      - until
+    any_of:
+      - slot_conditions:
+          duration:
+            required: true
+      - slot_conditions:
+          until:
+            required: true
 
   ChangeContainer:
     is_a: OneOffAction
@@ -278,6 +297,37 @@ classes:
         required: true
 
   # ---------------------------------------------------------------------------
+  # Observables: conditions that end an action or a loop
+  # ---------------------------------------------------------------------------
+
+  Observable:
+    abstract: true
+    closed: false
+    description: >-
+      Observable condition that ends an action or a loop, used instead of a
+      fixed duration or number of passes. To be expanded.
+    slots:
+      - type
+
+  UntilDissolved:
+    is_a: Observable
+    closed: true
+    description: Until the solids are fully dissolved (judged visually).
+
+  UntilPH:
+    is_a: Observable
+    closed: true
+    description: Until the pH meets a condition, e.g. pH < 9.
+    slots:
+      - comparison
+      - ph_value
+    slot_usage:
+      comparison:
+        required: true
+      ph_value:
+        required: true
+
+  # ---------------------------------------------------------------------------
   # Indirect actions
   # ---------------------------------------------------------------------------
 
@@ -287,13 +337,13 @@ classes:
     description: >-
       Action specification that indicates repetition of laboratory actions.
       The loop covers every action from restart_at up to the Repeat itself,
-      and runs amount passes in total.
+      and runs amount passes in total, or until an observable condition is
+      met (until).
     notes:
       - >-
         On each pass, the output named by input is fed back to restart_at.
         After the last pass, that recycled stream leaves through the Repeat
-        itself: later actions refer to it by the Repeat's id, or take it by
-        default as the next action.
+        itself: later actions refer to it by the Repeat's id.
       - >-
         An output produced inside a loop and used by an action outside it is
         combined over all passes, e.g. the organic layers of an extraction.
@@ -309,6 +359,14 @@ classes:
     slots:
       - restart_at
       - amount
+      - until
+    any_of:
+      - slot_conditions:
+          amount:
+            required: true
+      - slot_conditions:
+          until:
+            required: true
     slot_usage:
       restart_at:
         required: true
@@ -318,7 +376,6 @@ classes:
           Output fed back to restart_at on each pass, e.g. a2.Solid. It must
           belong to an action inside this loop.
       amount:
-        required: true
         range: integer
         minimum_value: 2
         description: >-
@@ -896,9 +953,26 @@ slots:
     description: >-
       Reference to the output this action works on: an action id for that
       action's single output (e.g. a2), or id.Output for a named output
-      (e.g. a2.Organic, after a Separate). If omitted, the action takes the
-      single output of the previous action. Required after an action with
-      more than one output. Outputs that no action uses are discarded.
+      (e.g. a2.Organic, after a Separate). Required on every action except
+      the first, which starts the procedure; the editor creates it when one
+      action is linked to another. LinkML cannot express a rule by position,
+      so the project validator enforces it. Outputs that no action uses are
+      discarded.
+
+  until:
+    range: Observable
+    inlined: true
+    description: >-
+      Observable condition that ends the action (or, for Repeat, the loop),
+      used instead of a fixed duration or amount.
+
+  comparison:
+    range: ComparisonEnum
+    description: How the observed value is compared with the target value.
+
+  ph_value:
+    range: float
+    description: Target pH value of the condition.
 
   restart_at:
     range: string
@@ -1455,6 +1529,15 @@ enums:
   # Action enums
   # ---------------------------------------------------------------------------
 
+  ComparisonEnum:
+    permissible_values:
+      "Less than":
+        description: The observed value falls below the target, e.g. pH < 9.
+      "Greater than":
+        description: The observed value rises above the target, e.g. pH > 10.
+      "Equal to":
+        description: The observed value reaches the target, e.g. pH 7.
+
   AdditionTypeEnum:
     permissible_values:
       Normal:
@@ -1477,7 +1560,7 @@ enums:
       Liquid: {}
 
   SolidLiquidGasPhaseEnum:
-    description: Outputs of evaporation.
+    description: Outputs of evacuation.
     permissible_values:
       Solid: {}
       Liquid: {}
@@ -1511,6 +1594,10 @@ enums:
         meaning: OBI:0400155
       Atmospheric:
         meaning: AFR:0002157
+      Furnace:
+        description: >-
+          Heating in an oven or furnace. The atmosphere is static unless a gas
+          flow is added with ContinuousAddition.
 
   AgitationTypeEnum:
     permissible_values:
@@ -1527,6 +1614,10 @@ enums:
       Flask: {}
       Autoclave:
         meaning: CHMO:0002166
+      "Centrifuge tube":
+        description: Tube used to hold a sample during centrifugation.
+      Crucible:
+        description: Heat-resistant container used for calcination or ignition.
 
   VesselMaterialEnum:
     permissible_values:
