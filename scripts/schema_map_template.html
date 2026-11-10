@@ -35,8 +35,10 @@
   --mixin:#cfa3e3; --mixin-soft:#33233b;
   color-scheme:dark }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55}
 #view-schema{display:flex;flex-direction:column;gap:40px}
+#protocols,#actions,#entities{display:flex;flex-direction:column;gap:16px}
 .wrap{max-width:1180px;margin:0 auto;padding-block:32px 64px;
   padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
   display:flex;flex-direction:column;gap:40px}
@@ -141,8 +143,8 @@ footer{color:var(--muted);font-size:.82rem;border-top:1px solid var(--line);padd
 .btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .btn:focus-visible{outline:2px solid var(--action);outline-offset:2px}
 .db-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px}
-.db-head input{font:inherit;font-size:.9rem;padding:8px 10px;border-radius:7px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);min-width:min(320px,100%)}
-.db-head input:focus-visible{outline:2px solid var(--action);outline-offset:1px}
+#protocols input[type=search],#actions input[type=search],#entities input[type=search]{font:inherit;font-size:.9rem;padding:8px 10px;border-radius:7px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);min-width:min(320px,100%)}
+#protocols input[type=search]:focus-visible,#actions input[type=search]:focus-visible,#entities input[type=search]:focus-visible{outline:2px solid var(--action);outline-offset:1px}
 .empty-box{background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:28px clamp(16px,3vw,28px);display:flex;flex-direction:column;gap:10px;align-items:flex-start}
 .empty-box p{margin:0;color:var(--muted);max-width:68ch}
 .list td .name{font-weight:600}
@@ -179,15 +181,6 @@ td.params span:nth-child(odd){font-family:var(--f-mono);font-size:.78rem;color:v
   <header>
     <div class="eyebrow" id="eyebrow"></div>
     <h1 id="h1"></h1>
-    <p class="lede">How the schema is organized: which classes inherit from which, which slots link one class to another, and every property each class carries, with its type, whether it is required, and its ontology mapping.</p>
-    <div class="stats" id="stats"></div>
-    <div class="legend">
-      <span class="chip g-procedure">Procedure</span>
-      <span class="chip g-action">Actions</span>
-      <span class="chip g-chemical">Chemical entities</span>
-      <span class="chip g-mixin">Shared property sets (mixins)</span>
-      <span class="chip g-helper">Helper classes</span>
-    </div>
   </header>
 
   <div class="topbar">
@@ -197,10 +190,20 @@ td.params span:nth-child(odd){font-family:var(--f-mono);font-size:.78rem;color:v
       <button class="tab" role="tab" data-view="actions">Actions<span class="count" id="n-actions"></span></button>
       <button class="tab" role="tab" data-view="entities">Chemical entities<span class="count" id="n-entities"></span></button>
     </nav>
-    <div class="submit" id="submit"></div>
   </div>
 
   <div id="view-schema">
+  <div class="sec-head" style="gap:12px">
+    <p class="lede">How the schema is organized: which classes inherit from which, which slots link one class to another, and every property each class carries, with its type, whether it is required, and its ontology mapping.</p>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+      <span class="chip g-procedure">Procedure</span>
+      <span class="chip g-action">Actions</span>
+      <span class="chip g-chemical">Chemical entities</span>
+      <span class="chip g-mixin">Shared property sets (mixins)</span>
+      <span class="chip g-helper">Helper classes</span>
+    </div>
+  </div>
   <section>
     <div class="sec-head">
       <h2>Relations</h2>
@@ -389,18 +392,17 @@ const uploadUrl=v=>`${REPO.url}/upload/${REPO.branch}/${REPO.folder}/${FOLDER[v]
 const fileUrl=f=>`${REPO.url}/blob/${REPO.branch}/${f.split('/').map(encodeURIComponent).join('/')}`;
 const items={protocols:DB.protocols,actions:DB.actions,entities:DB.entities};
 for(const v of ['protocols','actions','entities'])$('#n-'+v).textContent=items[v].length;
-$('#submit').innerHTML=['protocols','actions','entities'].map((v,i)=>
-  `<a class="btn${i===0?' primary':''}" href="${uploadUrl(v)}" target="_blank" rel="noopener">Submit ${NOUN[v]==='action'?'an':'a'} ${NOUN[v]}</a>`).join('');
+const submitBtn=v=>`<a class="btn primary" href="${uploadUrl(v)}" target="_blank" rel="noopener">Submit ${NOUN[v]==='action'?'an':'a'} ${NOUN[v]}</a>`;
 
 function classRef(name){return C[name]?`<button class="golink" data-go="${esc(name)}">${esc(name)}</button>`:esc(name);}
 function paramsCell(params){return `<div>${params.map(([k,v])=>`<span>${esc(k)}</span><span>${esc(v)}</span>`).join('')}</div>`;}
 function emptyBox(v){
   return `<div class="empty-box"><p>No ${NOUN[v]} files yet. Files added to <span class="mono">${esc(REPO.folder)}/${FOLDER[v]}/</span>
-    appear here after the next build.</p><a class="btn primary" href="${uploadUrl(v)}" target="_blank" rel="noopener">Submit ${NOUN[v]==='action'?'an':'a'} ${NOUN[v]}</a></div>`;
+    appear here after the next build.</p></div>`;
 }
 function listHead(v,title,intro,ph){
-  return `<div class="db-head"><div class="sec-head"><h2>${title}</h2><p>${intro}</p></div>
-    ${items[v].length?`<input type="search" id="f-${v}" placeholder="${ph}" aria-label="${ph}">`:''}</div>`;
+  return `<div class="db-head"><div class="sec-head"><h2>${title}</h2><p>${intro}</p></div>${submitBtn(v)}</div>
+    ${items[v].length?`<input type="search" id="f-${v}" placeholder="${ph}" aria-label="${ph}">`:''}`;
 }
 
 function renderProtocolList(filter){
