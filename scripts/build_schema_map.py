@@ -5,6 +5,10 @@ Usage (from the repository root):
     python scripts/build_schema_map.py
     python scripts/build_schema_map.py --schema schema/action_data_model.yaml --out site/index.html
 
+The map also lists the files in database/protocols, database/actions and
+database/chemical_entities (see map_database.py), with buttons that open
+GitHub's upload page for each folder.
+
 Only needs PyYAML (pip install pyyaml).
 """
 import argparse
@@ -14,6 +18,8 @@ import os
 import sys
 
 import yaml
+
+from map_database import read_database
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -204,24 +210,38 @@ def main():
     ap.add_argument("--schema", default=os.path.join(ROOT, "schema", "action_data_model.yaml"))
     ap.add_argument("--template", default=os.path.join(HERE, "schema_map_template.html"))
     ap.add_argument("--out", default=os.path.join(ROOT, "site", "index.html"))
+    ap.add_argument("--database", default=os.path.join(ROOT, "database"),
+                    help="Folder with protocols/, actions/ and chemical_entities/")
+    ap.add_argument("--repo-url", default=(f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+                                           if os.environ.get("GITHUB_REPOSITORY")
+                                           else "https://github.com/Pocoyo7798/LabProGen"),
+                    help="Repository link used for the submit buttons and file links")
+    ap.add_argument("--branch", default=os.environ.get("GITHUB_REF_NAME") or "main")
     args = ap.parse_args()
 
     schema = load_schema(args.schema)
     data = build_data(schema, os.path.relpath(args.schema, ROOT).replace(os.sep, "/"))
     mermaid = build_mermaid(data)
+    database = read_database(args.database, ROOT, schema)
+    database["repo"] = {"url": args.repo_url.rstrip("/"), "branch": args.branch,
+                        "folder": os.path.relpath(args.database, ROOT).replace(os.sep, "/")}
 
     with open(args.template, encoding="utf-8") as fh:
         html = fh.read()
-    for token in ("__SCHEMA_JSON__", "__MERMAID_JSON__"):
+    for token in ("__SCHEMA_JSON__", "__MERMAID_JSON__", "__DATABASE_JSON__"):
         if token not in html:
             sys.exit(f"Template is missing the {token} placeholder")
-    html = html.replace("__SCHEMA_JSON__", as_script_json(data)).replace("__MERMAID_JSON__", as_script_json(mermaid))
+    html = (html.replace("__SCHEMA_JSON__", as_script_json(data))
+                .replace("__MERMAID_JSON__", as_script_json(mermaid))
+                .replace("__DATABASE_JSON__", as_script_json(database)))
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(html)
     m = data["meta"]
-    print(f"Wrote {args.out}: {m['nclasses']} classes, {m['nslots']} slots, {m['nenums']} enums (version {m['version']})")
+    print(f"Wrote {args.out}: {m['nclasses']} classes, {m['nslots']} slots, {m['nenums']} enums (version {m['version']}); "
+          f"{len(database['protocols'])} protocols, {len(database['actions'])} actions, "
+          f"{len(database['entities'])} chemical entities")
 
 
 if __name__ == "__main__":

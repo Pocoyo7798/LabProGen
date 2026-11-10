@@ -15,7 +15,7 @@ description: >-
     installed LinkML runtime does not load that metamodel field, so unknown
     slots are rejected by the project validator.
 license: CC-BY 4.0
-version: "3.0.0"
+version: "3.1.0"
 
 prefixes:
   adm: https://w3id.org/labprogen/action-data-model/
@@ -118,17 +118,40 @@ classes:
       - until
       - add_type
       - open_flame
-    any_of:
-      - slot_conditions:
-          duration:
-            required: true
-      - slot_conditions:
-          until:
-            required: true
+    rules:
+      - description: A dropwise addition needs its duration.
+        preconditions:
+          slot_conditions:
+            add_type:
+              equals_string: Dropwise
+        postconditions:
+          slot_conditions:
+            duration:
+              required: true
+      - description: A normal addition happens at once, so it has no duration.
+        preconditions:
+          slot_conditions:
+            add_type:
+              equals_string: Normal
+        postconditions:
+          slot_conditions:
+            duration:
+              value_presence: ABSENT
+      - description: A diffusion addition needs its duration.
+        preconditions:
+          slot_conditions:
+            add_type:
+              equals_string: Diffusion
+        postconditions:
+          slot_conditions:
+            duration:
+              required: true
     slot_usage:
       chemical:
         required: true
         description: Chemical entity added to the system.
+      duration:
+        description: Duration of a dropwise or diffusion addition. A normal addition has none.
       add_type:
         required: true
       open_flame:

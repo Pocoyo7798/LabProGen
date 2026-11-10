@@ -1,5 +1,5 @@
-# Rebuilds the interactive schema map and publishes it to GitHub Pages
-# every time the schema (or the map's own code) changes on main.
+# Rebuilds the interactive schema map and publishes it to GitHub Pages every
+# time the schema, the database folders or the map's own code change on main.
 name: Publish schema map
 
 on:
@@ -7,7 +7,9 @@ on:
     branches: [main]
     paths:
       - "schema/**"
+      - "database/**"
       - "scripts/build_schema_map.py"
+      - "scripts/map_database.py"
       - "scripts/schema_map_template.html"
       - ".github/workflows/schema-map.yml"
   workflow_dispatch: # lets you run it by hand from the Actions tab
